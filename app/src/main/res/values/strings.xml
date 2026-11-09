@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">AskScreen AI</string>
+    <string name="accessibility_service_description">Optional answer selection for permitted practice pages. Enable only when you want AskScreen AI to interact with visible practice questions.</string>
+</resources>

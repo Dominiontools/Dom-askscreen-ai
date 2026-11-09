@@ -1,0 +1,10 @@
+{
+  "name": "askscreen-backend",
+  "version": "1.0.0",
+  "description": "Secure Netlify serverless backend for AskScreen AI",
+  "main": "netlify/functions/ask-screen.js",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "dependencies": {}
+}

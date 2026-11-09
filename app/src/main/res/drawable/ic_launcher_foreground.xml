@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Outer Floating Bubble Glowing Ring -->
+    <path
+        android:pathData="M54,27 C68.91,27 81,39.09 81,54 C81,68.91 68.91,81 54,81 C39.09,81 27,68.91 27,54 C27,39.09 39.09,27 54,27 Z"
+        android:strokeWidth="3.5"
+        android:strokeColor="#38BDF8" />
+
+    <!-- Bubble inner fill with gradient -->
+    <path
+        android:pathData="M54,29 C67.8,29 79,40.2 79,54 C79,67.8 67.8,79 54,79 C40.2,79 29,67.8 29,54 C29,40.2 40.2,29 54,29 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="29"
+                android:startY="29"
+                android:endX="79"
+                android:endY="79"
+                android:type="linear">
+                <item android:color="#3B82F6" android:offset="0.0" />
+                <item android:color="#8B5CF6" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Screen Scanner / Viewfinder Frame -->
+    <!-- Top-Left corner -->
+    <path
+        android:pathData="M39,46 L39,41 C39,39.9 39.9,39 41,39 L46,39"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round" />
+    <!-- Top-Right corner -->
+    <path
+        android:pathData="M62,39 L67,39 C68.1,39 69,39.9 69,41 L69,46"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round" />
+    <!-- Bottom-Left corner -->
+    <path
+        android:pathData="M39,62 L39,67 C39,68.1 39.9,69 41,69 L46,69"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round" />
+    <!-- Bottom-Right corner -->
+    <path
+        android:pathData="M62,69 L67,69 C68.1,69 69,68.1 69,67 L69,62"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round" />
+
+    <!-- Center AI Sparkle / Eye / Intelligence Node -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,44 C54.5,49 59,53.5 64,54 C59,54.5 54.5,59 54,64 C53.5,59 49,54.5 44,54 C49,53.5 53.5,49 54,44 Z" />
+
+    <!-- Secondary small sparkle on top-right -->
+    <path
+        android:fillColor="#FDE047"
+        android:pathData="M68,34 C68.3,36 70,37.7 72,38 C70,38.3 68.3,40 68,42 C67.7,40 66,38.3 64,38 C66,37.7 67.7,36 68,34 Z" />
+</vector>

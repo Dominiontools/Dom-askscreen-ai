@@ -1,0 +1,6 @@
+{
+  "name": "AskScreen AI",
+  "description": "Floating AI assistant overlay for instant on-screen reading, audio listening, question answering, and media analysis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
