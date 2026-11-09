@@ -43,12 +43,24 @@ jobs:
       - name: Build debug APK
         shell: bash
         run: |
+          set -o pipefail
           if [ -f ./gradlew ]; then
             chmod +x ./gradlew
-            ./gradlew --no-daemon --stacktrace :app:assembleDebug
+            ./gradlew --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee build.log
           else
-            gradle --no-daemon --stacktrace :app:assembleDebug
+            gradle --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee build.log
           fi
+
+      - name: Show real error summary
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo '### Real error (first lines)'
+            echo '```'
+            grep -n -E "^e: |What went wrong|Execution failed|error:" -A6 build.log | head -80
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v5
