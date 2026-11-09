@@ -14,16 +14,15 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      # ubuntu-latest already ships with the Android SDK (ANDROID_HOME),
-      # so we use it directly instead of the separate setup-android action.
+      # ubuntu-latest already ships with the Android SDK, so use it directly.
       - name: Install Android SDK packages
         shell: bash
         run: |
@@ -37,7 +36,7 @@ jobs:
           "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: '9.3.1'
 
@@ -46,15 +45,27 @@ jobs:
         run: |
           if [ -f ./gradlew ]; then
             chmod +x ./gradlew
-            ./gradlew --no-daemon :app:assembleDebug
+            ./gradlew --no-daemon --stacktrace :app:assembleDebug
           else
-            gradle --no-daemon :app:assembleDebug
+            gradle --no-daemon --stacktrace :app:assembleDebug
           fi
 
       - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: askscreen-ai-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
+
+      # Only runs when the build fails: lets you download the full error report.
+      - name: Upload build reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: build-reports
+          path: |
+            app/build/reports/**
+            build/reports/**
+          if-no-files-found: ignore
+          retention-days: 7
