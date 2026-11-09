@@ -1,4 +1,4 @@
-package com.example.data.repository
+qpackage com.example.data.repository
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -111,14 +111,26 @@ class AskScreenRepository(private val context: Context) {
                 modelUsed = selectedModel
             } else {
                 // Primary Path: Firebase AI Logic (No client API keys needed!)
-                answerText = callFirebaseAiLogic(
-                    modelName = selectedModel,
-                    prompt = prompt,
-                    images = images,
-                    audioBase64 = audioBase64,
-                    files = files,
-                    chatHistory = chatHistory
-                )
+                answerText = try {
+                    callFirebaseAiLogic(
+                        modelName = selectedModel,
+                        prompt = prompt,
+                        images = images,
+                        audioBase64 = audioBase64,
+                        files = files,
+                        chatHistory = chatHistory
+                    )
+                } catch (e: TimeoutCancellationException) {
+                    throw e
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    throw Exception(
+                        "No backend link is saved and Firebase AI Logic failed (" + (e.message ?: "unknown error") +
+                            "). Open Settings, paste your Netlify link and tap Save & Test Connection.",
+                        e
+                    )
+                }
                 modelUsed = selectedModel
             }
 
@@ -279,13 +291,8 @@ class AskScreenRepository(private val context: Context) {
         val responseBody = response.body?.string() ?: ""
 
         if (!response.isSuccessful) {
-            try {
-                val errorJson = JSONObject(responseBody)
-                val msg = errorJson.optString("error", "Server error ${response.code}")
-                throw Exception("Backend error (${response.code}): $msg")
-            } catch (e: Exception) {
-                throw Exception("Backend failed with HTTP ${response.code}: $responseBody")
-            }
+            val serverMsg = try { JSONObject(responseBody).optString("error", "") } catch (e: Exception) { "" }
+            throw Exception("Backend error (" + response.code + "): " + serverMsg.ifBlank { responseBody.take(200) })
         }
 
         val json = JSONObject(responseBody)
