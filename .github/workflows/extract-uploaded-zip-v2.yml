@@ -1,0 +1,62 @@
+name: Extract uploaded project ZIP
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "*.zip"
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out latest repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Extract uploaded ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          archives=( *.zip )
+          if [ ${#archives[@]} -eq 0 ]; then
+            echo "No ZIP archive found at the repository root."
+            exit 1
+          fi
+          for archive in "${archives[@]}"; do
+            echo "Extracting $archive"
+            unzip -o "$archive" -d .
+            rm "$archive"
+          done
+
+      - name: Commit extracted files and push safely
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Stage extracted project files, but do not try to push workflow
+          # definitions: GITHUB_TOKEN is not granted the workflows scope.
+          git add -A
+          git reset -q -- .github/workflows/build-android-apk.yml || true
+          git reset -q -- .github/workflows/extract-uploaded-zip.yml || true
+
+          if git diff --cached --quiet; then
+            echo "No extracted project changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Extract uploaded project ZIP"
+
+          # Incorporate any commits made on GitHub while this job was running.
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
