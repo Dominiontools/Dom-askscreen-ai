@@ -1,475 +1,395 @@
 
+'use strict';
+
 /**
- * ASKSCREEN AI — INTELLIGENT MODEL ROUTER
- * Multi-provider AI backend with automatic failover.
- *
- * Providers:
- * Gemini (3 keys), Groq, OpenRouter, Cohere,
- * NVIDIA, Z.AI, Cloudflare and Custom AI.
- *
- * API keys must remain in Netlify environment variables.
+ * AskScreen AI — Netlify serverless model router
+ * API keys are read only from Netlify environment variables.
+ * Text requests can fail over across configured providers. Requests containing
+ * attachments are sent only to Gemini so media is never silently discarded.
  */
 
 const rateLimitMap = new Map();
 const cooldowns = new Map();
 
-const RATE_WINDOW = 60000;
-const MAX_REQUESTS = 30;
-const PROVIDER_TIMEOUT = 9000;
-const COOLDOWN_TIME = 20000;
+const RATE_WINDOW_MS = 60_000;
+const MAX_REQUESTS_PER_WINDOW = 30;
+const MAX_BODY_BYTES = 4 * 1024 * 1024;
+const PROVIDER_TIMEOUT_MS = 8_000;
+const ROUTER_DEADLINE_MS = 24_000;
+const COOLDOWN_MS = 30_000;
+const MAX_HISTORY_ITEMS = 12;
+const MAX_ATTACHMENTS = 8;
+const MAX_PROMPT_CHARS = 100_000;
 
-const HEADERS = {
-  "Content-Type": "application/json",
-  "Access-Control-Allow-Origin": "*"
+const SYSTEM_INSTRUCTION =
+  'You are AskScreen AI, an on-screen reading and learning assistant. ' +
+  'For multiple-choice practice or self-study questions, return only the option letter and answer text unless an explanation is requested. ' +
+  'For other questions, answer directly and concisely. Answer multiple visible questions separately in screen order. ' +
+  'If text is unclear, say so instead of guessing. Never claim to have selected or submitted an answer.';
+
+const CORS_HEADERS = {
+  'Content-Type': 'application/json; charset=utf-8',
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Version'
 };
 
-function reply(status, data) {
-  return {
-    statusCode: status,
-    headers: HEADERS,
-    body: JSON.stringify(data)
-  };
+function response(statusCode, data) {
+  return { statusCode, headers: CORS_HEADERS, body: JSON.stringify(data) };
 }
 
-// --------------------------------------------------
-// RATE LIMITING
-// --------------------------------------------------
+function safeJsonParse(value) {
+  try { return value ? JSON.parse(value) : {}; } catch { return null; }
+}
+
+function getHeader(headers, name) {
+  const target = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers || {})) {
+    if (key.toLowerCase() === target) return String(value || '');
+  }
+  return '';
+}
+
+function requestIp(event) {
+  return getHeader(event.headers, 'client-ip') ||
+    getHeader(event.headers, 'x-nf-client-connection-ip') ||
+    getHeader(event.headers, 'x-forwarded-for').split(',')[0].trim() || 'unknown';
+}
 
 function isRateLimited(ip) {
   const now = Date.now();
-
-  const valid = (rateLimitMap.get(ip) || [])
-    .filter(t => now - t < RATE_WINDOW);
-
-  if (valid.length >= MAX_REQUESTS) return true;
-
-  valid.push(now);
-  rateLimitMap.set(ip, valid);
-
-  if (rateLimitMap.size > 2000) {
-    for (const [key, values] of rateLimitMap) {
-      if (!values.length || now - values[values.length - 1] > RATE_WINDOW) {
-        rateLimitMap.delete(key);
-      }
+  const recent = (rateLimitMap.get(ip) || []).filter(t => now - t < RATE_WINDOW_MS);
+  if (recent.length >= MAX_REQUESTS_PER_WINDOW) return true;
+  recent.push(now);
+  rateLimitMap.set(ip, recent);
+  if (rateLimitMap.size > 2_000) {
+    for (const [key, times] of rateLimitMap) {
+      if (!times.length || now - times[times.length - 1] >= RATE_WINDOW_MS) rateLimitMap.delete(key);
     }
   }
-
   return false;
 }
 
-// --------------------------------------------------
-// PROVIDER HEALTH
-// --------------------------------------------------
-
-function cooling(name) {
+function isCoolingDown(name) {
   const until = cooldowns.get(name) || 0;
-
   if (Date.now() >= until) {
     cooldowns.delete(name);
     return false;
   }
-
   return true;
 }
 
-function cool(name) {
-  cooldowns.set(name, Date.now() + COOLDOWN_TIME);
+function coolDown(name) {
+  cooldowns.set(name, Date.now() + COOLDOWN_MS);
 }
 
-function retryable(error) {
-  return !error.status ||
-    [408, 409, 425, 429, 500, 502, 503, 504].includes(error.status);
+function byteLengthOfBody(event) {
+  const body = event.body || '';
+  if (event.isBase64Encoded) return Buffer.from(body, 'base64').length;
+  return Buffer.byteLength(body, 'utf8');
 }
 
-function logFailure(name, error) {
-  console.warn("[AskScreen Router] Provider failure:", {
-    provider: name,
-    status: error.status || "NETWORK/TIMEOUT",
-    message: String(error.message || "").slice(0, 200)
-  });
+function decodeEventBody(event) {
+  if (!event.body) return '{}';
+  return event.isBase64Encoded
+    ? Buffer.from(event.body, 'base64').toString('utf8')
+    : event.body;
 }
 
-// --------------------------------------------------
-// REQUEST VALIDATION
-// --------------------------------------------------
+function validBase64(data) {
+  if (typeof data !== 'string' || !data.length) return false;
+  if (data.length % 4 !== 0) return false;
+  return /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data);
+}
+
+const SUPPORTED_MEDIA_TYPES = new Set([
+  'image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif', 'image/gif',
+  'audio/wav', 'audio/x-wav', 'audio/mp3', 'audio/mpeg', 'audio/aiff',
+  'audio/aac', 'audio/ogg', 'audio/flac', 'audio/webm', 'application/pdf', 'text/plain'
+]);
+
+function normalizeAttachment(item, label) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    throw new Error('INVALID_' + label.toUpperCase());
+  }
+  const mimeType = String(item.mimeType || '').toLowerCase().split(';')[0].trim();
+  const data = item.data;
+  if (!SUPPORTED_MEDIA_TYPES.has(mimeType)) throw new Error('UNSUPPORTED_ATTACHMENT_TYPE');
+  if (!validBase64(data)) throw new Error('INVALID_ATTACHMENT_DATA');
+  return { mimeType, data };
+}
 
 function normalizeHistory(history) {
   if (!Array.isArray(history)) return [];
+  const normalized = history.slice(-MAX_HISTORY_ITEMS).map(item => {
+    if (!item || typeof item.text !== 'string' || !item.text.trim()) return null;
+    const role = item.role === 'model' || item.role === 'assistant' ? 'assistant' : 'user';
+    return { role, content: item.text.slice(0, 20_000) };
+  }).filter(Boolean);
 
-  return history
-    .filter(x => x && typeof x.text === "string" && x.text.trim())
-    .slice(-12)
-    .map(x => ({
-      role: x.role === "assistant" || x.role === "model"
-        ? "assistant"
-        : "user",
-      content: x.text
-    }));
+  const merged = [];
+  for (const item of normalized) {
+    if (!merged.length && item.role !== 'user') continue;
+    const previous = merged[merged.length - 1];
+    if (previous && previous.role === item.role) previous.content += '\n' + item.content;
+    else merged.push({ ...item });
+  }
+  return merged;
 }
 
-function hasImages(p) {
-  return Array.isArray(p.images) &&
-    p.images.some(x => x && x.data && x.mimeType);
+function normalizePayload(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('INVALID_REQUEST');
+  if (typeof raw.prompt !== 'string' || !raw.prompt.trim()) throw new Error('PROMPT_REQUIRED');
+  const prompt = raw.prompt.trim();
+  if (prompt.length > MAX_PROMPT_CHARS) throw new Error('PROMPT_TOO_LONG');
+
+  const imagesRaw = raw.images == null ? [] : raw.images;
+  const filesRaw = raw.files == null ? [] : raw.files;
+  if (!Array.isArray(imagesRaw) || !Array.isArray(filesRaw)) throw new Error('INVALID_ATTACHMENTS');
+  if (imagesRaw.length + filesRaw.length + (raw.audio ? 1 : 0) > MAX_ATTACHMENTS) throw new Error('TOO_MANY_ATTACHMENTS');
+
+  const images = imagesRaw.map(x => normalizeAttachment(x, 'image'));
+  const files = filesRaw.map(x => normalizeAttachment(x, 'file'));
+  const audio = raw.audio == null ? null : normalizeAttachment(raw.audio, 'audio');
+  if (audio && !audio.mimeType.startsWith('audio/')) throw new Error('INVALID_AUDIO_TYPE');
+  if (images.some(x => !x.mimeType.startsWith('image/'))) throw new Error('INVALID_IMAGE_TYPE');
+
+  return {
+    prompt,
+    history: normalizeHistory(raw.history),
+    images,
+    files,
+    audio,
+    requestedModel: typeof raw.model === 'string' ? raw.model.trim() : ''
+  };
 }
 
-function hasAudio(p) {
-  return Boolean(p.audio && p.audio.data && p.audio.mimeType);
+function geminiModelFor(payload) {
+  const fallback = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+  const allowed = (process.env.GEMINI_ALLOWED_MODELS || fallback)
+    .split(',').map(x => x.trim()).filter(Boolean);
+  return payload.requestedModel && allowed.includes(payload.requestedModel)
+    ? payload.requestedModel
+    : fallback;
 }
-
-function hasFiles(p) {
-  return Array.isArray(p.files) &&
-    p.files.some(x => x && x.data && x.mimeType);
-}
-
-// --------------------------------------------------
-// PROVIDER CONFIGURATION
-// --------------------------------------------------
 
 function getProviders(payload) {
+  const multimodal = payload.images.length > 0 || payload.files.length > 0 || Boolean(payload.audio);
   const providers = [];
+  const geminiKeys = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_2, process.env.GEMINI_API_KEY_3]
+    .map(x => typeof x === 'string' ? x.trim() : '').filter(Boolean);
 
-  const multimodal = hasImages(payload) ||
-    hasAudio(payload) ||
-    hasFiles(payload);
+  if (geminiKeys.length) providers.push({
+    name: 'Gemini', type: 'gemini', keys: geminiKeys, model: geminiModelFor(payload)
+  });
 
-  const geminiKeys = [
-    process.env.GEMINI_API_KEY,
-    process.env.GEMINI_API_KEY_2,
-    process.env.GEMINI_API_KEY_3
-  ].filter(Boolean);
+  if (process.env.GROQ_API_KEY) providers.push({
+    name: 'Groq', type: 'openai', key: process.env.GROQ_API_KEY,
+    url: 'https://api.groq.com/openai/v1/chat/completions',
+    model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
+  });
 
-  if (geminiKeys.length) {
-    providers.push({
-      name: "Gemini",
-      type: "gemini",
-      keys: geminiKeys,
-      model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
-      multimodal: true
-    });
+  if (process.env.OPENROUTER_API_KEY) providers.push({
+    name: 'OpenRouter', type: 'openai', key: process.env.OPENROUTER_API_KEY,
+    url: 'https://openrouter.ai/api/v1/chat/completions',
+    model: process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini'
+  });
+
+  if (process.env.COHERE_API_KEY) providers.push({
+    name: 'Cohere', type: 'cohere', key: process.env.COHERE_API_KEY,
+    url: 'https://api.cohere.com/v2/chat',
+    model: process.env.COHERE_MODEL || 'command-a-plus-05-2026'
+  });
+
+  if (process.env.NVIDIA_API_KEY) providers.push({
+    name: 'NVIDIA', type: 'openai', key: process.env.NVIDIA_API_KEY,
+    url: 'https://integrate.api.nvidia.com/v1/chat/completions',
+    model: process.env.NVIDIA_MODEL || 'meta/llama-3.3-70b-instruct'
+  });
+
+  if (process.env.ZAI_API_KEY) providers.push({
+    name: 'Z.AI', type: 'openai', key: process.env.ZAI_API_KEY,
+    url: process.env.ZAI_BASE_URL || 'https://api.z.ai/api/paas/v4/chat/completions',
+    model: process.env.ZAI_MODEL || 'glm-5.3'
+  });
+
+  const cfToken = process.env.CLOUDFLARE_API_TOKEN || process.env.CLOUDFLARE_API_KEY;
+  if (cfToken && process.env.CLOUDFLARE_ACCOUNT_ID) providers.push({
+    name: 'Cloudflare', type: 'openai', key: cfToken,
+    url: 'https://api.cloudflare.com/client/v4/accounts/' + encodeURIComponent(process.env.CLOUDFLARE_ACCOUNT_ID) + '/ai/v1/chat/completions',
+    model: process.env.CLOUDFLARE_MODEL || '@cf/meta/llama-3.1-8b-instruct'
+  });
+
+  if (process.env.CUSTOM1_API_KEY && process.env.CUSTOM1_BASE_URL && process.env.CUSTOM1_MODEL) {
+    let customUrl;
+    try {
+      customUrl = new URL(process.env.CUSTOM1_BASE_URL);
+      if (customUrl.protocol !== 'https:') throw new Error('HTTPS_REQUIRED');
+    } catch {
+      console.error('[AskScreen Router] CUSTOM1_BASE_URL must be a valid HTTPS URL.');
+      customUrl = null;
+    }
+    if (customUrl) {
+      const base = customUrl.toString().replace(/\/+$/, '');
+      providers.push({
+        name: 'Custom AI', type: 'openai', key: process.env.CUSTOM1_API_KEY,
+        url: base.endsWith('/chat/completions') ? base : base + '/chat/completions',
+        model: process.env.CUSTOM1_MODEL
+      });
+    }
   }
 
-  // Other providers are text fallbacks by default.
-  // Configure models in Netlify environment variables.
-
-  if (process.env.GROQ_API_KEY) {
-    providers.push({
-      name: "Groq",
-      type: "openai",
-      key: process.env.GROQ_API_KEY,
-      url: "https://api.groq.com/openai/v1/chat/completions",
-      model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile"
-    });
-  }
-
-  if (process.env.OPENROUTER_API_KEY) {
-    providers.push({
-      name: "OpenRouter",
-      type: "openai",
-      key: process.env.OPENROUTER_API_KEY,
-      url: "https://openrouter.ai/api/v1/chat/completions",
-      model: process.env.OPENROUTER_MODEL || "openai/gpt-4o-mini"
-    });
-  }
-
-  if (process.env.COHERE_API_KEY) {
-    providers.push({
-      name: "Cohere",
-      type: "cohere",
-      key: process.env.COHERE_API_KEY,
-      url: "https://api.cohere.com/v2/chat",
-      model: process.env.COHERE_MODEL || "command-a-03-2025"
-    });
-  }
-
-  if (process.env.NVIDIA_API_KEY) {
-    providers.push({
-      name: "NVIDIA",
-      type: "openai",
-      key: process.env.NVIDIA_API_KEY,
-      url: "https://integrate.api.nvidia.com/v1/chat/completions",
-      model: process.env.NVIDIA_MODEL || "meta/llama-3.3-70b-instruct"
-    });
-  }
-
-  if (process.env.ZAI_API_KEY) {
-    providers.push({
-      name: "Z.AI",
-      type: "openai",
-      key: process.env.ZAI_API_KEY,
-      url: process.env.ZAI_BASE_URL ||
-        "https://api.z.ai/api/paas/v4/chat/completions",
-      model: process.env.ZAI_MODEL || "glm-4.5-flash"
-    });
-  }
-
-  const cloudflareKey =
-    process.env.CLOUDFLARE_API_TOKEN ||
-    process.env.CLOUDFLARE_API_KEY;
-
-  if (cloudflareKey && process.env.CLOUDFLARE_ACCOUNT_ID) {
-    providers.push({
-      name: "Cloudflare",
-      type: "openai",
-      key: cloudflareKey,
-      url:
-        "https://api.cloudflare.com/client/v4/accounts/" +
-        process.env.CLOUDFLARE_ACCOUNT_ID +
-        "/ai/v1/chat/completions",
-      model: process.env.CLOUDFLARE_MODEL ||
-        "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
-    });
-  }
-
-  if (
-    process.env.CUSTOM1_API_KEY &&
-    process.env.CUSTOM1_BASE_URL &&
-    process.env.CUSTOM1_MODEL
-  ) {
-    const base = process.env.CUSTOM1_BASE_URL.replace(/\/+$/, "");
-
-    providers.push({
-      name: "Custom AI",
-      type: "openai",
-      key: process.env.CUSTOM1_API_KEY,
-      url: base.endsWith("/chat/completions")
-        ? base
-        : base + "/chat/completions",
-      model: process.env.CUSTOM1_MODEL
-    });
-  }
-
-  return providers.filter(p =>
-    !cooling(p.name) && (!multimodal || p.type === "gemini")
-  );
+  return providers.filter(p => !isCoolingDown(p.name) && (!multimodal || p.type === 'gemini'));
 }
 
-// --------------------------------------------------
-// NETWORK TIMEOUT
-// --------------------------------------------------
+function geminiContents(payload) {
+  const contents = payload.history.map(turn => ({
+    role: turn.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: turn.content }]
+  }));
 
-async function timedFetch(url, options) {
+  const parts = [];
+  for (const media of [...payload.images, ...payload.files, ...(payload.audio ? [payload.audio] : [])]) {
+    parts.push({ inlineData: { mimeType: media.mimeType, data: media.data } });
+  }
+  parts.push({ text: payload.prompt });
+
+  const last = contents[contents.length - 1];
+  if (last && last.role === 'user') last.parts.push(...parts);
+  else contents.push({ role: 'user', parts });
+
+  return contents;
+}
+
+function openAiMessages(payload) {
+  return [
+    { role: 'system', content: SYSTEM_INSTRUCTION },
+    ...payload.history.map(turn => ({ role: turn.role, content: turn.content })),
+    { role: 'user', content: payload.prompt }
+  ];
+}
+
+async function fetchJson(url, options, remainingMs) {
+  const timeoutMs = Math.max(1, Math.min(PROVIDER_TIMEOUT_MS, remainingMs));
   const controller = new AbortController();
-
-  const timer = setTimeout(
-    () => controller.abort(),
-    PROVIDER_TIMEOUT
-  );
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const { deadline, ...requestOptions } = options;
 
   try {
-    return await fetch(url, {
-      ...options,
-      signal: controller.signal
-    });
+    const result = await fetch(url, { ...requestOptions, signal: controller.signal });
+    const text = await result.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; }
+    catch { data = { rawError: text.slice(0, 500) }; }
+
+    if (Date.now() > (deadline || Infinity)) {
+      const e = new Error('ROUTER_DEADLINE_EXCEEDED');
+      e.code = 'TIMEOUT';
+      throw e;
+    }
+    return { response: result, data };
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      const e = new Error('Provider request timed out');
+      e.code = 'TIMEOUT';
+      throw e;
+    }
+    throw error;
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function readResponse(response) {
-  const text = await response.text();
-
-  try {
-    return text ? JSON.parse(text) : {};
-  } catch {
-    return {};
-  }
+function providerError(status, data) {
+  const message = data?.error?.message || data?.message || data?.detail || data?.rawError || ('Provider HTTP ' + status);
+  const error = new Error(String(message).slice(0, 500));
+  error.status = status;
+  const code = data?.error?.status || data?.error?.code || data?.code || '';
+  error.providerCode = String(code);
+  return error;
 }
 
-// --------------------------------------------------
-// GEMINI REQUEST
-// --------------------------------------------------
-
-function buildGeminiBody(p) {
-  const contents = [];
-
-  for (const h of normalizeHistory(p.history)) {
-    contents.push({
-      role: h.role === "assistant" ? "model" : "user",
-      parts: [{ text: h.content }]
-    });
-  }
-
-  const parts = [];
-
-  for (const img of p.images || []) {
-    if (img && img.data && img.mimeType) {
-      parts.push({
-        inlineData: {
-          mimeType: img.mimeType,
-          data: img.data
-        }
-      });
-    }
-  }
-
-  if (p.audio && p.audio.data && p.audio.mimeType) {
-    parts.push({
-      inlineData: {
-        mimeType: p.audio.mimeType,
-        data: p.audio.data
-      }
-    });
-  }
-
-  for (const file of p.files || []) {
-    if (file && file.data && file.mimeType) {
-      parts.push({
-        inlineData: {
-          mimeType: file.mimeType,
-          data: file.data
-        }
-      });
-    }
-  }
-
-  parts.push({ text: p.prompt });
-
-  contents.push({
-    role: "user",
-    parts
-  });
-
-  return {
-    contents,
-    systemInstruction: {
-      parts: [{ text: p.systemInstruction }]
-    },
-    generationConfig: {
-      temperature: 0.2,
-      topP: 0.95,
-      maxOutputTokens: 2048
-    }
-  };
+function extractText(content) {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) return content.map(part => {
+    if (typeof part === 'string') return part;
+    return typeof part?.text === 'string' ? part.text : '';
+  }).join('');
+  return '';
 }
 
-// --------------------------------------------------
-// OPENAI-COMPATIBLE REQUEST
-// --------------------------------------------------
+async function callProvider(provider, payload, key, deadline) {
+  const started = Date.now();
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) {
+    const e = new Error('Router deadline exceeded');
+    e.code = 'TIMEOUT';
+    throw e;
+  }
 
-function buildMessages(p) {
-  const messages = [
-    {
-      role: "system",
-      content: p.systemInstruction
-    },
-    ...normalizeHistory(p.history),
-    {
-      role: "user",
-      content: p.prompt
-    }
-  ];
-
-  return messages;
-}
-
-// --------------------------------------------------
-// CALL PROVIDER
-// --------------------------------------------------
-
-async function callProvider(provider, payload, key) {
-  let url;
-  let headers = {
-    "Content-Type": "application/json"
-  };
+  let url = provider.url;
+  const headers = { 'Content-Type': 'application/json' };
   let body;
 
-  const started = Date.now();
-
-  if (provider.type === "gemini") {
-    url =
-      "https://generativelanguage.googleapis.com/v1beta/models/" +
-      encodeURIComponent(provider.model) +
-      ":generateContent?key=" + encodeURIComponent(key);
-
-    body = buildGeminiBody(payload);
-
-  } else if (provider.type === "cohere") {
-    url = provider.url;
-    headers.Authorization = "Bearer " + key;
-
+  if (provider.type === 'gemini') {
+    url = 'https://generativelanguage.googleapis.com/v1beta/models/' +
+      encodeURIComponent(provider.model) + ':generateContent';
+    headers['x-goog-api-key'] = key;
     body = {
-      model: provider.model,
-      messages: [
-        {
-          role: "system",
-          content: payload.systemInstruction
-        },
-        ...normalizeHistory(payload.history).map(x => ({
-          role: x.role,
-          content: x.content
-        })),
-        {
-          role: "user",
-          content: payload.prompt
-        }
-      ],
-      temperature: 0.2,
-      max_tokens: 2048
+      systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+      contents: geminiContents(payload),
+      generationConfig: { temperature: 0.2, topP: 0.95, maxOutputTokens: 2048 }
     };
-
   } else {
-    url = provider.url;
-    headers.Authorization = "Bearer " + key;
-
+    headers.Authorization = 'Bearer ' + key;
+    const messages = openAiMessages(payload);
     body = {
       model: provider.model,
-      messages: buildMessages(payload),
+      messages,
       temperature: 0.2,
-      max_tokens: 2048
+      max_tokens: 2048,
+      stream: false
     };
   }
 
-  const response = await timedFetch(url, {
-    method: "POST",
+  const { response: httpResponse, data } = await fetchJson(url, {
+    method: 'POST',
     headers,
-    body: JSON.stringify(body)
-  });
+    body: JSON.stringify(body),
+    deadline
+  }, remaining);
 
-  const data = await readResponse(response);
+  if (!httpResponse.ok) throw providerError(httpResponse.status, data);
 
-  if (!response.ok) {
-    const error = new Error(
-      data?.error?.message ||
-      data?.message ||
-      "Provider HTTP " + response.status
-    );
-
-    error.status = response.status;
-    throw error;
-  }
-
-  let answer = "";
-  let finishReason = "STOP";
+  let answer = '';
+  let finishReason = 'STOP';
   let usageMetadata = null;
 
-  if (provider.type === "gemini") {
-    const candidate = data.candidates?.[0];
+  if (provider.type === 'gemini') {
+    const candidate = data?.candidates?.[0];
+    answer = extractText(candidate?.content?.parts || []);
+    finishReason = candidate?.finishReason || 'STOP';
+    usageMetadata = data?.usageMetadata || null;
 
-    answer = candidate?.content?.parts
-      ?.map(x => x.text || "")
-      .join("") || "";
-
-    finishReason = candidate?.finishReason || "STOP";
-    usageMetadata = data.usageMetadata || null;
-
-  } else if (provider.type === "cohere") {
-    answer = (data.message?.content || [])
-      .map(x => x.text || "")
-      .join("");
-
-    finishReason = data.finish_reason || "STOP";
-    usageMetadata = data.usage || null;
-
+    if (!answer && data?.promptFeedback?.blockReason) {
+      const e = new Error('Gemini blocked the request: ' + data.promptFeedback.blockReason);
+      e.status = 422;
+      throw e;
+    }
+  } else if (provider.type === 'cohere') {
+    answer = extractText(data?.message?.content || []);
+    finishReason = data?.finish_reason || 'STOP';
+    usageMetadata = data?.usage || data?.meta?.tokens || null;
   } else {
-    answer = data.choices?.[0]?.message?.content || "";
-    finishReason = data.choices?.[0]?.finish_reason || "STOP";
-    usageMetadata = data.usage || null;
+    answer = extractText(data?.choices?.[0]?.message?.content || '');
+    finishReason = data?.choices?.[0]?.finish_reason || 'STOP';
+    usageMetadata = data?.usage || null;
   }
 
-  if (!answer || !answer.trim()) {
-    const error = new Error("Provider returned an empty answer.");
-    error.status = 502;
-    throw error;
+  if (!answer.trim()) {
+    const e = new Error('Provider returned no text answer');
+    e.status = 502;
+    throw e;
   }
 
   return {
@@ -479,184 +399,197 @@ async function callProvider(provider, payload, key) {
     provider: provider.name,
     finishReason,
     usageMetadata,
-    diagnostics: {
-      latencyMs: Date.now() - started
-    }
+    diagnostics: { latencyMs: Date.now() - started }
   };
 }
 
-// --------------------------------------------------
-// INTELLIGENT ROUTER
-// --------------------------------------------------
+function isInvalidGeminiKey(error) {
+  const message = String(error.message || '').toLowerCase();
+  const code = String(error.providerCode || '').toLowerCase();
+  return error.status === 401 ||
+    (error.status === 400 && (
+      code.includes('api_key_invalid') ||
+      message.includes('api key not valid') ||
+      message.includes('invalid api key')
+    ));
+}
+
+function shouldTryNextProvider(error) {
+  if (error.code === 'TIMEOUT') return true;
+  if (!error.status) return true;
+  return [400, 401, 403, 404, 408, 409, 422, 425, 429, 500, 502, 503, 504].includes(error.status);
+}
 
 async function routeRequest(payload) {
   const providers = getProviders(payload);
 
   if (!providers.length) {
-    throw new Error("NO_COMPATIBLE_PROVIDER");
+    const e = new Error(
+      payload.images.length || payload.files.length || payload.audio
+        ? 'NO_MULTIMODAL_PROVIDER'
+        : 'NO_PROVIDER_CONFIGURED'
+    );
+    e.code = e.message;
+    throw e;
   }
 
+  const deadline = Date.now() + ROUTER_DEADLINE_MS;
   const failures = [];
 
   for (const provider of providers) {
-    const keys = provider.type === "gemini"
-      ? provider.keys
-      : [provider.key];
+    if (Date.now() >= deadline) break;
 
-    // Do not rotate Gemini accounts to bypass quota limits.
-    // If a Gemini key is rate-limited, move to another provider.
-    for (let i = 0; i < keys.length; i++) {
+    const keys = provider.type === 'gemini' ? provider.keys : [provider.key];
+
+    for (let index = 0; index < keys.length; index++) {
       try {
-        const result = await callProvider(
-          provider,
-          payload,
-          keys[i]
-        );
+        const result = await callProvider(provider, payload, keys[index], deadline);
 
-        console.info("[AskScreen Router] Success:", {
+        console.info('[AskScreen Router] Provider succeeded', {
           provider: provider.name,
           model: provider.model,
-          latencyMs: result.diagnostics.latencyMs,
-          previousFailures: failures
+          latencyMs: result.diagnostics.latencyMs
         });
 
         return result;
-
       } catch (error) {
-        logFailure(provider.name, error);
+        failures.push({
+          provider: provider.name,
+          status: error.status || error.code || 'NETWORK_ERROR'
+        });
 
-        failures.push(provider.name);
+        console.warn('[AskScreen Router] Provider failed', {
+          provider: provider.name,
+          status: error.status || error.code || 'NETWORK_ERROR',
+          message: String(error.message || '').slice(0, 180)
+        });
 
         if (error.status === 429) {
-          cool(provider.name);
+          coolDown(provider.name);
           break;
         }
 
         if (
-          provider.type === "gemini" &&
-          [401, 403].includes(error.status) &&
-          i < keys.length - 1
+          provider.type === 'gemini' &&
+          isInvalidGeminiKey(error) &&
+          index < keys.length - 1
         ) {
           continue;
         }
 
-        if (
-          !retryable(error) &&
-          ![400, 401, 403, 404, 422].includes(error.status)
-        ) {
-          throw error;
-        }
-
-        cool(provider.name);
+        coolDown(provider.name);
+        if (!shouldTryNextProvider(error)) throw error;
         break;
       }
     }
   }
 
-  console.error(
-    "[AskScreen Router] All compatible providers failed:",
-    failures
-  );
-
-  throw new Error("ALL_PROVIDERS_FAILED");
+  console.error('[AskScreen Router] No provider completed the request', failures);
+  const e = new Error('ALL_PROVIDERS_FAILED');
+  e.code = 'ALL_PROVIDERS_FAILED';
+  throw e;
 }
 
-// --------------------------------------------------
-// MAIN NETLIFY FUNCTION
-// --------------------------------------------------
-
-exports.handler = async function(event) {
-
-  if (event.httpMethod === "OPTIONS") {
-    return {
-      statusCode: 204,
-      headers: {
-        ...HEADERS,
-        "Access-Control-Allow-Headers":
-          "Content-Type, Authorization, X-Client-Version",
-        "Access-Control-Allow-Methods": "POST, OPTIONS"
-      },
-      body: ""
-    };
+exports.handler = async function handler(event) {
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 204, headers: CORS_HEADERS, body: '' };
   }
 
-  if (event.httpMethod !== "POST") {
-    return reply(405, {
+  if (event.httpMethod !== 'POST') {
+    return response(405, {
       success: false,
-      error: "Method Not Allowed. Use POST."
+      error: 'Method not allowed. Use POST.'
     });
   }
 
-  const headers = event.headers || {};
-
-  const ip = (
-    headers["x-forwarded-for"] ||
-    headers["client-ip"] ||
-    "unknown"
-  ).split(",")[0].trim();
-
-  if (isRateLimited(ip)) {
-    return reply(429, {
+  const contentType = getHeader(event.headers, 'content-type').toLowerCase();
+  if (!contentType.includes('application/json')) {
+    return response(415, {
       success: false,
-      error: "AskScreen AI is busy. Please try again shortly."
+      error: 'Content-Type must be application/json.'
+    });
+  }
+
+  let bodyBytes;
+  try {
+    bodyBytes = byteLengthOfBody(event);
+  } catch {
+    return response(400, {
+      success: false,
+      error: 'Invalid request body.'
+    });
+  }
+
+  if (bodyBytes > MAX_BODY_BYTES) {
+    return response(413, {
+      success: false,
+      error: 'Request is too large. Reduce attachment size and try again.'
+    });
+  }
+
+  if (isRateLimited(requestIp(event))) {
+    return response(429, {
+      success: false,
+      error: 'Too many requests. Please wait and try again.'
+    });
+  }
+
+  const raw = safeJsonParse(decodeEventBody(event));
+  if (!raw) {
+    return response(400, {
+      success: false,
+      error: 'Invalid JSON request.'
     });
   }
 
   let payload;
-
   try {
-    payload = JSON.parse(event.body || "{}");
-  } catch {
-    return reply(400, {
-      success: false,
-      error: "Invalid request format."
-    });
-  }
-
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    return reply(400, {
-      success: false,
-      error: "Invalid request payload."
-    });
-  }
-
-  if (
-    typeof payload.prompt !== "string" ||
-    !payload.prompt.trim()
-  ) {
-    return reply(400, {
-      success: false,
-      error: "Please provide a question."
-    });
-  }
-
-  const normalized = {
-    ...payload,
-    prompt: payload.prompt.trim(),
-
-    systemInstruction:
-      typeof payload.systemInstruction === "string" &&
-      payload.systemInstruction.trim()
-        ? payload.systemInstruction
-        : "You are AskScreen AI, an on-screen reading and learning assistant. For multiple-choice practice or self-study questions, return only the option letter and answer text. Do not explain unless requested. For other questions, give a direct concise answer. Answer multiple visible questions separately in screen order. If text is unclear, say so instead of guessing. Never claim to have selected or submitted an answer.",
-
-    history: Array.isArray(payload.history) ? payload.history : [],
-    images: Array.isArray(payload.images) ? payload.images : [],
-    files: Array.isArray(payload.files) ? payload.files : [],
-    audio: payload.audio || null
-  };
-
-  try {
-    const result = await routeRequest(normalized);
-    return reply(200, result);
-
+    payload = normalizePayload(raw);
   } catch (error) {
-    console.error("[AskScreen Router] Request failed:", error.message);
+    const messages = {
+      INVALID_REQUEST: 'Invalid request payload.',
+      PROMPT_REQUIRED: 'Please provide a question.',
+      PROMPT_TOO_LONG: 'The question is too long.',
+      INVALID_ATTACHMENTS: 'Attachments must be provided as arrays.',
+      TOO_MANY_ATTACHMENTS: 'Too many attachments. Maximum is 8.',
+      UNSUPPORTED_ATTACHMENT_TYPE: 'One of the attached file types is not supported.',
+      INVALID_ATTACHMENT_DATA: 'An attachment is empty or has invalid data.',
+      INVALID_IMAGE_TYPE: 'An image attachment has an invalid media type.',
+      INVALID_AUDIO_TYPE: 'The audio attachment has an invalid media type.',
+      INVALID_IMAGE: 'Invalid image attachment.',
+      INVALID_FILE: 'Invalid file attachment.',
+      INVALID_AUDIO: 'Invalid audio attachment.'
+    };
 
-    return reply(503, {
+    return response(400, {
       success: false,
-      error:
-        "AskScreen AI is temporarily unable to answer. Please try again shortly."
+      error: messages[error.message] || 'Invalid attachment or request.'
+    });
+  }
+
+  try {
+    const result = await routeRequest(payload);
+    return response(200, result);
+  } catch (error) {
+    console.error('[AskScreen Router] Request failed', error.code || error.message);
+
+    if (error.code === 'NO_PROVIDER_CONFIGURED') {
+      return response(503, {
+        success: false,
+        error: 'No AI provider is configured on the server.'
+      });
+    }
+
+    if (error.code === 'NO_MULTIMODAL_PROVIDER') {
+      return response(503, {
+        success: false,
+        error: 'Image, audio and file questions require a configured Gemini API key. Please try again later.'
+      });
+    }
+
+    return response(503, {
+      success: false,
+      error: 'AskScreen AI is temporarily unable to answer. Please try again shortly.'
     });
   }
 };
