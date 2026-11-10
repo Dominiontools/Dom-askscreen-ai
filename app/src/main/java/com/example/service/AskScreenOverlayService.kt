@@ -435,6 +435,9 @@ class AskScreenOverlayService : Service() {
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                         }
                         startActivity(intent)
+                    },
+                    onExplainAnswer = { answerText ->
+                        explainAnswer(answerText)
                     }
                 )
             }
@@ -642,12 +645,17 @@ class AskScreenOverlayService : Service() {
             )
             sessionMessages.value = sessionMessages.value + userMsg
 
+            val answerStyle = "Reply in exactly one of these formats. The very first thing in your reply must be the tag. " +
+                "[OBJ] = multiple-choice question(s). After the tag give ONLY the correct option for each question, one per line, as 'A. option text', in screen order. No explanation at all. " +
+                "[THEORY] = a question that needs a written answer (theory, essay, short answer, fill in the blank). After the tag give ONLY the direct answer, straight to the point, nothing else. " +
+                "[INFO] = anything else. After the tag start with 'I see: ' and say briefly what is on the screen, then answer any question or task you notice. " +
+                "Do not guess unreadable text."
             val prompt = if (onlyIfQuestion) {
-                "Check this changed screen for a new visible question or learning task. If there is no new question or actionable task, reply exactly NO_NEW_QUESTION. If a multiple-choice practice question is visible, return only the option letter and answer text. Do not explain unless requested. Do not guess unreadable text."
+                "Check this changed screen for a new visible question or learning task. If there is no new question or actionable task, reply exactly NO_NEW_QUESTION. Otherwise: $answerStyle"
             } else if (regionCrop != null) {
-                "Read the selected screen region carefully. For multiple-choice practice or self-study questions, return only the option letter and answer text. Do not explain unless explicitly requested. For other content, give a direct concise response and do not guess unreadable text."
+                "Read the selected screen region carefully. $answerStyle"
             } else {
-                "Analyze the visible screen. For multiple-choice practice or self-study questions, return only the option letter and answer text. Do not explain unless explicitly requested. For non-multiple-choice content, give a direct concise answer. Do not guess if the text is unreadable."
+                "Look at the visible screen. $answerStyle"
             }
 
             val result = repository.askScreenAi(
@@ -656,24 +664,35 @@ class AskScreenOverlayService : Service() {
                 images = listOf(bitmap),
                 chatHistory = sessionMessages.value
             )
+            // Keep a copy of the last screenshot so the Explain button can look at the question again.
+            lastScreenshot?.let { if (!it.isRecycled) it.recycle() }
+            lastScreenshot = try { bitmap.copy(Bitmap.Config.ARGB_8888, false) } catch (e: Exception) { null }
             if (!bitmap.isRecycled) bitmap.recycle()
 
             result.onSuccess { answer ->
                 bubbleState.value = BubbleState.IDLE
                 if (!(onlyIfQuestion && answer.trim().equals("NO_NEW_QUESTION", ignoreCase = true))) {
-                    val aiMsg = ChatMessage(role = "model", text = answer, queryType = queryType)
+                    // The AI starts with a tag: [OBJ], [THEORY] or [INFO]. Remove it before showing the answer.
+                    val tagMatch = Regex("^\\s*\\[(OBJ|THEORY|INFO)]\\s*", RegexOption.IGNORE_CASE).find(answer)
+                    val kind = tagMatch?.groupValues?.get(1)?.uppercase()
+                    val cleanAnswer = if (tagMatch != null) answer.removeRange(tagMatch.range).trim() else answer.trim()
+
+                    val aiMsg = ChatMessage(role = "model", text = cleanAnswer, queryType = queryType)
                     sessionMessages.value = sessionMessages.value + aiMsg
+
+                    // Auto-submit only when it applies, and stay silent when it does not.
                     if (prefs.isAutoSubmitEnabled) {
-                        val selected = PracticeAccessibilityService.selectAndSubmit(answer)
-                        if (!selected) {
-                            sessionMessages.value = sessionMessages.value + ChatMessage(
-                                role = "model",
-                                text = "Answer ready. Automatic selection was unavailable on this screen; please select it manually.",
-                                queryType = queryType
-                            )
+                        val firstLine = cleanAnswer.lineSequence().firstOrNull()?.trim().orEmpty()
+                        val looksLikeOption = Regex("^[A-Za-z]\\s*[.)\\-]\\s*\\S").containsMatchIn(firstLine)
+                        when {
+                            kind == "OBJ" || (kind == null && looksLikeOption) ->
+                                PracticeAccessibilityService.selectAndSubmit(cleanAnswer)
+                            kind == "THEORY" ->
+                                PracticeAccessibilityService.typeAndSubmit(cleanAnswer)
+                            else -> Unit
                         }
                     }
-                    if (prefs.isTtsEnabled) ttsManager.speak(answer, prefs.ttsSpeed)
+                    if (prefs.isTtsEnabled) ttsManager.speak(cleanAnswer, prefs.ttsSpeed)
                 }
             }.onFailure { error ->
                 bubbleState.value = BubbleState.ERROR
@@ -866,6 +885,51 @@ class AskScreenOverlayService : Service() {
         }
     }
 
+    private var lastScreenshot: Bitmap? = null
+
+    /** Called by the Explain button under an answer. Short, simple and human-sounding. */
+    private fun explainAnswer(answerText: String) {
+        serviceScope.launch {
+            bubbleState.value = BubbleState.PROCESSING_AI
+            sessionMessages.value = sessionMessages.value + ChatMessage(
+                role = "user",
+                text = "Explain this answer",
+                queryType = QueryType.TEXT
+            )
+            val shot = lastScreenshot?.takeIf { !it.isRecycled }
+            val prompt = "Explain this the way a real person would explain it to a friend. " +
+                "Use plain, simple words and short sentences. Go straight to the point and keep it to a few sentences. " +
+                "No headings, no bullet points, no emojis, no filler like 'Great question' or 'Certainly', and never say you are an AI. " +
+                "The answer was: \"$answerText\". " +
+                (if (shot != null) "The question is on the screenshot. " else "") +
+                "Tell me why that answer is right, or what it means."
+
+            val result = repository.askScreenAi(
+                prompt = prompt,
+                queryType = QueryType.TEXT,
+                images = if (shot != null) listOf(shot) else emptyList(),
+                chatHistory = sessionMessages.value
+            )
+
+            result.onSuccess { answer ->
+                bubbleState.value = BubbleState.IDLE
+                sessionMessages.value = sessionMessages.value + ChatMessage(
+                    role = "model",
+                    text = answer.trim(),
+                    queryType = QueryType.TEXT
+                )
+                if (prefs.isTtsEnabled) ttsManager.speak(answer, prefs.ttsSpeed)
+            }.onFailure { err ->
+                bubbleState.value = BubbleState.ERROR
+                sessionMessages.value = sessionMessages.value + ChatMessage(
+                    role = "model",
+                    text = "Could not explain: ${err.message}",
+                    queryType = QueryType.TEXT
+                )
+            }
+        }
+    }
+
     private fun sendFollowUpQuestion(text: String, queryType: QueryType = QueryType.TEXT) {
         serviceScope.launch {
             bubbleState.value = BubbleState.PROCESSING_AI
@@ -902,7 +966,7 @@ class AskScreenOverlayService : Service() {
             "LISTEN_SCREEN" -> startListenAudioAction()
             "READ_AND_LISTEN" -> startReadAndListenAction()
             "SELECT_REGION" -> startSelectRegionAction()
-            "EXPLAIN_MORE" -> sendFollowUpQuestion("Please explain the previous answer in more detail with step-by-step reasoning.")
+            "EXPLAIN_MORE" -> sendFollowUpQuestion("Explain the previous answer the way a real person would explain it to a friend: simple words, short, straight to the point, no lists and no filler.")
             "SUMMARIZE" -> sendFollowUpQuestion("Summarize the main takeaway in 2 crisp bullet points.")
             "TRANSLATE" -> sendFollowUpQuestion("Translate the question and answer into Spanish and French.")
             "EXTRACT_TEXT" -> sendFollowUpQuestion("Extract all the visible text verbatim from the screen image.")

@@ -2,6 +2,7 @@ package com.example.service
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -13,15 +14,29 @@ import java.util.Locale
 /**
  * Optional Android accessibility bridge for permitted practice pages.
  * It is opt-in in Android Settings and auto-submit is separately disabled by default.
- * It only clicks a matching answer and an explicitly labelled Submit/Check button.
+ * For multiple-choice answers it clicks the matching options, for written answers it types
+ * the answer into the text field, and then presses a clearly labelled Submit/Check button.
+ * It stays silent when there is nothing to select, type or submit.
  */
 class PracticeAccessibilityService : AccessibilityService() {
     companion object {
         private const val TAG = "AskScreenA11y"
         @Volatile private var active: PracticeAccessibilityService? = null
 
-        fun selectAndSubmit(answer: String): Boolean = active?.selectAndSubmitAnswer(answer) ?: false
+        /** answer may hold several lines like "A. Oxygen" (one per question). */
+        fun selectAndSubmit(answer: String): Boolean = active?.selectAndSubmitAnswers(answer) ?: false
+
+        /** Types a written answer into the text field on screen, then presses Submit. */
+        fun typeAndSubmit(answer: String): Boolean = active?.typeAnswerAndSubmit(answer) ?: false
+
         fun isEnabled(): Boolean = active != null
+
+        private val OPTION_LINE = Regex("^[A-Za-z]\\s*[.)\\-]\\s*\\S")
+        private val SUBMIT_LABELS = setOf(
+            "submit", "submit answer", "submit quiz", "submit test", "submit exam",
+            "check", "check answer", "confirm", "confirm answer",
+            "send", "send answer", "done", "finish", "save answer"
+        )
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -41,56 +56,91 @@ class PracticeAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
     override fun onInterrupt() = Unit
 
-    private fun selectAndSubmitAnswer(rawAnswer: String): Boolean {
-        val answer = rawAnswer.trim()
-        if (answer.isEmpty()) return false
+    // ---------- Multiple choice ----------
+
+    private fun selectAndSubmitAnswers(rawAnswer: String): Boolean {
+        val lines = rawAnswer.lines().map { it.trim() }.filter { OPTION_LINE.containsMatchIn(it) }
+        if (lines.isEmpty()) return false
+
+        // First answer is clicked right away so we know whether this screen can be automated.
+        if (!clickOption(lines[0])) return false
+
+        var delay = 400L
+        for (i in 1 until lines.size) {
+            val line = lines[i]
+            handler.postDelayed({ clickOption(line) }, delay)
+            delay += 400L
+        }
+        handler.postDelayed({ pressSubmit() }, delay + 100L)
+        return true
+    }
+
+    private fun clickOption(line: String): Boolean {
         val root = rootInActiveWindow ?: return false
-        val normalized = answer.lowercase(Locale.ROOT)
-        if (!Regex("^[a-z]\\s*[.)-]").containsMatchIn(normalized)) return false
-        val answerLetter = Regex("^([a-z])\\s*[.)-]").find(normalized)?.groupValues?.get(1)
-        val answerText = Regex("^[a-z]\\s*[.)-]\\s*(.+)$").find(normalized)?.groupValues?.get(1)?.trim()
+        val normalized = line.lowercase(Locale.ROOT)
+        val answerLetter = Regex("^([a-z])\\s*[.)\\-]").find(normalized)?.groupValues?.get(1)
+        val answerText = Regex("^[a-z]\\s*[.)\\-]\\s*(.+)$").find(normalized)?.groupValues?.get(1)?.trim()
         val nodes = mutableListOf<AccessibilityNodeInfo>()
         collectNodes(root, nodes)
 
-        val option = nodes.firstOrNull { node ->
-            val text = (node.text?.toString() ?: node.contentDescription?.toString() ?: "").trim().lowercase(Locale.ROOT)
-            if (text.isEmpty()) false else {
-                (answerText != null && (text == answerText || text.contains(answerText))) ||
-                    (answerLetter != null && (text == answerLetter || Regex("^${Regex.escape(answerLetter)}[.)\\s:-]").containsMatchIn(text)))
-            }
-        } ?: return false
+        // Prefer matching the option text; fall back to the option letter.
+        val byText = nodes.firstOrNull { node ->
+            val text = labelOf(node)
+            text.isNotEmpty() && answerText != null && (text == answerText || text.contains(answerText))
+        }
+        val byLetter = nodes.firstOrNull { node ->
+            val text = labelOf(node)
+            text.isNotEmpty() && answerLetter != null &&
+                (text == answerLetter || Regex("^${Regex.escape(answerLetter)}[.)\\s:-]").containsMatchIn(text))
+        }
+        val option = byText ?: byLetter ?: return false
+        return clickSelfOrClickableParent(option)
+    }
 
-        val clicked = clickSelfOrClickableParent(option)
-        if (!clicked) return false
-        handler.postDelayed({
-            val freshRoot = rootInActiveWindow ?: return@postDelayed
-            val freshNodes = mutableListOf<AccessibilityNodeInfo>()
-            collectNodes(freshRoot, freshNodes)
-            val answerStillVisible = freshNodes.any { node ->
-                val label = (node.text?.toString() ?: node.contentDescription?.toString() ?: "")
-                    .trim().lowercase(Locale.ROOT)
-                (answerText != null && (label == answerText || label.contains(answerText))) ||
-                    (answerLetter != null && (label == answerLetter || Regex("^${Regex.escape(answerLetter)}[.)\\s:-]").containsMatchIn(label)))
-            }
-            if (!answerStillVisible) {
-                Toast.makeText(this, "The page changed after selection; submit was not tapped", Toast.LENGTH_SHORT).show()
-                return@postDelayed
-            }
-            val submit = freshNodes.firstOrNull { node ->
-                val label = (node.text?.toString() ?: node.contentDescription?.toString() ?: "")
-                    .trim().lowercase(Locale.ROOT)
-                label in setOf("submit", "submit answer", "check", "check answer", "confirm answer")
-            }
-            if (submit != null) {
-                val submitted = clickSelfOrClickableParent(submit)
-                Toast.makeText(this, if (submitted) "Practice answer submitted" else "Answer selected; submit action was blocked", Toast.LENGTH_SHORT).show()
-            } else {
-                Log.i(TAG, "Answer selected; no clearly labelled Submit/Check button found")
-                Toast.makeText(this, "Answer selected; no accessible Submit/Check button found", Toast.LENGTH_SHORT).show()
-            }
-        }, 450L)
+    // ---------- Written (theory) answers ----------
+
+    private fun typeAnswerAndSubmit(rawAnswer: String): Boolean {
+        val answer = rawAnswer.trim()
+        if (answer.isEmpty()) return false
+        val root = rootInActiveWindow ?: return false
+        val nodes = mutableListOf<AccessibilityNodeInfo>()
+        collectNodes(root, nodes)
+
+        val field = nodes.firstOrNull { it.isEditable && it.isFocused }
+            ?: nodes.firstOrNull { it.isEditable && it.isEnabled }
+            ?: return false
+
+        val args = Bundle()
+        args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, answer)
+        if (!field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) return false
+
+        handler.postDelayed({ pressSubmit() }, 600L)
         return true
     }
+
+    // ---------- Submit ----------
+
+    private fun pressSubmit() {
+        val freshRoot = rootInActiveWindow ?: return
+        val freshNodes = mutableListOf<AccessibilityNodeInfo>()
+        collectNodes(freshRoot, freshNodes)
+        val submit = freshNodes.firstOrNull { node ->
+            val label = labelOf(node)
+            label in SUBMIT_LABELS || label.startsWith("submit")
+        }
+        if (submit == null) {
+            Log.i(TAG, "No clearly labelled Submit/Check button found")
+            return
+        }
+        if (clickSelfOrClickableParent(submit)) {
+            Toast.makeText(this, "Answer submitted", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // ---------- Helpers ----------
+
+    private fun labelOf(node: AccessibilityNodeInfo): String =
+        (node.text?.toString() ?: node.contentDescription?.toString() ?: "").trim().lowercase(Locale.ROOT)
 
     private fun collectNodes(node: AccessibilityNodeInfo, output: MutableList<AccessibilityNodeInfo>) {
         output += node
