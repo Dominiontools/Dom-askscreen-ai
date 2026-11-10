@@ -62,7 +62,8 @@ fun FloatingAnswerWindow(
     onStopVoiceInput: () -> Unit,
     onActionClick: (String) -> Unit,
     onSpeakToggle: () -> Unit,
-    onPickFile: () -> Unit
+    onPickFile: () -> Unit,
+    onExplainAnswer: (String) -> Unit = {}
 ) {
     var inputText by remember { mutableStateOf("") }
     var textScale by remember { mutableFloatStateOf(1.0f) }
@@ -355,7 +356,7 @@ fun FloatingAnswerWindow(
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         clipboard.setPrimaryClip(ClipData.newPlainText("AskScreen Answer", msg.text))
                         Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-                    })
+                    }, onExplain = { onExplainAnswer(msg.text) })
                 }
             }
 
@@ -462,7 +463,7 @@ fun FloatingAnswerWindow(
 }
 
 @Composable
-fun MessageBubble(msg: ChatMessage, textScale: Float, onCopy: () -> Unit) {
+fun MessageBubble(msg: ChatMessage, textScale: Float, onCopy: () -> Unit, onExplain: () -> Unit = {}) {
     val isUser = msg.role == "user"
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -542,6 +543,16 @@ fun MessageBubble(msg: ChatMessage, textScale: Float, onCopy: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
                     ) {
+                        Text(
+                            text = "Explain",
+                            fontSize = 10.sp,
+                            color = Color(0xFF34D399),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable { onExplain() }
+                                .padding(4.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "Copy",
                             fontSize = 10.sp,
