@@ -1,4 +1,4 @@
-qpackage com.example.data.repository
+package com.example.data.repository
 
 import android.content.Context
 import android.graphics.Bitmap
