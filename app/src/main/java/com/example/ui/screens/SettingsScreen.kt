@@ -190,74 +190,11 @@ fun SettingsScreen() {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 3. GEMINI MODEL & FIREBASE AI LOGIC
-        SettingsCard(title = "Firebase AI Logic & Model", icon = Icons.Default.Cloud) {
-            Surface(
-                color = DeepIndigo,
-                shape = RoundedCornerShape(10.dp),
-                border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.5f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        tint = EmeraldGreen,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "Connected via Firebase AI Logic",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
-                        Text(
-                            text = "Server-side security with Firebase App Check. No API key required in the app.",
-                            color = Slate300,
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Text("Selected Gemini Model", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Medium)
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                val models = listOf("gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-4-argon")
-                models.forEach { m ->
-                    FilterChip(
-                        selected = selectedModel == m,
-                        onClick = {
-                            selectedModel = m
-                            prefs.geminiModel = m
-                        },
-                        label = { Text(if (m == "gemini-3.8-flash") "$m ★" else m, fontSize = 10.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = ElectricCyan,
-                            selectedLabelColor = Slate950,
-                            containerColor = Slate800,
-                            labelColor = Slate300
-                        )
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Text("Optional Custom Backend URL", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Medium)
+        // 3. AI BACKEND (only the link is needed; the AI keys live on the backend)
+        SettingsCard(title = "AI Backend", icon = Icons.Default.Cloud) {
+            Text("Backend link", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Medium)
             Text(
-                "Optional proxy/Netlify function endpoint (leaves blank to use Firebase AI Logic directly)",
+                "Paste your Netlify link here. All the AI keys are kept safely on the backend, so nothing else is needed in the app.",
                 fontSize = 11.sp,
                 color = Slate400
             )
@@ -267,9 +204,9 @@ fun SettingsScreen() {
                 value = backendUrl,
                 onValueChange = {
                     backendUrl = it
-                    prefs.backendUrl = it
+                    prefs.backendUrl = it.trim()
                 },
-                placeholder = { Text("Leave empty to use Firebase AI Logic", fontSize = 11.sp, color = Slate600) },
+                placeholder = { Text("https://your-site.netlify.app/.netlify/functions/gemini", fontSize = 11.sp, color = Slate600) },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(10.dp),
                 colors = OutlinedTextFieldDefaults.colors(
