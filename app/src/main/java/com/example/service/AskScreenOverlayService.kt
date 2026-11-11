@@ -53,6 +53,7 @@ class AskScreenOverlayService : Service() {
         const val ACTION_STOP = "com.example.action.STOP"
         const val ACTION_READ_SCREEN = "com.example.action.READ_SCREEN"
         const val ACTION_LISTEN_SCREEN = "com.example.action.LISTEN_SCREEN"
+        const val ACTION_TRANSCRIBE_AUDIO = "com.example.action.TRANSCRIBE_AUDIO"
         const val ACTION_READ_AND_LISTEN = "com.example.action.READ_AND_LISTEN"
         const val ACTION_TOGGLE_BUBBLE = "com.example.action.TOGGLE_BUBBLE"
         const val ACTION_AUTO_START = "com.example.action.AUTO_START"
@@ -164,6 +165,7 @@ class AskScreenOverlayService : Service() {
             }
             ACTION_READ_SCREEN -> startReadScreenAction()
             ACTION_LISTEN_SCREEN -> startListenAudioAction()
+            ACTION_TRANSCRIBE_AUDIO -> startTranscribeAudioAction()
             ACTION_READ_AND_LISTEN -> startReadAndListenAction()
             ACTION_TOGGLE_BUBBLE -> toggleBubbleVisibility()
             ACTION_AUTO_START -> startAutoMonitor()
@@ -271,6 +273,10 @@ class AskScreenOverlayService : Service() {
                     onListenScreen = {
                         hideQuickActionMenu()
                         startListenAudioAction()
+                    },
+                    onTranscribeAudio = {
+                        hideQuickActionMenu()
+                        startTranscribeAudioAction()
                     },
                     onReadAndListen = {
                         hideQuickActionMenu()
@@ -802,6 +808,35 @@ class AskScreenOverlayService : Service() {
                             bubbleState.value = BubbleState.LISTENING_AUDIO
                             liveCaptions.value = "Listening continuously..."
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Transcribes microphone speech into chat without sending it to the AI.
+     * SpeechRecognizer uses the device language by default; availability of Yoruba
+     * and other languages depends on the installed Android recognition provider.
+     */
+    fun startTranscribeAudioAction() {
+        serviceScope.launch {
+            bubbleState.value = BubbleState.LISTENING_AUDIO
+            showAnswerWindow()
+            liveCaptions.value = "Transcribing speech only — no AI answers..."
+            audioCaptureManager.startContinuousListening { transcript ->
+                serviceScope.launch {
+                    if (transcript.isBlank() || !shouldProcessAudioTranscript(transcript)) return@launch
+                    sessionMessages.value = sessionMessages.value + ChatMessage(
+                        role = "user",
+                        text = "📝 Transcript: $transcript",
+                        queryType = QueryType.AUDIO
+                    )
+                    liveCaptions.value = "Transcript added. Listening for more speech..."
+                    bubbleState.value = if (audioCaptureManager.isListening.value) {
+                        BubbleState.LISTENING_AUDIO
+                    } else {
+                        BubbleState.IDLE
                     }
                 }
             }
