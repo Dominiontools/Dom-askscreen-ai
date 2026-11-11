@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 fun FloatingQuickActionMenu(
     onReadScreen: () -> Unit,
     onListenScreen: () -> Unit,
+    onTranscribeAudio: () -> Unit,
     onReadAndListen: () -> Unit,
     onSelectRegion: () -> Unit,
     onOpenMainApp: () -> Unit,
@@ -79,6 +80,13 @@ fun FloatingQuickActionMenu(
                 subtitle = "Capture audio & speech",
                 iconTint = Color(0xFFF59E0B),
                 onClick = onListenScreen
+            )
+            MenuItem(
+                icon = Icons.Default.ClosedCaption,
+                title = "Transcribe Audio",
+                subtitle = "Write down speech only — no answers",
+                iconTint = Color(0xFF22C55E),
+                onClick = onTranscribeAudio
             )
             MenuItem(
                 icon = Icons.Default.SmartDisplay,
