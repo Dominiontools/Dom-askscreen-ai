@@ -38,6 +38,7 @@ class AudioCaptureManager(private val context: Context) {
     private var onSpeechResultCallback: ((String) -> Unit)? = null
     @Volatile private var continuousMode = false
     private var restartRunnable: Runnable? = null
+    @Volatile private var recognitionLanguageTag: String? = null
 
     private fun scheduleRecognitionRestart(delayMs: Long = 650L) {
         if (!continuousMode) return
@@ -55,7 +56,8 @@ class AudioCaptureManager(private val context: Context) {
             if (speechRecognizer == null) initSpeechRecognizer()
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, recognitionLanguageTag ?: Locale.getDefault().toLanguageTag())
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, recognitionLanguageTag ?: Locale.getDefault().toLanguageTag())
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
             }
@@ -143,8 +145,10 @@ class AudioCaptureManager(private val context: Context) {
     /**
      * Start live speech listening for voice questions or audio transcription.
      */
-    fun startListening(onResult: (String) -> Unit) {
+    fun startListening(languageTag: String? = null, onResult: (String) -> Unit) {
+        recognitionLanguageTag = languageTag?.takeIf { it.isNotBlank() }
         continuousMode = false
+        recognitionLanguageTag = null
         restartRunnable?.let(mainHandler::removeCallbacks)
         onSpeechResultCallback = onResult
         _liveCaptions.value = "Listening to audio..."
@@ -153,7 +157,8 @@ class AudioCaptureManager(private val context: Context) {
     }
 
     /** Keeps microphone speech recognition active by starting a fresh request after each result. */
-    fun startContinuousListening(onResult: (String) -> Unit) {
+    fun startContinuousListening(languageTag: String? = null, onResult: (String) -> Unit) {
+        recognitionLanguageTag = languageTag?.takeIf { it.isNotBlank() }
         continuousMode = true
         onSpeechResultCallback = onResult
         _liveCaptions.value = "Listening continuously..."
