@@ -27,7 +27,7 @@ class AudioCaptureManager(private val context: Context) {
     val audioRmsDb: StateFlow<Float> = _audioRmsDb
 
     private var onSpeechResultCallback: ((String) -> Unit)? = null
-    private var onFatalRecognitionError: ((String) -> Unit)? = null
+    var onFatalRecognitionError: ((String) -> Unit)? = null
     @Volatile private var continuousMode = false
 
     /** True for the whole continuous session, including the short gaps between recognizer requests. */
@@ -188,7 +188,7 @@ class AudioCaptureManager(private val context: Context) {
         recognitionLanguageTag = languageTag?.takeIf { it.isNotBlank() }
         continuousMode = true
         onSpeechResultCallback = onResult
-        onFatalRecognitionError = onFatalError
+        if (onFatalError != null) onFatalRecognitionError = onFatalError
         _liveCaptions.value = "Listening continuously..."
         _isListening.value = true
         mainHandler.post {
