@@ -139,6 +139,17 @@ class AskScreenOverlayService : Service() {
         screenCaptureManager = ScreenCaptureManager(this)
         audioCaptureManager = AudioCaptureManager(this)
         ttsManager = TtsManager(this)
+        audioCaptureManager.onFatalRecognitionError = { message ->
+            serviceScope.launch {
+                bubbleState.value = BubbleState.ERROR
+                liveCaptions.value = message
+                sessionMessages.value = sessionMessages.value + ChatMessage(
+                    role = "model",
+                    text = message,
+                    queryType = QueryType.AUDIO
+                )
+            }
+        }
 
         updateMetrics()
         createNotificationChannel()
