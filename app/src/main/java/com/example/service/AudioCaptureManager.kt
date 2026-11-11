@@ -2,24 +2,15 @@ package com.example.service
 
 import android.content.Context
 import android.content.Intent
-import android.media.AudioFormat
-import android.media.AudioRecord
-import android.media.MediaRecorder
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
-import android.util.Base64
 import android.util.Log
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
-import java.io.ByteArrayOutputStream
 import java.util.Locale
 
 class AudioCaptureManager(private val context: Context) {
@@ -82,10 +73,6 @@ class AudioCaptureManager(private val context: Context) {
             if (continuousMode) scheduleRecognitionRestart(1400L)
         }
     }
-    private var audioRecord: AudioRecord? = null
-    private var recordingJob: Job? = null
-    private val scope = CoroutineScope(Dispatchers.IO)
-    private var recordedAudioStream: ByteArrayOutputStream? = null
 
     init {
         mainHandler.post {
