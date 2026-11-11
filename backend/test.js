@@ -51,7 +51,43 @@ async function run() {
   assert.equal(tooLarge.statusCode, 413, 'Reject oversized request bodies');
   console.log('PASS Reject oversized request bodies');
 
-  console.log('All backend request-validation tests passed.');
+
+  // Use a unique IP so this test is isolated from other requests in this process.
+  const quotaIp = '198.51.100.77';
+  for (let i = 0; i < 65; i++) {
+    const invalid = await handler({
+      httpMethod: 'POST',
+      headers: { 'content-type': 'application/json', 'client-ip': quotaIp },
+      body: JSON.stringify({ prompt: '   ' })
+    });
+    assert.equal(invalid.statusCode, 400, 'Invalid requests must not consume quota');
+  }
+  const firstValid = await handler({
+    httpMethod: 'POST',
+    headers: { 'content-type': 'application/json', 'client-ip': quotaIp },
+    body: JSON.stringify({ prompt: 'A valid test question' })
+  });
+  assert.equal(firstValid.statusCode, 503, 'Valid request should reach provider routing, not be rate-limited');
+  console.log('PASS Invalid requests do not consume request quota');
+
+  for (let i = 1; i < 60; i++) {
+    await handler({
+      httpMethod: 'POST',
+      headers: { 'content-type': 'application/json', 'client-ip': quotaIp },
+      body: JSON.stringify({ prompt: 'Valid quota test ' + i })
+    });
+  }
+  const limited = await handler({
+    httpMethod: 'POST',
+    headers: { 'content-type': 'application/json', 'client-ip': quotaIp },
+    body: JSON.stringify({ prompt: 'One request over the limit' })
+  });
+  assert.equal(limited.statusCode, 429, 'Requests over the configured default limit should be rejected');
+  assert.equal(limited.headers['Retry-After'], '60', 'Rate limit should provide Retry-After');
+  assert.equal(JSON.parse(limited.body).code, 'RATE_LIMITED');
+  console.log('PASS Rate limit returns retry guidance after 60 valid requests');
+
+  console.log('All backend request-validation and quota tests passed.');
 }
 
 run().catch(error => {
