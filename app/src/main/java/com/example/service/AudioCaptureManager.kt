@@ -180,8 +180,8 @@ class AudioCaptureManager(private val context: Context) {
     /** Keeps microphone speech recognition active by starting a fresh request after each result. */
     fun startContinuousListening(
         languageTag: String? = null,
-        onResult: (String) -> Unit,
-        onFatalError: ((String) -> Unit)? = null
+        onFatalError: ((String) -> Unit)? = null,
+        onResult: (String) -> Unit
     ) {
         recognitionLanguageTag = languageTag?.takeIf { it.isNotBlank() }
         continuousMode = true
