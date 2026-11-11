@@ -18,6 +18,8 @@ const MAX_REQUESTS_PER_WINDOW = 30;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 const PROVIDER_TIMEOUT_MS = 8_000;
 const ROUTER_DEADLINE_MS = 24_000;
+const MAX_PROVIDER_RETRIES = 1;
+const RETRY_BASE_DELAY_MS = 350;
 const COOLDOWN_MS = 30_000;
 const MAX_HISTORY_ITEMS = 12;
 const MAX_ATTACHMENTS = 8;
@@ -292,7 +294,7 @@ async function fetchJson(url, options, remainingMs) {
       e.code = 'TIMEOUT';
       throw e;
     }
-    return { response: result, data };
+    return { response: result, data, retryAfter: result.headers.get('retry-after') };
   } catch (error) {
     if (error.name === 'AbortError') {
       const e = new Error('Provider request timed out');
@@ -305,12 +307,17 @@ async function fetchJson(url, options, remainingMs) {
   }
 }
 
-function providerError(status, data) {
+function providerError(status, data, retryAfter) {
   const message = data?.error?.message || data?.message || data?.detail || data?.rawError || ('Provider HTTP ' + status);
   const error = new Error(String(message).slice(0, 500));
   error.status = status;
   const code = data?.error?.status || data?.error?.code || data?.code || '';
   error.providerCode = String(code);
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    const dateDelay = Number.isNaN(seconds) ? Date.parse(retryAfter) - Date.now() : seconds * 1000;
+    if (Number.isFinite(dateDelay) && dateDelay > 0) error.retryAfterMs = Math.min(dateDelay, 5_000);
+  }
   return error;
 }
 
@@ -364,7 +371,7 @@ async function callProvider(provider, payload, key, deadline) {
     deadline
   }, remaining);
 
-  if (!httpResponse.ok) throw providerError(httpResponse.status, data);
+  if (!httpResponse.ok) throw providerError(httpResponse.status, data, httpResponse.headers.get('retry-after'));
 
   let answer = '';
   let finishReason = 'STOP';
@@ -425,6 +432,16 @@ function shouldTryNextProvider(error) {
   return [400, 401, 403, 404, 408, 409, 422, 425, 429, 500, 502, 503, 504].includes(error.status);
 }
 
+
+function isRetryableProviderError(error) {
+  if (error.code === 'TIMEOUT' || !error.status) return true;
+  return [408, 425, 429, 500, 502, 503, 504].includes(error.status);
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function routeRequest(payload) {
   const providers = getProviders(payload);
 
@@ -447,44 +464,52 @@ async function routeRequest(payload) {
     const keys = provider.type === 'gemini' ? provider.keys : [provider.key];
 
     for (let index = 0; index < keys.length; index++) {
-      try {
-        const result = await callProvider(provider, payload, keys[index], deadline);
+      let attempt = 0;
+      while (attempt <= MAX_PROVIDER_RETRIES && Date.now() < deadline) {
+        try {
+          const result = await callProvider(provider, payload, keys[index], deadline);
+          console.info('[AskScreen Router] Provider succeeded', {
+            provider: provider.name,
+            model: provider.model,
+            latencyMs: result.diagnostics.latencyMs,
+            attempt: attempt + 1
+          });
+          return result;
+        } catch (error) {
+          failures.push({
+            provider: provider.name,
+            status: error.status || error.code || 'NETWORK_ERROR',
+            attempt: attempt + 1
+          });
+          console.warn('[AskScreen Router] Provider attempt failed', {
+            provider: provider.name,
+            status: error.status || error.code || 'NETWORK_ERROR',
+            attempt: attempt + 1
+          });
 
-        console.info('[AskScreen Router] Provider succeeded', {
-          provider: provider.name,
-          model: provider.model,
-          latencyMs: result.diagnostics.latencyMs
-        });
+          if (
+            provider.type === 'gemini' &&
+            isInvalidGeminiKey(error) &&
+            index < keys.length - 1
+          ) break;
 
-        return result;
-      } catch (error) {
-        failures.push({
-          provider: provider.name,
-          status: error.status || error.code || 'NETWORK_ERROR'
-        });
+          const canRetry = isRetryableProviderError(error) &&
+            attempt < MAX_PROVIDER_RETRIES;
+          const backoff = error.retryAfterMs || RETRY_BASE_DELAY_MS * (attempt + 1);
+          if (canRetry && Date.now() + backoff + 250 < deadline) {
+            attempt++;
+            await wait(backoff);
+            continue;
+          }
 
-        console.warn('[AskScreen Router] Provider failed', {
-          provider: provider.name,
-          status: error.status || error.code || 'NETWORK_ERROR',
-          message: String(error.message || '').slice(0, 180)
-        });
-
-        if (error.status === 429) {
+          if (error.status === 429 || isRetryableProviderError(error)) {
+            coolDown(provider.name);
+            break;
+          }
+          if (!shouldTryNextProvider(error)) throw error;
           coolDown(provider.name);
           break;
         }
-
-        if (
-          provider.type === 'gemini' &&
-          isInvalidGeminiKey(error) &&
-          index < keys.length - 1
-        ) {
-          continue;
-        }
-
-        coolDown(provider.name);
-        if (!shouldTryNextProvider(error)) throw error;
-        break;
       }
     }
   }
