@@ -53,12 +53,10 @@ class AudioCaptureManager(private val context: Context) {
             val message = "Speech recognition is not available on this device."
             _liveCaptions.value = message
             _isListening.value = false
-            if (continuousMode) {
-                continuousMode = false
-                onSpeechResultCallback = null
-                onFatalRecognitionError?.invoke(message)
-                onFatalRecognitionError = null
-            }
+            continuousMode = false
+            onSpeechResultCallback = null
+            onFatalRecognitionError?.invoke(message)
+            onFatalRecognitionError = null
             return
         }
         try {
