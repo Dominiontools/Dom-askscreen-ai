@@ -84,9 +84,11 @@ async function run() {
     body: JSON.stringify({ prompt: 'One request over the limit' })
   });
   assert.equal(limited.statusCode, 429, 'Requests over the configured default limit should be rejected');
-  assert.equal(limited.headers['Retry-After'], '60', 'Rate limit should provide Retry-After');
+  const retryAfter = Number(limited.headers['Retry-After']);
+  assert.ok(Number.isInteger(retryAfter) && retryAfter >= 1 && retryAfter <= 60, 'Retry-After should reflect the remaining rolling-window wait');
   assert.equal(JSON.parse(limited.body).code, 'RATE_LIMITED');
-  console.log('PASS Rate limit returns retry guidance after 60 valid requests');
+  assert.equal(JSON.parse(limited.body).retryAfterSeconds, retryAfter, 'Body and header should agree on the retry duration');
+  console.log('PASS Rate limit returns accurate rolling-window retry guidance after 60 valid requests');
 
 
   const health = await healthHandler({ httpMethod: 'GET', headers: {} });
