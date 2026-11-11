@@ -798,7 +798,7 @@ class AskScreenOverlayService : Service() {
                     }
                     } finally {
                         audioAnswerMutex.unlock()
-                        if (audioCaptureManager.isListening()) {
+                        if (audioCaptureManager.isListening.value) {
                             bubbleState.value = BubbleState.LISTENING_AUDIO
                             liveCaptions.value = "Listening continuously..."
                         }
@@ -884,7 +884,7 @@ class AskScreenOverlayService : Service() {
                     }
                     } finally {
                         audioAnswerMutex.unlock()
-                        if (audioCaptureManager.isListening()) {
+                        if (audioCaptureManager.isListening.value) {
                             bubbleState.value = BubbleState.LISTENING_AUDIO
                             liveCaptions.value = "Listening continuously..."
                         }
