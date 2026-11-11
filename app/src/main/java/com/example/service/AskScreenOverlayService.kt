@@ -118,6 +118,10 @@ class AskScreenOverlayService : Service() {
     @Volatile private var autoMonitorPaused = false
     @Volatile private var autoMonitorRunning = false
 
+    // Prevent repeated speech-recognition callbacks from submitting the same phrase.
+    private var lastAudioTranscriptKey = ""
+    private var lastAudioTranscriptAt = 0L
+
     private var screenWidth = 1080
     private var screenHeight = 2400
 
@@ -706,6 +710,35 @@ class AskScreenOverlayService : Service() {
         }
     }
 
+    private fun shouldProcessAudioTranscript(transcript: String): Boolean {
+        val key = transcript.lowercase()
+            .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
+            .trim()
+            .replace(Regex("\\s+"), " ")
+        if (key.length < 3) return false
+        val now = System.currentTimeMillis()
+        if (key == lastAudioTranscriptKey && now - lastAudioTranscriptAt < 12_000L) {
+            Log.d("AskScreenOverlayService", "Ignoring duplicate audio transcript")
+            return false
+        }
+        lastAudioTranscriptKey = key
+        lastAudioTranscriptAt = now
+        return true
+    }
+
+    private suspend fun captureFreshScreenForListening(): Bitmap? {
+        if (!screenCaptureManager.hasMediaProjection()) return null
+        bubbleView?.visibility = View.INVISIBLE
+        answerWindowView?.visibility = View.INVISIBLE
+        return try {
+            delay(180)
+            screenCaptureManager.captureScreen()
+        } finally {
+            bubbleView?.visibility = if (isBubbleVisible) View.VISIBLE else View.GONE
+            answerWindowView?.visibility = if (isAnswerWindowVisible) View.VISIBLE else View.GONE
+        }
+    }
+
     fun startListenAudioAction() {
         serviceScope.launch {
             bubbleState.value = BubbleState.LISTENING_AUDIO
@@ -715,8 +748,9 @@ class AskScreenOverlayService : Service() {
             audioCaptureManager.startContinuousListening { transcript ->
                 serviceScope.launch {
                     liveCaptions.value = ""
-                    if (transcript.isBlank()) {
-                        bubbleState.value = BubbleState.IDLE
+                    if (transcript.isBlank() || !shouldProcessAudioTranscript(transcript)) {
+                        bubbleState.value = BubbleState.LISTENING_AUDIO
+                        liveCaptions.value = "Listening continuously..."
                         return@launch
                     }
 
@@ -784,6 +818,15 @@ class AskScreenOverlayService : Service() {
             audioCaptureManager.startContinuousListening { transcript ->
                 serviceScope.launch {
                     liveCaptions.value = ""
+                    if (transcript.isBlank() || !shouldProcessAudioTranscript(transcript)) {
+                        bubbleState.value = BubbleState.LISTENING_AUDIO
+                        liveCaptions.value = "Listening continuously..."
+                        return@launch
+                    }
+
+                    // Refresh the screen for each new spoken segment instead of reusing
+                    // the screenshot captured when the combined session first started.
+                    val currentScreen = captureFreshScreenForListening()
                     bubbleState.value = BubbleState.PROCESSING_AI
 
                     val userMsg = ChatMessage(
@@ -797,7 +840,7 @@ class AskScreenOverlayService : Service() {
                     val result = repository.askScreenAi(
                         prompt = prompt,
                         queryType = QueryType.SCREEN_AND_AUDIO,
-                        images = if (bitmap != null) listOf(bitmap) else emptyList(),
+                        images = if (currentScreen != null) listOf(currentScreen) else emptyList(),
                         chatHistory = sessionMessages.value
                     )
 
