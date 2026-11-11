@@ -104,17 +104,30 @@ class AudioCaptureManager(private val context: Context) {
                     override fun onError(error: Int) {
                         Log.w("AudioCaptureManager", "Speech recognition error code: $error")
                         val errorMessage = when (error) {
-                            SpeechRecognizer.ERROR_NO_MATCH -> "No speech recognized."
-                            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Speech timed out."
-                            SpeechRecognizer.ERROR_AUDIO -> "Audio recording error."
-                            SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network error during speech recognition."
+                            SpeechRecognizer.ERROR_NO_MATCH -> "No speech recognized. Keep speaking to try again."
+                            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Speech timed out. Listening again..."
+                            SpeechRecognizer.ERROR_AUDIO -> "Audio recording error. Check your microphone."
+                            SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network error during speech recognition. Retrying..."
+                            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission is missing. Allow microphone access in Android Settings."
+                            SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED -> "This speech language is not supported by your device's recognition service."
+                            SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> "This speech language is not currently available offline."
                             else -> "Audio capture error ($error)."
                         }
-                        if (_liveCaptions.value.isEmpty()) {
-                            _liveCaptions.value = errorMessage
-                        }
+                        _liveCaptions.value = errorMessage
                         _isListening.value = false
-                        if (continuousMode) scheduleRecognitionRestart(if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) 1200L else 700L)
+
+                        val cannotRecoverWithoutUserAction =
+                            error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ||
+                            error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ||
+                            error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE
+                        if (cannotRecoverWithoutUserAction) {
+                            continuousMode = false
+                            onSpeechResultCallback = null
+                            restartRunnable?.let(mainHandler::removeCallbacks)
+                            restartRunnable = null
+                        } else if (continuousMode) {
+                            scheduleRecognitionRestart(if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) 1200L else 700L)
+                        }
                     }
 
                     override fun onResults(results: Bundle?) {
