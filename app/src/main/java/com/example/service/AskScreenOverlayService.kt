@@ -1020,12 +1020,27 @@ class AskScreenOverlayService : Service() {
                     ttsManager.speak(answer, prefs.ttsSpeed)
                 }
             }.onFailure { err ->
-                bubbleState.value = BubbleState.ERROR
-                sessionMessages.value = sessionMessages.value + ChatMessage(
-                    role = "model",
-                    text = "Follow-up error: ${err.message}",
-                    queryType = queryType
-                )
+                val rateLimitSeconds = err.message
+                    ?.takeIf { it.startsWith("RATE_LIMITED:") }
+                    ?.substringAfter(":")
+                    ?.toLongOrNull()
+                if (rateLimitSeconds != null) {
+                    val waitSeconds = rateLimitSeconds.coerceAtLeast(1)
+                    bubbleState.value = BubbleState.IDLE
+                    val waitText = if (waitSeconds == 1L) "1 second" else "$waitSeconds seconds"
+                    sessionMessages.value = sessionMessages.value + ChatMessage(
+                        role = "model",
+                        text = "You've reached the temporary request limit. Please wait $waitText before asking your next question. Your question hasn't been answered yet.",
+                        queryType = queryType
+                    )
+                } else {
+                    bubbleState.value = BubbleState.ERROR
+                    sessionMessages.value = sessionMessages.value + ChatMessage(
+                        role = "model",
+                        text = "I couldn't complete that request. ${err.message ?: "Please try again."}",
+                        queryType = queryType
+                    )
+                }
             }
         }
     }
