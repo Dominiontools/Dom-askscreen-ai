@@ -148,7 +148,6 @@ class AudioCaptureManager(private val context: Context) {
     fun startListening(languageTag: String? = null, onResult: (String) -> Unit) {
         recognitionLanguageTag = languageTag?.takeIf { it.isNotBlank() }
         continuousMode = false
-        recognitionLanguageTag = null
         restartRunnable?.let(mainHandler::removeCallbacks)
         onSpeechResultCallback = onResult
         _liveCaptions.value = "Listening to audio..."
