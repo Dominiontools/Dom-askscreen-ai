@@ -319,12 +319,6 @@ class AskScreenRepository(private val context: Context) {
                 throw Exception(error)
             }
         }
-        if (json.optBoolean("success", false)) {
-            return json.optString("answer", "No answer received.")
-        } else {
-            val error = json.optString("error", "Unknown backend error")
-            throw Exception(error)
-        }
     }
 
     private fun scaleBitmapIfNeeded(bitmap: Bitmap, maxDim: Int): Bitmap {
