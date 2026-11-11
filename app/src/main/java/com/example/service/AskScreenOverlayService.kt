@@ -859,16 +859,8 @@ class AskScreenOverlayService : Service() {
         }
 
         serviceScope.launch {
-            bubbleState.value = BubbleState.CAPTURING_SCREEN
-            bubbleView?.visibility = View.INVISIBLE
-            answerWindowView?.visibility = View.INVISIBLE
-            delay(180)
-
-            val bitmap = screenCaptureManager.captureScreen()
-
-            bubbleView?.visibility = if (isBubbleVisible) View.VISIBLE else View.GONE
-            answerWindowView?.visibility = if (isAnswerWindowVisible) View.VISIBLE else View.GONE
-
+            // Combined mode captures a fresh frame when each spoken segment arrives.
+            // Avoid taking an unused initial screenshot when listening starts.
             bubbleState.value = BubbleState.LISTENING_AUDIO
             showAnswerWindow()
             liveCaptions.value = "Listening to accompanying audio..."
@@ -899,7 +891,11 @@ class AskScreenOverlayService : Service() {
                     )
                     sessionMessages.value = sessionMessages.value + userMsg
 
-                    val prompt = "The user is watching a video/lesson. Screen image is attached, and accompanying audio is: \"$transcript\". Combine the visual content and spoken explanation to give an exact, insightful answer."
+                    val prompt = if (currentScreen != null) {
+                        "The user is watching a video/lesson. A fresh screen image is attached, and accompanying audio is: \"$transcript\". Combine the visual content and spoken explanation to give an exact, insightful answer."
+                    } else {
+                        "The user is listening to spoken content, but a fresh screen image could not be captured. Answer the spoken question or explain the audio accurately without claiming to see a screen: \"$transcript\"."
+                    }
                     val result = repository.askScreenAi(
                         prompt = prompt,
                         queryType = QueryType.SCREEN_AND_AUDIO,
