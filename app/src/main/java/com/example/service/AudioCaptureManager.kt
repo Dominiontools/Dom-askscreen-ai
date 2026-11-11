@@ -37,6 +37,10 @@ class AudioCaptureManager(private val context: Context) {
 
     private var onSpeechResultCallback: ((String) -> Unit)? = null
     @Volatile private var continuousMode = false
+
+    /** True for the whole continuous session, including the short gaps between recognizer requests. */
+    val isContinuousListening: Boolean
+        get() = continuousMode
     private var restartRunnable: Runnable? = null
     @Volatile private var recognitionLanguageTag: String? = null
 
