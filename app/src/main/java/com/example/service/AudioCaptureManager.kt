@@ -27,6 +27,7 @@ class AudioCaptureManager(private val context: Context) {
     val audioRmsDb: StateFlow<Float> = _audioRmsDb
 
     private var onSpeechResultCallback: ((String) -> Unit)? = null
+    private var onFatalRecognitionError: ((String) -> Unit)? = null
     @Volatile private var continuousMode = false
 
     /** True for the whole continuous session, including the short gaps between recognizer requests. */
@@ -49,7 +50,15 @@ class AudioCaptureManager(private val context: Context) {
         if (!continuousMode && onSpeechResultCallback == null) return
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             _isListening.value = false
-            _liveCaptions.value = "Speech recognition is not available on this device."
+            val message = "Speech recognition is not available on this device."
+            _liveCaptions.value = message
+            _isListening.value = false
+            if (continuousMode) {
+                continuousMode = false
+                onSpeechResultCallback = null
+                onFatalRecognitionError?.invoke(message)
+                onFatalRecognitionError = null
+            }
             return
         }
         try {
@@ -125,6 +134,8 @@ class AudioCaptureManager(private val context: Context) {
                             onSpeechResultCallback = null
                             restartRunnable?.let(mainHandler::removeCallbacks)
                             restartRunnable = null
+                            onFatalRecognitionError?.invoke(errorMessage)
+                            onFatalRecognitionError = null
                         } else if (continuousMode) {
                             scheduleRecognitionRestart(if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) 1200L else 700L)
                         }
@@ -169,10 +180,15 @@ class AudioCaptureManager(private val context: Context) {
     }
 
     /** Keeps microphone speech recognition active by starting a fresh request after each result. */
-    fun startContinuousListening(languageTag: String? = null, onResult: (String) -> Unit) {
+    fun startContinuousListening(
+        languageTag: String? = null,
+        onResult: (String) -> Unit,
+        onFatalError: ((String) -> Unit)? = null
+    ) {
         recognitionLanguageTag = languageTag?.takeIf { it.isNotBlank() }
         continuousMode = true
         onSpeechResultCallback = onResult
+        onFatalRecognitionError = onFatalError
         _liveCaptions.value = "Listening continuously..."
         _isListening.value = true
         mainHandler.post {
@@ -190,6 +206,7 @@ class AudioCaptureManager(private val context: Context) {
         restartRunnable?.let(mainHandler::removeCallbacks)
         restartRunnable = null
         onSpeechResultCallback = null
+        onFatalRecognitionError = null
         mainHandler.post {
             try {
                 speechRecognizer?.stopListening()
