@@ -832,7 +832,7 @@ class AskScreenOverlayService : Service() {
             bubbleState.value = BubbleState.LISTENING_AUDIO
             showAnswerWindow()
             liveCaptions.value = "Transcribing speech only — no AI answers..."
-            audioCaptureManager.startContinuousListening { transcript ->
+            audioCaptureManager.startContinuousListening(prefs.audioLanguageTag) { transcript ->
                 serviceScope.launch {
                     if (transcript.isBlank() || !shouldProcessAudioTranscript(transcript)) return@launch
                     sessionMessages.value = sessionMessages.value + ChatMessage(
@@ -873,7 +873,7 @@ class AskScreenOverlayService : Service() {
             showAnswerWindow()
             liveCaptions.value = "Listening to accompanying audio..."
 
-            audioCaptureManager.startContinuousListening { transcript ->
+            audioCaptureManager.startContinuousListening(prefs.audioLanguageTag) { transcript ->
                 serviceScope.launch {
                     if (!audioAnswerMutex.tryLock()) {
                         liveCaptions.value = "Processing the previous question..."
