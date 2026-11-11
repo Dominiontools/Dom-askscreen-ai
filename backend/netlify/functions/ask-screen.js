@@ -1,6 +1,8 @@
 
 'use strict';
 
+const { randomUUID } = require('crypto');
+
 /**
  * AskScreen AI — Netlify serverless model router
  * API keys are read only from Netlify environment variables.
@@ -31,11 +33,14 @@ const CORS_HEADERS = {
   'Content-Type': 'application/json; charset=utf-8',
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Version'
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Version',
+  'Access-Control-Expose-Headers': 'X-Request-Id'
 };
 
-function response(statusCode, data) {
-  return { statusCode, headers: CORS_HEADERS, body: JSON.stringify(data) };
+function response(statusCode, data, requestId) {
+  const headers = { ...CORS_HEADERS };
+  if (requestId) headers['X-Request-Id'] = requestId;
+  return { statusCode, headers, body: JSON.stringify(data) };
 }
 
 function safeJsonParse(value) {
@@ -491,6 +496,7 @@ async function routeRequest(payload) {
 }
 
 exports.handler = async function handler(event) {
+  const requestId = randomUUID();
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers: CORS_HEADERS, body: '' };
   }
@@ -499,7 +505,7 @@ exports.handler = async function handler(event) {
     return response(405, {
       success: false,
       error: 'Method not allowed. Use POST.'
-    });
+    }, requestId);
   }
 
   const contentType = getHeader(event.headers, 'content-type').toLowerCase();
@@ -507,7 +513,7 @@ exports.handler = async function handler(event) {
     return response(415, {
       success: false,
       error: 'Content-Type must be application/json.'
-    });
+    }, requestId);
   }
 
   let bodyBytes;
@@ -517,21 +523,21 @@ exports.handler = async function handler(event) {
     return response(400, {
       success: false,
       error: 'Invalid request body.'
-    });
+    }, requestId);
   }
 
   if (bodyBytes > MAX_BODY_BYTES) {
     return response(413, {
       success: false,
       error: 'Request is too large. Reduce attachment size and try again.'
-    });
+    }, requestId);
   }
 
   if (isRateLimited(requestIp(event))) {
     return response(429, {
       success: false,
       error: 'Too many requests. Please wait and try again.'
-    });
+    }, requestId);
   }
 
   const raw = safeJsonParse(decodeEventBody(event));
@@ -539,7 +545,7 @@ exports.handler = async function handler(event) {
     return response(400, {
       success: false,
       error: 'Invalid JSON request.'
-    });
+    }, requestId);
   }
 
   let payload;
@@ -564,32 +570,35 @@ exports.handler = async function handler(event) {
     return response(400, {
       success: false,
       error: messages[error.message] || 'Invalid attachment or request.'
-    });
+    }, requestId);
   }
 
   try {
     const result = await routeRequest(payload);
-    return response(200, result);
+    return response(200, result, requestId);
   } catch (error) {
-    console.error('[AskScreen Router] Request failed', error.code || error.message);
+    console.error('[AskScreen Router] Request failed', { requestId, code: error.code || 'UPSTREAM_FAILURE' });
 
     if (error.code === 'NO_PROVIDER_CONFIGURED') {
       return response(503, {
         success: false,
-        error: 'No AI provider is configured on the server.'
-      });
+        error: 'No AI provider is configured on the server.',
+        code: 'NO_PROVIDER_CONFIGURED', requestId
+      }, requestId);
     }
 
     if (error.code === 'NO_MULTIMODAL_PROVIDER') {
       return response(503, {
         success: false,
-        error: 'Image, audio and file questions require a configured Gemini API key. Please try again later.'
-      });
+        error: 'Image, audio and file questions require a configured Gemini API key. Please try again later.',
+        code: 'NO_MULTIMODAL_PROVIDER', requestId
+      }, requestId);
     }
 
     return response(503, {
       success: false,
-      error: 'AskScreen AI is temporarily unable to answer. Please try again shortly.'
-    });
+      error: 'AskScreen AI is temporarily unable to answer. Please try again shortly.',
+      code: 'UPSTREAM_UNAVAILABLE', requestId
+    }, requestId);
   }
 };
