@@ -52,6 +52,7 @@ fun SettingsScreen() {
     var isPermanentHistory by remember { mutableStateOf(prefs.isPermanentHistoryEnabled) }
     var isAutoSubmit by remember { mutableStateOf(prefs.isAutoSubmitEnabled) }
     var monitorInterval by remember { mutableFloatStateOf(prefs.autoMonitorIntervalMs.toFloat() / 1000f) }
+    var audioLanguageTag by remember { mutableStateOf(prefs.audioLanguageTag) }
 
     var isTestingConnection by remember { mutableStateOf(false) }
 
@@ -223,6 +224,28 @@ fun SettingsScreen() {
 
         // 4. VOICE & TTS
         SettingsCard(title = "Voice & Text-To-Speech", icon = Icons.Default.VolumeUp) {
+            Text("Speech recognition language", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Medium)
+            Text("Choose the language spoken into your microphone. Support depends on your Android speech-recognition provider.", fontSize = 11.sp, color = Slate400)
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                listOf("" to "Device default", "en-NG" to "English", "yo-NG" to "Yoruba").forEach { (tag, label) ->
+                    FilterChip(
+                        selected = audioLanguageTag == tag,
+                        onClick = {
+                            audioLanguageTag = tag
+                            prefs.audioLanguageTag = tag
+                        },
+                        label = { Text(label, fontSize = 10.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = ElectricCyan,
+                            selectedLabelColor = Slate950,
+                            containerColor = Slate800,
+                            labelColor = Slate300
+                        )
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
