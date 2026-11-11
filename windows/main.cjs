@@ -1,33 +1,27 @@
-const { app, BrowserWindow, ipcMain, globalShortcut, desktopCapturer, screen } = require('electron');
-const path = require('path');
-let win;
-let compact = false;
-function createWindow() {
-  win = new BrowserWindow({
-    width: 430, height: 700, minWidth: 360, minHeight: 500,
-    title: 'Dominion Ask AI',
-    alwaysOnTop: true,
-    frame: true,
-    autoHideMenuBar: true,
-    backgroundColor: '#10131c',
-    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true }
-  });
-  win.loadFile('index.html');
-  win.on('closed', () => { win = null; });
-  globalShortcut.register('CommandOrControl+Shift+Space', () => {
-    if (!win) return;
-    if (win.isVisible()) win.hide(); else { win.show(); win.focus(); }
-  });
-  globalShortcut.register('CommandOrControl+Shift+M', () => win && win.webContents.send('toggle-mic'));
-}
-app.whenReady().then(createWindow);
-app.on('will-quit', () => globalShortcut.unregisterAll());
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-ipcMain.handle('capture-screen', async () => {
-  const displays = screen.getAllDisplays();
-  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1600, height: 1000 } });
-  return sources.map((s, i) => ({ id: s.id, name: s.name, dataUrl: s.thumbnail.toDataURL(), display: i }));
-});
-ipcMain.on('set-always-on-top', (_e, value) => win && win.setAlwaysOnTop(Boolean(value), 'floating'));
-ipcMain.on('minimize-window', () => win && win.minimize());
-ipcMain.on('close-window', () => win && win.close());
+const {app,BrowserWindow,ipcMain,globalShortcut,desktopCapturer,screen,Tray,Menu,nativeImage}=require('electron');
+const path=require('path');
+let panel,bubble,answer,region,tray;
+const html=n=>path.join(__dirname,n);
+function top(w){if(w&&!w.isDestroyed())w.setAlwaysOnTop(true,'screen-saver');}
+function createPanel(){panel=new BrowserWindow({width:460,height:760,minWidth:380,minHeight:520,show:false,title:'Dominion Ask AI',alwaysOnTop:true,backgroundColor:'#10131c',webPreferences:{preload:html('preload.cjs'),contextIsolation:true,nodeIntegration:false}});
+panel.loadFile(html('index.html'));panel.on('closed',()=>panel=null);}
+function createBubble(){bubble=new BrowserWindow({width:76,height:76,x:screen.getPrimaryDisplay().workArea.width-100,y:180,frame:false,transparent:true,resizable:false,alwaysOnTop:true,skipTaskbar:true,hasShadow:false,webPreferences:{preload:html('preload.cjs'),contextIsolation:true,nodeIntegration:false}});
+bubble.loadFile(html('bubble.html'));top(bubble);}
+function createAnswer(){answer=new BrowserWindow({width:440,height:340,show:false,frame:false,transparent:true,resizable:true,alwaysOnTop:true,skipTaskbar:true,webPreferences:{preload:html('preload.cjs'),contextIsolation:true,nodeIntegration:false}});
+answer.loadFile(html('answer.html'));top(answer);}
+function createRegion(){const d=screen.getPrimaryDisplay();region=new BrowserWindow({x:d.bounds.x,y:d.bounds.y,width:d.bounds.width,height:d.bounds.height,frame:false,transparent:true,backgroundColor:'#00000000',alwaysOnTop:true,skipTaskbar:true,resizable:false,webPreferences:{preload:html('preload.cjs'),contextIsolation:true,nodeIntegration:false}});
+region.loadFile(html('region.html'));top(region);region.setAlwaysOnTop(true,'screen-saver');}
+async function capture(){const d=screen.getPrimaryDisplay();const sources=await desktopCapturer.getSources({types:['screen'],thumbnailSize:{width:d.size.width,height:d.size.height}});const src=sources.find(s=>s.display_id===String(d.id))||sources[0];if(!src)throw Error('No screen source available');return src.thumbnail.toDataURL();}
+ipcMain.handle('capture-screen',capture);
+ipcMain.handle('capture-region',async(_,rect)=>{const data=await capture();return {data,rect};});
+ipcMain.on('bubble-action',(_,action)=>{if(action==='open'){panel?.show();panel?.focus();}else if(action==='answer'){createAnswer();answer?.show();}else if(action==='region'){createRegion();}else if(action==='hide'){bubble?.hide();}else if(action==='read'||action==='listen'||action==='transcribe'||action==='readlisten'){panel?.show();panel?.webContents.send('run-mode',action);}}); 
+ipcMain.on('region-selected',(_,payload)=>{region?.close();panel?.show();panel?.webContents.send('region-selected',payload);});
+ipcMain.on('show-answer',(_,text)=>{createAnswer();answer?.show();answer?.webContents.send('answer-text',text);});
+ipcMain.on('answer-close',()=>answer?.hide());
+ipcMain.on('panel-hide',()=>panel?.hide());
+ipcMain.on('set-always-on-top',(_,v)=>{if(panel&&!panel.isDestroyed())panel.setAlwaysOnTop(!!v);});
+ipcMain.on('minimize-window',()=>panel?.hide());
+ipcMain.on('close-window',()=>panel?.hide());
+app.whenReady().then(()=>{createPanel();createBubble();createAnswer();globalShortcut.register('CommandOrControl+Shift+Space',()=>{if(panel?.isVisible())panel.hide();else panel?.show();});globalShortcut.register('CommandOrControl+Shift+B',()=>{if(bubble?.isVisible())bubble.hide();else bubble?.show();});globalShortcut.register('CommandOrControl+Shift+R',()=>createRegion());});
+app.on('will-quit',()=>globalShortcut.unregisterAll());
+app.on('window-all-closed',e=>{});
