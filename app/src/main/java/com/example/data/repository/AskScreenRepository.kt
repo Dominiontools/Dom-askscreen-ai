@@ -287,15 +287,38 @@ class AskScreenRepository(private val context: Context) {
             .post(requestBody)
             .build()
 
-        val response = httpClient.newCall(request).execute()
-        val responseBody = response.body?.string() ?: ""
+        httpClient.newCall(request).execute().use { response ->
+            val responseBody = response.body?.string().orEmpty()
 
-        if (!response.isSuccessful) {
-            val serverMsg = try { JSONObject(responseBody).optString("error", "") } catch (e: Exception) { "" }
-            throw Exception("Backend error (" + response.code + "): " + serverMsg.ifBlank { responseBody.take(200) })
+            if (!response.isSuccessful) {
+                val errorJson = try { JSONObject(responseBody) } catch (_: Exception) { JSONObject() }
+                val serverMsg = errorJson.optString("error", "")
+                val errorCode = errorJson.optString("code", "")
+                val requestId = response.header("X-Request-Id").orEmpty()
+                if (response.code == 429 || errorCode == "RATE_LIMITED") {
+                    val retryAfter = response.header("Retry-After")
+                        ?.toLongOrNull()
+                        ?: errorJson.optLong("retryAfterSeconds", 60L)
+                    throw Exception(
+                        "The AI server is receiving too many requests right now. " +
+                            "Please wait about ${retryAfter.coerceAtLeast(1)} seconds, then try again."
+                    )
+                }
+                val diagnostic = if (requestId.isNotBlank()) " (Request ID: $requestId)" else ""
+                throw Exception(
+                    "Backend error (${response.code}): " +
+                        serverMsg.ifBlank { "The server could not complete the request." } + diagnostic
+                )
+            }
+
+            val json = JSONObject(responseBody)
+            if (json.optBoolean("success", false)) {
+                return json.optString("answer", "No answer received.")
+            } else {
+                val error = json.optString("error", "Unknown backend error")
+                throw Exception(error)
+            }
         }
-
-        val json = JSONObject(responseBody)
         if (json.optBoolean("success", false)) {
             return json.optString("answer", "No answer received.")
         } else {
