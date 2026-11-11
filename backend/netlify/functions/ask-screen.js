@@ -1,6 +1,8 @@
 
 'use strict';
 
+const { randomUUID } = require('crypto');
+
 /**
  * AskScreen AI — Netlify serverless model router
  * API keys are read only from Netlify environment variables.
@@ -12,30 +14,42 @@ const rateLimitMap = new Map();
 const cooldowns = new Map();
 
 const RATE_WINDOW_MS = 60_000;
-const MAX_REQUESTS_PER_WINDOW = 30;
+const DEFAULT_MAX_REQUESTS_PER_WINDOW = 60;
+const configuredRateLimit = Number.parseInt(process.env.MAX_REQUESTS_PER_MINUTE || '', 10);
+const MAX_REQUESTS_PER_WINDOW = Number.isFinite(configuredRateLimit)
+  ? Math.min(300, Math.max(10, configuredRateLimit))
+  : DEFAULT_MAX_REQUESTS_PER_WINDOW;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 const PROVIDER_TIMEOUT_MS = 8_000;
 const ROUTER_DEADLINE_MS = 24_000;
+const MAX_PROVIDER_RETRIES = 1;
+const RETRY_BASE_DELAY_MS = 350;
 const COOLDOWN_MS = 30_000;
 const MAX_HISTORY_ITEMS = 12;
 const MAX_ATTACHMENTS = 8;
 const MAX_PROMPT_CHARS = 100_000;
 
 const SYSTEM_INSTRUCTION =
-  'You are AskScreen AI, an on-screen reading and learning assistant. ' +
+  'You are DOM Ask AI, an on-screen reading and learning assistant. ' +
+  'Carefully inspect every supplied screenshot or image before answering. Read visible text and answer choices accurately; ' +
+  'for diagrams, charts, tables, maps, and labelled figures, use the visual relationships and labels rather than guessing from isolated words. ' +
+  'If an image is blurry, cropped, too small, or ambiguous, identify exactly what cannot be read and ask for a clearer image instead of inventing details. ' +
   'For multiple-choice practice or self-study questions, return only the option letter and answer text unless an explanation is requested. ' +
   'For other questions, answer directly and concisely. Answer multiple visible questions separately in screen order. ' +
-  'If text is unclear, say so instead of guessing. Never claim to have selected or submitted an answer.';
+  'Never claim to have clicked, selected, or submitted an answer.';
 
 const CORS_HEADERS = {
   'Content-Type': 'application/json; charset=utf-8',
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Version'
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Version',
+  'Access-Control-Expose-Headers': 'X-Request-Id'
 };
 
-function response(statusCode, data) {
-  return { statusCode, headers: CORS_HEADERS, body: JSON.stringify(data) };
+function response(statusCode, data, requestId, extraHeaders = {}) {
+  const headers = { ...CORS_HEADERS, ...extraHeaders };
+  if (requestId) headers['X-Request-Id'] = requestId;
+  return { statusCode, headers, body: JSON.stringify(data) };
 }
 
 function safeJsonParse(value) {
@@ -56,18 +70,22 @@ function requestIp(event) {
     getHeader(event.headers, 'x-forwarded-for').split(',')[0].trim() || 'unknown';
 }
 
-function isRateLimited(ip) {
+function getRateLimitRetryAfterSeconds(ip) {
   const now = Date.now();
   const recent = (rateLimitMap.get(ip) || []).filter(t => now - t < RATE_WINDOW_MS);
-  if (recent.length >= MAX_REQUESTS_PER_WINDOW) return true;
-  recent.push(now);
-  rateLimitMap.set(ip, recent);
-  if (rateLimitMap.size > 2_000) {
-    for (const [key, times] of rateLimitMap) {
-      if (!times.length || now - times[times.length - 1] >= RATE_WINDOW_MS) rateLimitMap.delete(key);
+  if (recent.length < MAX_REQUESTS_PER_WINDOW) {
+    recent.push(now);
+    rateLimitMap.set(ip, recent);
+    if (rateLimitMap.size > 2_000) {
+      for (const [key, times] of rateLimitMap) {
+        if (!times.length || now - times[times.length - 1] >= RATE_WINDOW_MS) rateLimitMap.delete(key);
+      }
     }
+    return 0;
   }
-  return false;
+
+  // The oldest request in the active window is the first one that will free a slot.
+  return Math.max(1, Math.ceil((recent[0] + RATE_WINDOW_MS - now) / 1000));
 }
 
 function isCoolingDown(name) {
@@ -287,7 +305,7 @@ async function fetchJson(url, options, remainingMs) {
       e.code = 'TIMEOUT';
       throw e;
     }
-    return { response: result, data };
+    return { response: result, data, retryAfter: result.headers.get('retry-after') };
   } catch (error) {
     if (error.name === 'AbortError') {
       const e = new Error('Provider request timed out');
@@ -300,12 +318,17 @@ async function fetchJson(url, options, remainingMs) {
   }
 }
 
-function providerError(status, data) {
+function providerError(status, data, retryAfter) {
   const message = data?.error?.message || data?.message || data?.detail || data?.rawError || ('Provider HTTP ' + status);
   const error = new Error(String(message).slice(0, 500));
   error.status = status;
   const code = data?.error?.status || data?.error?.code || data?.code || '';
   error.providerCode = String(code);
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    const dateDelay = Number.isNaN(seconds) ? Date.parse(retryAfter) - Date.now() : seconds * 1000;
+    if (Number.isFinite(dateDelay) && dateDelay > 0) error.retryAfterMs = Math.min(dateDelay, 5_000);
+  }
   return error;
 }
 
@@ -359,7 +382,7 @@ async function callProvider(provider, payload, key, deadline) {
     deadline
   }, remaining);
 
-  if (!httpResponse.ok) throw providerError(httpResponse.status, data);
+  if (!httpResponse.ok) throw providerError(httpResponse.status, data, httpResponse.headers.get('retry-after'));
 
   let answer = '';
   let finishReason = 'STOP';
@@ -420,6 +443,16 @@ function shouldTryNextProvider(error) {
   return [400, 401, 403, 404, 408, 409, 422, 425, 429, 500, 502, 503, 504].includes(error.status);
 }
 
+
+function isRetryableProviderError(error) {
+  if (error.code === 'TIMEOUT' || !error.status) return true;
+  return [408, 425, 429, 500, 502, 503, 504].includes(error.status);
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function routeRequest(payload) {
   const providers = getProviders(payload);
 
@@ -442,44 +475,52 @@ async function routeRequest(payload) {
     const keys = provider.type === 'gemini' ? provider.keys : [provider.key];
 
     for (let index = 0; index < keys.length; index++) {
-      try {
-        const result = await callProvider(provider, payload, keys[index], deadline);
+      let attempt = 0;
+      while (attempt <= MAX_PROVIDER_RETRIES && Date.now() < deadline) {
+        try {
+          const result = await callProvider(provider, payload, keys[index], deadline);
+          console.info('[AskScreen Router] Provider succeeded', {
+            provider: provider.name,
+            model: provider.model,
+            latencyMs: result.diagnostics.latencyMs,
+            attempt: attempt + 1
+          });
+          return result;
+        } catch (error) {
+          failures.push({
+            provider: provider.name,
+            status: error.status || error.code || 'NETWORK_ERROR',
+            attempt: attempt + 1
+          });
+          console.warn('[AskScreen Router] Provider attempt failed', {
+            provider: provider.name,
+            status: error.status || error.code || 'NETWORK_ERROR',
+            attempt: attempt + 1
+          });
 
-        console.info('[AskScreen Router] Provider succeeded', {
-          provider: provider.name,
-          model: provider.model,
-          latencyMs: result.diagnostics.latencyMs
-        });
+          if (
+            provider.type === 'gemini' &&
+            isInvalidGeminiKey(error) &&
+            index < keys.length - 1
+          ) break;
 
-        return result;
-      } catch (error) {
-        failures.push({
-          provider: provider.name,
-          status: error.status || error.code || 'NETWORK_ERROR'
-        });
+          const canRetry = isRetryableProviderError(error) &&
+            attempt < MAX_PROVIDER_RETRIES;
+          const backoff = error.retryAfterMs || RETRY_BASE_DELAY_MS * (attempt + 1);
+          if (canRetry && Date.now() + backoff + 250 < deadline) {
+            attempt++;
+            await wait(backoff);
+            continue;
+          }
 
-        console.warn('[AskScreen Router] Provider failed', {
-          provider: provider.name,
-          status: error.status || error.code || 'NETWORK_ERROR',
-          message: String(error.message || '').slice(0, 180)
-        });
-
-        if (error.status === 429) {
+          if (error.status === 429 || isRetryableProviderError(error)) {
+            coolDown(provider.name);
+            break;
+          }
+          if (!shouldTryNextProvider(error)) throw error;
           coolDown(provider.name);
           break;
         }
-
-        if (
-          provider.type === 'gemini' &&
-          isInvalidGeminiKey(error) &&
-          index < keys.length - 1
-        ) {
-          continue;
-        }
-
-        coolDown(provider.name);
-        if (!shouldTryNextProvider(error)) throw error;
-        break;
       }
     }
   }
@@ -491,6 +532,7 @@ async function routeRequest(payload) {
 }
 
 exports.handler = async function handler(event) {
+  const requestId = randomUUID();
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers: CORS_HEADERS, body: '' };
   }
@@ -499,7 +541,7 @@ exports.handler = async function handler(event) {
     return response(405, {
       success: false,
       error: 'Method not allowed. Use POST.'
-    });
+    }, requestId);
   }
 
   const contentType = getHeader(event.headers, 'content-type').toLowerCase();
@@ -507,7 +549,7 @@ exports.handler = async function handler(event) {
     return response(415, {
       success: false,
       error: 'Content-Type must be application/json.'
-    });
+    }, requestId);
   }
 
   let bodyBytes;
@@ -517,21 +559,14 @@ exports.handler = async function handler(event) {
     return response(400, {
       success: false,
       error: 'Invalid request body.'
-    });
+    }, requestId);
   }
 
   if (bodyBytes > MAX_BODY_BYTES) {
     return response(413, {
       success: false,
       error: 'Request is too large. Reduce attachment size and try again.'
-    });
-  }
-
-  if (isRateLimited(requestIp(event))) {
-    return response(429, {
-      success: false,
-      error: 'Too many requests. Please wait and try again.'
-    });
+    }, requestId);
   }
 
   const raw = safeJsonParse(decodeEventBody(event));
@@ -539,7 +574,7 @@ exports.handler = async function handler(event) {
     return response(400, {
       success: false,
       error: 'Invalid JSON request.'
-    });
+    }, requestId);
   }
 
   let payload;
@@ -564,32 +599,46 @@ exports.handler = async function handler(event) {
     return response(400, {
       success: false,
       error: messages[error.message] || 'Invalid attachment or request.'
-    });
+    }, requestId);
+  }
+
+  // Count only valid requests so malformed payloads do not consume the user's quota.
+  const retryAfterSeconds = getRateLimitRetryAfterSeconds(requestIp(event));
+  if (retryAfterSeconds > 0) {
+    return response(429, {
+      success: false,
+      error: 'Too many requests. Please wait and try again.',
+      code: 'RATE_LIMITED',
+      retryAfterSeconds
+    }, requestId, { 'Retry-After': String(retryAfterSeconds) });
   }
 
   try {
     const result = await routeRequest(payload);
-    return response(200, result);
+    return response(200, result, requestId);
   } catch (error) {
-    console.error('[AskScreen Router] Request failed', error.code || error.message);
+    console.error('[AskScreen Router] Request failed', { requestId, code: error.code || 'UPSTREAM_FAILURE' });
 
     if (error.code === 'NO_PROVIDER_CONFIGURED') {
       return response(503, {
         success: false,
-        error: 'No AI provider is configured on the server.'
-      });
+        error: 'No AI provider is configured on the server.',
+        code: 'NO_PROVIDER_CONFIGURED', requestId
+      }, requestId);
     }
 
     if (error.code === 'NO_MULTIMODAL_PROVIDER') {
       return response(503, {
         success: false,
-        error: 'Image, audio and file questions require a configured Gemini API key. Please try again later.'
-      });
+        error: 'Image, audio and file questions require a configured Gemini API key. Please try again later.',
+        code: 'NO_MULTIMODAL_PROVIDER', requestId
+      }, requestId);
     }
 
     return response(503, {
       success: false,
-      error: 'AskScreen AI is temporarily unable to answer. Please try again shortly.'
-    });
+      error: 'AskScreen AI is temporarily unable to answer. Please try again shortly.',
+      code: 'UPSTREAM_UNAVAILABLE', requestId
+    }, requestId);
   }
 };

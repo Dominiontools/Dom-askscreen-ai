@@ -2,24 +2,15 @@ package com.example.service
 
 import android.content.Context
 import android.content.Intent
-import android.media.AudioFormat
-import android.media.AudioRecord
-import android.media.MediaRecorder
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
-import android.util.Base64
 import android.util.Log
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
-import java.io.ByteArrayOutputStream
 import java.util.Locale
 
 class AudioCaptureManager(private val context: Context) {
@@ -36,8 +27,14 @@ class AudioCaptureManager(private val context: Context) {
     val audioRmsDb: StateFlow<Float> = _audioRmsDb
 
     private var onSpeechResultCallback: ((String) -> Unit)? = null
+    var onFatalRecognitionError: ((String) -> Unit)? = null
     @Volatile private var continuousMode = false
+
+    /** True for the whole continuous session, including the short gaps between recognizer requests. */
+    val isContinuousListening: Boolean
+        get() = continuousMode
     private var restartRunnable: Runnable? = null
+    @Volatile private var recognitionLanguageTag: String? = null
 
     private fun scheduleRecognitionRestart(delayMs: Long = 650L) {
         if (!continuousMode) return
@@ -51,26 +48,38 @@ class AudioCaptureManager(private val context: Context) {
 
     private fun startRecognitionRequest() {
         if (!continuousMode && onSpeechResultCallback == null) return
+        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+            _isListening.value = false
+            val message = "Speech recognition is not available on this device."
+            _liveCaptions.value = message
+            _isListening.value = false
+            continuousMode = false
+            onSpeechResultCallback = null
+            onFatalRecognitionError?.invoke(message)
+            onFatalRecognitionError = null
+            return
+        }
         try {
             if (speechRecognizer == null) initSpeechRecognizer()
+            val recognizer = speechRecognizer
+                ?: throw IllegalStateException("Speech recognition could not be initialized.")
+            val languageTag = recognitionLanguageTag ?: Locale.getDefault().toLanguageTag()
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, languageTag)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
             }
-            speechRecognizer?.startListening(intent)
+            recognizer.startListening(intent)
             _isListening.value = true
         } catch (e: Exception) {
             Log.e("AudioCaptureManager", "Error starting recognition request", e)
             _isListening.value = false
+            _liveCaptions.value = "Could not start speech recognition. Retrying..."
             if (continuousMode) scheduleRecognitionRestart(1400L)
         }
     }
-    private var audioRecord: AudioRecord? = null
-    private var recordingJob: Job? = null
-    private val scope = CoroutineScope(Dispatchers.IO)
-    private var recordedAudioStream: ByteArrayOutputStream? = null
 
     init {
         mainHandler.post {
@@ -102,17 +111,32 @@ class AudioCaptureManager(private val context: Context) {
                     override fun onError(error: Int) {
                         Log.w("AudioCaptureManager", "Speech recognition error code: $error")
                         val errorMessage = when (error) {
-                            SpeechRecognizer.ERROR_NO_MATCH -> "No speech recognized."
-                            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Speech timed out."
-                            SpeechRecognizer.ERROR_AUDIO -> "Audio recording error."
-                            SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network error during speech recognition."
+                            SpeechRecognizer.ERROR_NO_MATCH -> "No speech recognized. Keep speaking to try again."
+                            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Speech timed out. Listening again..."
+                            SpeechRecognizer.ERROR_AUDIO -> "Audio recording error. Check your microphone."
+                            SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network error during speech recognition. Retrying..."
+                            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission is missing. Allow microphone access in Android Settings."
+                            SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED -> "This speech language is not supported by your device's recognition service."
+                            SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> "This speech language is not currently available offline."
                             else -> "Audio capture error ($error)."
                         }
-                        if (_liveCaptions.value.isEmpty()) {
-                            _liveCaptions.value = errorMessage
-                        }
+                        _liveCaptions.value = errorMessage
                         _isListening.value = false
-                        if (continuousMode) scheduleRecognitionRestart(if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) 1200L else 700L)
+
+                        val cannotRecoverWithoutUserAction =
+                            error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ||
+                            error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ||
+                            error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE
+                        if (cannotRecoverWithoutUserAction) {
+                            continuousMode = false
+                            onSpeechResultCallback = null
+                            restartRunnable?.let(mainHandler::removeCallbacks)
+                            restartRunnable = null
+                            onFatalRecognitionError?.invoke(errorMessage)
+                            onFatalRecognitionError = null
+                        } else if (continuousMode) {
+                            scheduleRecognitionRestart(if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) 1200L else 700L)
+                        }
                     }
 
                     override fun onResults(results: Bundle?) {
@@ -143,7 +167,8 @@ class AudioCaptureManager(private val context: Context) {
     /**
      * Start live speech listening for voice questions or audio transcription.
      */
-    fun startListening(onResult: (String) -> Unit) {
+    fun startListening(languageTag: String? = null, onResult: (String) -> Unit) {
+        recognitionLanguageTag = languageTag?.takeIf { it.isNotBlank() }
         continuousMode = false
         restartRunnable?.let(mainHandler::removeCallbacks)
         onSpeechResultCallback = onResult
@@ -153,9 +178,15 @@ class AudioCaptureManager(private val context: Context) {
     }
 
     /** Keeps microphone speech recognition active by starting a fresh request after each result. */
-    fun startContinuousListening(onResult: (String) -> Unit) {
+    fun startContinuousListening(
+        languageTag: String? = null,
+        onFatalError: ((String) -> Unit)? = null,
+        onResult: (String) -> Unit
+    ) {
+        recognitionLanguageTag = languageTag?.takeIf { it.isNotBlank() }
         continuousMode = true
         onSpeechResultCallback = onResult
+        if (onFatalError != null) onFatalRecognitionError = onFatalError
         _liveCaptions.value = "Listening continuously..."
         _isListening.value = true
         mainHandler.post {
@@ -173,6 +204,7 @@ class AudioCaptureManager(private val context: Context) {
         restartRunnable?.let(mainHandler::removeCallbacks)
         restartRunnable = null
         onSpeechResultCallback = null
+        onFatalRecognitionError = null
         mainHandler.post {
             try {
                 speechRecognizer?.stopListening()

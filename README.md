@@ -28,6 +28,18 @@ View your app in AI Studio: https://ai.studio/apps/39ea7161-a90e-403a-b87c-d7468
 - Automatic option selection is disabled by default. Enable it in Settings, then enable AskScreen AI under Android Settings → Accessibility. It works only when the target app exposes readable option text and clickable controls, and only when a clearly labelled Submit/Check button is available. Some apps and browsers do not expose those controls.
 - Use automatic interaction only on practice or self-study pages where the site permits it. Keep manual control available; stop the assistant from its notification at any time.
 
+## Voice and transcription
+
+- The floating assistant includes continuous microphone listening, combined screen-and-microphone mode, and a transcript-only mode that adds recognized speech to the chat without asking the AI to answer it.
+- Speech language can be selected in Settings: Device default, English (Nigeria), or Yoruba (Nigeria). Actual language availability and recognition quality depend on the Android speech-recognition service installed on the device.
+- These features use microphone input. They do not directly capture another app's private/internal playback audio; use an available system-supported audio capture route where permitted.
+
+## Backend diagnostics
+
+- The optional Netlify backend exposes a read-only health endpoint at /.netlify/functions/health.
+- It reports service status and which provider integrations are configured, without returning API keys or other secret values.
+- Backend request validation, rate-limit behavior, health checks, and Android build are included in the upgrade-branch CI workflow.
+
 ## Build
 
 Open the project folder in Android Studio and allow Gradle sync. The project targets SDK 36 and requires a compatible Android Gradle Plugin, Kotlin plugin, Android SDK 36, and Firebase configuration. The supplied archive does not include the Gradle wrapper JAR or a built APK, so this archive should be treated as source code, not an installable package. Build and test on a physical Android device, including Android 14+ MediaProjection behavior, accessibility interaction, rotation, microphone permissions, and background restrictions.

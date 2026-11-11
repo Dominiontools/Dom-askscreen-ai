@@ -143,7 +143,7 @@ fun FloatingAnswerWindow(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "AskScreen AI",
+                        text = "Dominion Ask AI",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White

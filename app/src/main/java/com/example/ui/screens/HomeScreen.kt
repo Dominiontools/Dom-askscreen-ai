@@ -130,7 +130,7 @@ fun HomeScreen(
                     ) {
                         Column {
                             Text(
-                                text = "AskScreen AI",
+                                text = "Dominion Ask AI",
                                 fontSize = 24.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
@@ -352,6 +352,57 @@ fun HomeScreen(
                 icon = Icons.Default.CloudUpload,
                 tint = EmeraldGreen,
                 onClick = onNavigateToUpload
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            QuickActionTile(
+                modifier = Modifier.weight(1f),
+                title = "Speak to AI",
+                subtitle = "Tap mic & ask aloud",
+                icon = Icons.Default.Mic,
+                tint = ElectricCyan,
+                onClick = {
+                    if (!hasRecordAudioPermission) {
+                        audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        return@QuickActionTile
+                    }
+                    if (!isServiceRunning) {
+                        val start = Intent(context, AskScreenOverlayService::class.java).apply {
+                            action = AskScreenOverlayService.ACTION_START
+                        }
+                        ContextCompat.startForegroundService(context, start)
+                        isServiceRunning = true
+                    }
+                    context.startService(Intent(context, AskScreenOverlayService::class.java).apply {
+                        action = AskScreenOverlayService.ACTION_VOICE_INPUT
+                    })
+                }
+            )
+            QuickActionTile(
+                modifier = Modifier.weight(1f),
+                title = "Transcribe Audio",
+                subtitle = "Transcript only — no answers",
+                icon = Icons.Default.ClosedCaption,
+                tint = EmeraldGreen,
+                onClick = {
+                    if (!hasRecordAudioPermission) {
+                        audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        return@QuickActionTile
+                    }
+                    if (!isServiceRunning) {
+                        val start = Intent(context, AskScreenOverlayService::class.java).apply {
+                            action = AskScreenOverlayService.ACTION_START
+                        }
+                        ContextCompat.startForegroundService(context, start)
+                        isServiceRunning = true
+                    }
+                    context.startService(Intent(context, AskScreenOverlayService::class.java).apply {
+                        action = AskScreenOverlayService.ACTION_TRANSCRIBE_AUDIO
+                    })
+                }
             )
         }
 

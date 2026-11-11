@@ -30,6 +30,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_PERMANENT_HISTORY = "permanent_history"
         private const val KEY_AUTO_SUBMIT = "auto_submit_practice"
         private const val KEY_AUTO_MONITOR_INTERVAL = "auto_monitor_interval_ms"
+        private const val KEY_AUDIO_LANGUAGE_TAG = "audio_language_tag"
     }
 
     private val _assistantEnabledFlow = MutableStateFlow(isAssistantEnabled)
@@ -117,6 +118,11 @@ class PreferencesManager(context: Context) {
     var isAutoSubmitEnabled: Boolean
         get() = prefs.getBoolean(KEY_AUTO_SUBMIT, false)
         set(value) = prefs.edit().putBoolean(KEY_AUTO_SUBMIT, value).apply()
+
+    /** Speech recognition language: device default, English (Nigeria), or Yoruba (Nigeria). */
+    var audioLanguageTag: String
+        get() = prefs.getString(KEY_AUDIO_LANGUAGE_TAG, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_AUDIO_LANGUAGE_TAG, value).apply()
 
     var autoMonitorIntervalMs: Long
         get() = prefs.getLong(KEY_AUTO_MONITOR_INTERVAL, 2200L).coerceIn(1500L, 10000L)

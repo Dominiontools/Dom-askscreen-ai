@@ -55,13 +55,14 @@ class AskScreenRepository(private val context: Context) {
 
     private val systemInstructionContent = content {
         text(
-            "You are AskScreen AI, an on-screen reading and learning assistant. Carefully inspect the visible " +
-            "content, screenshot, audio transcript, or uploaded material. For multiple-choice practice or " +
-            "self-study questions, return only the option letter and its answer text (for example: 'B. Oxygen'). " +
-            "Do not add an explanation unless the user explicitly asks for one or the question itself requests " +
-            "an explanation. For non-multiple-choice questions, give a direct, concise answer. If several " +
-            "independent questions are visible, answer them separately and in screen order. If the text or " +
-            "options are unclear, say what cannot be read instead of guessing. Never claim to have clicked or submitted anything. Only provide answer text; external interaction is handled separately by an explicit user-enabled practice automation setting."
+            "You are DOM Ask AI, an on-screen reading and learning assistant. Carefully inspect the visible " +
+            "content, screenshot, audio transcript, or uploaded material. Read visible text and answer choices accurately. " +
+            "For diagrams, charts, tables, maps, and labelled figures, use visual relationships and labels, not guesses from isolated words. " +
+            "If an image is blurry, cropped, too small, or ambiguous, state exactly what cannot be read instead of inventing details. " +
+            "For multiple-choice practice or self-study questions, return only the option letter and its answer text (for example: 'B. Oxygen'). " +
+            "Do not add an explanation unless the user explicitly asks for one or the question itself requests an explanation. " +
+            "For non-multiple-choice questions, give a direct, concise answer. If several independent questions are visible, answer them separately and in screen order. " +
+            "Never claim to have clicked or submitted anything. Only provide answer text; external interaction is handled separately by an explicit user-enabled practice automation setting."
         )
     }
 
@@ -287,20 +288,34 @@ class AskScreenRepository(private val context: Context) {
             .post(requestBody)
             .build()
 
-        val response = httpClient.newCall(request).execute()
-        val responseBody = response.body?.string() ?: ""
+        httpClient.newCall(request).execute().use { response ->
+            val responseBody = response.body?.string().orEmpty()
 
-        if (!response.isSuccessful) {
-            val serverMsg = try { JSONObject(responseBody).optString("error", "") } catch (e: Exception) { "" }
-            throw Exception("Backend error (" + response.code + "): " + serverMsg.ifBlank { responseBody.take(200) })
-        }
+            if (!response.isSuccessful) {
+                val errorJson = try { JSONObject(responseBody) } catch (_: Exception) { JSONObject() }
+                val serverMsg = errorJson.optString("error", "")
+                val errorCode = errorJson.optString("code", "")
+                val requestId = response.header("X-Request-Id").orEmpty()
+                if (response.code == 429 || errorCode == "RATE_LIMITED") {
+                    val retryAfter = response.header("Retry-After")
+                        ?.toLongOrNull()
+                        ?: errorJson.optLong("retryAfterSeconds", 60L)
+                    throw Exception("RATE_LIMITED:${retryAfter.coerceAtLeast(1)}")
+                }
+                val diagnostic = if (requestId.isNotBlank()) " (Request ID: $requestId)" else ""
+                throw Exception(
+                    "Backend error (${response.code}): " +
+                        serverMsg.ifBlank { "The server could not complete the request." } + diagnostic
+                )
+            }
 
-        val json = JSONObject(responseBody)
-        if (json.optBoolean("success", false)) {
-            return json.optString("answer", "No answer received.")
-        } else {
-            val error = json.optString("error", "Unknown backend error")
-            throw Exception(error)
+            val json = JSONObject(responseBody)
+            if (json.optBoolean("success", false)) {
+                return json.optString("answer", "No answer received.")
+            } else {
+                val error = json.optString("error", "Unknown backend error")
+                throw Exception(error)
+            }
         }
     }
 

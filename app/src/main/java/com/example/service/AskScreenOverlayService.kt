@@ -41,6 +41,7 @@ import com.example.ui.overlay.OverlayLifecycleOwner
 import com.example.ui.overlay.RegionSelectionOverlayView
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.sync.Mutex
 
 class AskScreenOverlayService : Service() {
 
@@ -52,6 +53,8 @@ class AskScreenOverlayService : Service() {
         const val ACTION_STOP = "com.example.action.STOP"
         const val ACTION_READ_SCREEN = "com.example.action.READ_SCREEN"
         const val ACTION_LISTEN_SCREEN = "com.example.action.LISTEN_SCREEN"
+        const val ACTION_TRANSCRIBE_AUDIO = "com.example.action.TRANSCRIBE_AUDIO"
+        const val ACTION_VOICE_INPUT = "com.example.action.VOICE_INPUT"
         const val ACTION_READ_AND_LISTEN = "com.example.action.READ_AND_LISTEN"
         const val ACTION_TOGGLE_BUBBLE = "com.example.action.TOGGLE_BUBBLE"
         const val ACTION_AUTO_START = "com.example.action.AUTO_START"
@@ -118,6 +121,12 @@ class AskScreenOverlayService : Service() {
     @Volatile private var autoMonitorPaused = false
     @Volatile private var autoMonitorRunning = false
 
+    // Prevent repeated speech-recognition callbacks from submitting the same phrase.
+    private var lastAudioTranscriptKey = ""
+    private var lastAudioTranscriptAt = 0L
+    // Only one automatic audio answer may run at a time; newer callbacks are dropped while busy.
+    private val audioAnswerMutex = Mutex()
+
     private var screenWidth = 1080
     private var screenHeight = 2400
 
@@ -131,6 +140,17 @@ class AskScreenOverlayService : Service() {
         screenCaptureManager = ScreenCaptureManager(this)
         audioCaptureManager = AudioCaptureManager(this)
         ttsManager = TtsManager(this)
+        audioCaptureManager.onFatalRecognitionError = { message ->
+            serviceScope.launch {
+                bubbleState.value = BubbleState.ERROR
+                liveCaptions.value = message
+                sessionMessages.value = sessionMessages.value + ChatMessage(
+                    role = "model",
+                    text = message,
+                    queryType = QueryType.AUDIO
+                )
+            }
+        }
 
         updateMetrics()
         createNotificationChannel()
@@ -157,6 +177,8 @@ class AskScreenOverlayService : Service() {
             }
             ACTION_READ_SCREEN -> startReadScreenAction()
             ACTION_LISTEN_SCREEN -> startListenAudioAction()
+            ACTION_TRANSCRIBE_AUDIO -> startTranscribeAudioAction()
+            ACTION_VOICE_INPUT -> startVoiceInput()
             ACTION_READ_AND_LISTEN -> startReadAndListenAction()
             ACTION_TOGGLE_BUBBLE -> toggleBubbleVisibility()
             ACTION_AUTO_START -> startAutoMonitor()
@@ -264,6 +286,10 @@ class AskScreenOverlayService : Service() {
                     onListenScreen = {
                         hideQuickActionMenu()
                         startListenAudioAction()
+                    },
+                    onTranscribeAudio = {
+                        hideQuickActionMenu()
+                        startTranscribeAudioAction()
                     },
                     onReadAndListen = {
                         hideQuickActionMenu()
@@ -695,14 +721,56 @@ class AskScreenOverlayService : Service() {
                     if (prefs.isTtsEnabled) ttsManager.speak(cleanAnswer, prefs.ttsSpeed)
                 }
             }.onFailure { error ->
-                bubbleState.value = BubbleState.ERROR
-                val errMsg = ChatMessage(
-                    role = "model",
-                    text = "⚠️ Failed to get answer: ${error.message}",
-                    queryType = queryType
-                )
-                sessionMessages.value = sessionMessages.value + errMsg
+                appendRequestFailure(error, queryType, "I could not complete that request.")
             }
+        }
+    }
+
+    private fun appendRequestFailure(error: Throwable, queryType: QueryType, fallback: String) {
+        val waitSeconds = error.message
+            ?.takeIf { it.startsWith("RATE_LIMITED:") }
+            ?.substringAfter(":")
+            ?.toLongOrNull()
+            ?.coerceAtLeast(1)
+        val message = if (waitSeconds != null) {
+            bubbleState.value = BubbleState.IDLE
+            val waitText = if (waitSeconds == 1L) "1 second" else "$waitSeconds seconds"
+            "You have reached the temporary request limit. Please wait $waitText before asking again. This question has not been answered yet."
+        } else {
+            bubbleState.value = BubbleState.ERROR
+            "$fallback ${error.message ?: "Please try again."}"
+        }
+        sessionMessages.value = sessionMessages.value + ChatMessage(
+            role = "model", text = message, queryType = queryType
+        )
+    }
+
+    private fun shouldProcessAudioTranscript(transcript: String): Boolean {
+        val key = transcript.lowercase()
+            .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
+            .trim()
+            .replace(Regex("\\s+"), " ")
+        if (key.length < 3) return false
+        val now = System.currentTimeMillis()
+        if (key == lastAudioTranscriptKey && now - lastAudioTranscriptAt < 12_000L) {
+            Log.d("AskScreenOverlayService", "Ignoring duplicate audio transcript")
+            return false
+        }
+        lastAudioTranscriptKey = key
+        lastAudioTranscriptAt = now
+        return true
+    }
+
+    private suspend fun captureFreshScreenForListening(): Bitmap? {
+        if (!screenCaptureManager.hasMediaProjection()) return null
+        bubbleView?.visibility = View.INVISIBLE
+        answerWindowView?.visibility = View.INVISIBLE
+        return try {
+            delay(180)
+            screenCaptureManager.captureScreen()
+        } finally {
+            bubbleView?.visibility = if (isBubbleVisible) View.VISIBLE else View.GONE
+            answerWindowView?.visibility = if (isAnswerWindowVisible) View.VISIBLE else View.GONE
         }
     }
 
@@ -712,11 +780,17 @@ class AskScreenOverlayService : Service() {
             showAnswerWindow()
             liveCaptions.value = "Listening to audio..."
 
-            audioCaptureManager.startContinuousListening { transcript ->
+            audioCaptureManager.startContinuousListening(prefs.audioLanguageTag) { transcript ->
                 serviceScope.launch {
+                    if (!audioAnswerMutex.tryLock()) {
+                        liveCaptions.value = "Processing the previous question..."
+                        return@launch
+                    }
+                    try {
                     liveCaptions.value = ""
-                    if (transcript.isBlank()) {
-                        bubbleState.value = BubbleState.IDLE
+                    if (transcript.isBlank() || !shouldProcessAudioTranscript(transcript)) {
+                        bubbleState.value = BubbleState.LISTENING_AUDIO
+                        liveCaptions.value = "Listening continuously..."
                         return@launch
                     }
 
@@ -747,12 +821,43 @@ class AskScreenOverlayService : Service() {
                             ttsManager.speak(answer, prefs.ttsSpeed)
                         }
                     }.onFailure { err ->
-                        bubbleState.value = BubbleState.ERROR
-                        sessionMessages.value = sessionMessages.value + ChatMessage(
-                            role = "model",
-                            text = "Audio query failed: ${err.message}",
-                            queryType = QueryType.AUDIO
-                        )
+                        appendRequestFailure(err, QueryType.AUDIO, "I could not process that audio.")
+                    }
+                    } finally {
+                        audioAnswerMutex.unlock()
+                        if (audioCaptureManager.isContinuousListening) {
+                            bubbleState.value = BubbleState.LISTENING_AUDIO
+                            liveCaptions.value = "Listening continuously..."
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Transcribes microphone speech into chat without sending it to the AI.
+     * SpeechRecognizer uses the device language by default; availability of Yoruba
+     * and other languages depends on the installed Android recognition provider.
+     */
+    fun startTranscribeAudioAction() {
+        serviceScope.launch {
+            bubbleState.value = BubbleState.LISTENING_AUDIO
+            showAnswerWindow()
+            liveCaptions.value = "Transcribing speech only — no AI answers..."
+            audioCaptureManager.startContinuousListening(prefs.audioLanguageTag) { transcript ->
+                serviceScope.launch {
+                    if (transcript.isBlank() || !shouldProcessAudioTranscript(transcript)) return@launch
+                    sessionMessages.value = sessionMessages.value + ChatMessage(
+                        role = "user",
+                        text = "📝 Transcript: $transcript",
+                        queryType = QueryType.AUDIO
+                    )
+                    liveCaptions.value = "Transcript added. Listening for more speech..."
+                    bubbleState.value = if (audioCaptureManager.isContinuousListening) {
+                        BubbleState.LISTENING_AUDIO
+                    } else {
+                        BubbleState.IDLE
                     }
                 }
             }
@@ -767,23 +872,29 @@ class AskScreenOverlayService : Service() {
         }
 
         serviceScope.launch {
-            bubbleState.value = BubbleState.CAPTURING_SCREEN
-            bubbleView?.visibility = View.INVISIBLE
-            answerWindowView?.visibility = View.INVISIBLE
-            delay(180)
-
-            val bitmap = screenCaptureManager.captureScreen()
-
-            bubbleView?.visibility = if (isBubbleVisible) View.VISIBLE else View.GONE
-            answerWindowView?.visibility = if (isAnswerWindowVisible) View.VISIBLE else View.GONE
-
+            // Combined mode captures a fresh frame when each spoken segment arrives.
+            // Avoid taking an unused initial screenshot when listening starts.
             bubbleState.value = BubbleState.LISTENING_AUDIO
             showAnswerWindow()
             liveCaptions.value = "Listening to accompanying audio..."
 
-            audioCaptureManager.startContinuousListening { transcript ->
+            audioCaptureManager.startContinuousListening(prefs.audioLanguageTag) { transcript ->
                 serviceScope.launch {
+                    if (!audioAnswerMutex.tryLock()) {
+                        liveCaptions.value = "Processing the previous question..."
+                        return@launch
+                    }
+                    try {
                     liveCaptions.value = ""
+                    if (transcript.isBlank() || !shouldProcessAudioTranscript(transcript)) {
+                        bubbleState.value = BubbleState.LISTENING_AUDIO
+                        liveCaptions.value = "Listening continuously..."
+                        return@launch
+                    }
+
+                    // Refresh the screen for each new spoken segment instead of reusing
+                    // the screenshot captured when the combined session first started.
+                    val currentScreen = captureFreshScreenForListening()
                     bubbleState.value = BubbleState.PROCESSING_AI
 
                     val userMsg = ChatMessage(
@@ -793,11 +904,15 @@ class AskScreenOverlayService : Service() {
                     )
                     sessionMessages.value = sessionMessages.value + userMsg
 
-                    val prompt = "The user is watching a video/lesson. Screen image is attached, and accompanying audio is: \"$transcript\". Combine the visual content and spoken explanation to give an exact, insightful answer."
+                    val prompt = if (currentScreen != null) {
+                        "The user is watching a video/lesson. A fresh screen image is attached, and accompanying audio is: \"$transcript\". Combine the visual content and spoken explanation to give an exact, insightful answer."
+                    } else {
+                        "The user is listening to spoken content, but a fresh screen image could not be captured. Answer the spoken question or explain the audio accurately without claiming to see a screen: \"$transcript\"."
+                    }
                     val result = repository.askScreenAi(
                         prompt = prompt,
                         queryType = QueryType.SCREEN_AND_AUDIO,
-                        images = if (bitmap != null) listOf(bitmap) else emptyList(),
+                        images = if (currentScreen != null) listOf(currentScreen) else emptyList(),
                         chatHistory = sessionMessages.value
                     )
 
@@ -812,12 +927,14 @@ class AskScreenOverlayService : Service() {
                             ttsManager.speak(answer, prefs.ttsSpeed)
                         }
                     }.onFailure { err ->
-                        bubbleState.value = BubbleState.ERROR
-                        sessionMessages.value = sessionMessages.value + ChatMessage(
-                            role = "model",
-                            text = "Analysis failed: ${err.message}",
-                            queryType = QueryType.SCREEN_AND_AUDIO
-                        )
+                        appendRequestFailure(err, QueryType.SCREEN_AND_AUDIO, "I could not analyse the screen and audio.")
+                    }
+                    } finally {
+                        audioAnswerMutex.unlock()
+                        if (audioCaptureManager.isContinuousListening) {
+                            bubbleState.value = BubbleState.LISTENING_AUDIO
+                            liveCaptions.value = "Listening continuously..."
+                        }
                     }
                 }
             }
@@ -873,10 +990,10 @@ class AskScreenOverlayService : Service() {
         regionOverlayView = null
     }
 
-    private fun startVoiceInput() {
+    fun startVoiceInput() {
         bubbleState.value = BubbleState.LISTENING_AUDIO
         liveCaptions.value = "Listening to your voice..."
-        audioCaptureManager.startListening { speech ->
+        audioCaptureManager.startListening(prefs.audioLanguageTag) { speech ->
             liveCaptions.value = ""
             bubbleState.value = BubbleState.IDLE
             if (speech.isNotBlank()) {
@@ -920,12 +1037,7 @@ class AskScreenOverlayService : Service() {
                 )
                 if (prefs.isTtsEnabled) ttsManager.speak(answer, prefs.ttsSpeed)
             }.onFailure { err ->
-                bubbleState.value = BubbleState.ERROR
-                sessionMessages.value = sessionMessages.value + ChatMessage(
-                    role = "model",
-                    text = "Could not explain: ${err.message}",
-                    queryType = QueryType.TEXT
-                )
+                appendRequestFailure(err, QueryType.TEXT, "I could not explain that answer.")
             }
         }
     }
@@ -950,12 +1062,7 @@ class AskScreenOverlayService : Service() {
                     ttsManager.speak(answer, prefs.ttsSpeed)
                 }
             }.onFailure { err ->
-                bubbleState.value = BubbleState.ERROR
-                sessionMessages.value = sessionMessages.value + ChatMessage(
-                    role = "model",
-                    text = "Follow-up error: ${err.message}",
-                    queryType = queryType
-                )
+                appendRequestFailure(err, queryType, "I could not complete that request.")
             }
         }
     }
