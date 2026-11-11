@@ -52,20 +52,29 @@ class AudioCaptureManager(private val context: Context) {
 
     private fun startRecognitionRequest() {
         if (!continuousMode && onSpeechResultCallback == null) return
+        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+            _isListening.value = false
+            _liveCaptions.value = "Speech recognition is not available on this device."
+            return
+        }
         try {
             if (speechRecognizer == null) initSpeechRecognizer()
+            val recognizer = speechRecognizer
+                ?: throw IllegalStateException("Speech recognition could not be initialized.")
+            val languageTag = recognitionLanguageTag ?: Locale.getDefault().toLanguageTag()
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, recognitionLanguageTag ?: Locale.getDefault().toLanguageTag())
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, recognitionLanguageTag ?: Locale.getDefault().toLanguageTag())
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, languageTag)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
             }
-            speechRecognizer?.startListening(intent)
+            recognizer.startListening(intent)
             _isListening.value = true
         } catch (e: Exception) {
             Log.e("AudioCaptureManager", "Error starting recognition request", e)
             _isListening.value = false
+            _liveCaptions.value = "Could not start speech recognition. Retrying..."
             if (continuousMode) scheduleRecognitionRestart(1400L)
         }
     }
