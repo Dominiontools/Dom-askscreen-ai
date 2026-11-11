@@ -5,7 +5,7 @@ const html=n=>path.join(__dirname,n);
 function top(w){if(w&&!w.isDestroyed())w.setAlwaysOnTop(true,'screen-saver');}
 function createPanel(){panel=new BrowserWindow({width:460,height:760,minWidth:380,minHeight:520,show:false,title:'Dominion Ask AI',alwaysOnTop:true,backgroundColor:'#10131c',webPreferences:{preload:html('preload.cjs'),contextIsolation:true,nodeIntegration:false}});
 panel.loadFile(html('index.html'));panel.on('closed',()=>panel=null);}
-function createBubble(){bubble=new BrowserWindow({width:76,height:76,x:screen.getPrimaryDisplay().workArea.width-100,y:180,frame:false,transparent:true,resizable:false,alwaysOnTop:true,skipTaskbar:true,hasShadow:false,webPreferences:{preload:html('preload.cjs'),contextIsolation:true,nodeIntegration:false}});
+function createBubble(){bubble=new BrowserWindow({width:250,height:430,x:screen.getPrimaryDisplay().workArea.width-270,y:180,frame:false,transparent:true,resizable:false,alwaysOnTop:true,skipTaskbar:true,hasShadow:false,webPreferences:{preload:html('preload.cjs'),contextIsolation:true,nodeIntegration:false}});
 bubble.loadFile(html('bubble.html'));top(bubble);}
 function createAnswer(){answer=new BrowserWindow({width:440,height:340,show:false,frame:false,transparent:true,resizable:true,alwaysOnTop:true,skipTaskbar:true,webPreferences:{preload:html('preload.cjs'),contextIsolation:true,nodeIntegration:false}});
 answer.loadFile(html('answer.html'));top(answer);}
