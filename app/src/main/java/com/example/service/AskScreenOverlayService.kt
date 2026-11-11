@@ -41,6 +41,7 @@ import com.example.ui.overlay.OverlayLifecycleOwner
 import com.example.ui.overlay.RegionSelectionOverlayView
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.sync.Mutex
 
 class AskScreenOverlayService : Service() {
 
@@ -121,6 +122,8 @@ class AskScreenOverlayService : Service() {
     // Prevent repeated speech-recognition callbacks from submitting the same phrase.
     private var lastAudioTranscriptKey = ""
     private var lastAudioTranscriptAt = 0L
+    // Only one automatic audio answer may run at a time; newer callbacks are dropped while busy.
+    private val audioAnswerMutex = Mutex()
 
     private var screenWidth = 1080
     private var screenHeight = 2400
@@ -747,6 +750,11 @@ class AskScreenOverlayService : Service() {
 
             audioCaptureManager.startContinuousListening { transcript ->
                 serviceScope.launch {
+                    if (!audioAnswerMutex.tryLock()) {
+                        liveCaptions.value = "Processing the previous question..."
+                        return@launch
+                    }
+                    try {
                     liveCaptions.value = ""
                     if (transcript.isBlank() || !shouldProcessAudioTranscript(transcript)) {
                         bubbleState.value = BubbleState.LISTENING_AUDIO
@@ -788,6 +796,13 @@ class AskScreenOverlayService : Service() {
                             queryType = QueryType.AUDIO
                         )
                     }
+                    } finally {
+                        audioAnswerMutex.unlock()
+                        if (audioCaptureManager.isListening()) {
+                            bubbleState.value = BubbleState.LISTENING_AUDIO
+                            liveCaptions.value = "Listening continuously..."
+                        }
+                    }
                 }
             }
         }
@@ -817,6 +832,11 @@ class AskScreenOverlayService : Service() {
 
             audioCaptureManager.startContinuousListening { transcript ->
                 serviceScope.launch {
+                    if (!audioAnswerMutex.tryLock()) {
+                        liveCaptions.value = "Processing the previous question..."
+                        return@launch
+                    }
+                    try {
                     liveCaptions.value = ""
                     if (transcript.isBlank() || !shouldProcessAudioTranscript(transcript)) {
                         bubbleState.value = BubbleState.LISTENING_AUDIO
@@ -861,6 +881,13 @@ class AskScreenOverlayService : Service() {
                             text = "Analysis failed: ${err.message}",
                             queryType = QueryType.SCREEN_AND_AUDIO
                         )
+                    }
+                    } finally {
+                        audioAnswerMutex.unlock()
+                        if (audioCaptureManager.isListening()) {
+                            bubbleState.value = BubbleState.LISTENING_AUDIO
+                            liveCaptions.value = "Listening continuously..."
+                        }
                     }
                 }
             }
