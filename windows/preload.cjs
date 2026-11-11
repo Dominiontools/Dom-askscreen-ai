@@ -1,6 +1,9 @@
 const {contextBridge,ipcRenderer}=require('electron');
 contextBridge.exposeInMainWorld('dominion',{
  captureScreen:()=>ipcRenderer.invoke('capture-screen'),
+ startSystemAudio:()=>ipcRenderer.invoke('start-system-audio'),
+ stopSystemAudio:()=>ipcRenderer.invoke('stop-system-audio'),
+ onSystemAudio:cb=>ipcRenderer.on('system-audio-data',(_,v)=>cb(v)),
  captureRegion:rect=>ipcRenderer.invoke('capture-region',rect),
  action:name=>ipcRenderer.send('bubble-action',name),
  regionSelected:data=>ipcRenderer.send('region-selected',data),
