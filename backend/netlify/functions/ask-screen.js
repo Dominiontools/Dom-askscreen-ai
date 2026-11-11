@@ -67,18 +67,22 @@ function requestIp(event) {
     getHeader(event.headers, 'x-forwarded-for').split(',')[0].trim() || 'unknown';
 }
 
-function isRateLimited(ip) {
+function getRateLimitRetryAfterSeconds(ip) {
   const now = Date.now();
   const recent = (rateLimitMap.get(ip) || []).filter(t => now - t < RATE_WINDOW_MS);
-  if (recent.length >= MAX_REQUESTS_PER_WINDOW) return true;
-  recent.push(now);
-  rateLimitMap.set(ip, recent);
-  if (rateLimitMap.size > 2_000) {
-    for (const [key, times] of rateLimitMap) {
-      if (!times.length || now - times[times.length - 1] >= RATE_WINDOW_MS) rateLimitMap.delete(key);
+  if (recent.length < MAX_REQUESTS_PER_WINDOW) {
+    recent.push(now);
+    rateLimitMap.set(ip, recent);
+    if (rateLimitMap.size > 2_000) {
+      for (const [key, times] of rateLimitMap) {
+        if (!times.length || now - times[times.length - 1] >= RATE_WINDOW_MS) rateLimitMap.delete(key);
+      }
     }
+    return 0;
   }
-  return false;
+
+  // The oldest request in the active window is the first one that will free a slot.
+  return Math.max(1, Math.ceil((recent[0] + RATE_WINDOW_MS - now) / 1000));
 }
 
 function isCoolingDown(name) {
@@ -596,13 +600,14 @@ exports.handler = async function handler(event) {
   }
 
   // Count only valid requests so malformed payloads do not consume the user's quota.
-  if (isRateLimited(requestIp(event))) {
+  const retryAfterSeconds = getRateLimitRetryAfterSeconds(requestIp(event));
+  if (retryAfterSeconds > 0) {
     return response(429, {
       success: false,
       error: 'Too many requests. Please wait and try again.',
       code: 'RATE_LIMITED',
-      retryAfterSeconds: 60
-    }, requestId, { 'Retry-After': '60' });
+      retryAfterSeconds
+    }, requestId, { 'Retry-After': String(retryAfterSeconds) });
   }
 
   try {
