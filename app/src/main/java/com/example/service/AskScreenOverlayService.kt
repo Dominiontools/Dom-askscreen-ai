@@ -841,7 +841,7 @@ class AskScreenOverlayService : Service() {
                         queryType = QueryType.AUDIO
                     )
                     liveCaptions.value = "Transcript added. Listening for more speech..."
-                    bubbleState.value = if (audioCaptureManager.isListening.value) {
+                    bubbleState.value = if (audioCaptureManager.isContinuousListening) {
                         BubbleState.LISTENING_AUDIO
                     } else {
                         BubbleState.IDLE
