@@ -1,0 +1,26 @@
+name: Build Dominion Ask AI for Windows
+on:
+  push:
+    branches: [windows-dominion-ask-ai]
+    paths: ['windows/**', '.github/workflows/build-windows-desktop.yml']
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: windows/package-lock.json
+      - run: npm install
+      - run: npm run dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Dominion-Ask-AI-Windows
+          path: windows/dist/*
+          if-no-files-found: error
