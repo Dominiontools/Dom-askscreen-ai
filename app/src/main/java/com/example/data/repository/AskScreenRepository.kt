@@ -299,10 +299,7 @@ class AskScreenRepository(private val context: Context) {
                     val retryAfter = response.header("Retry-After")
                         ?.toLongOrNull()
                         ?: errorJson.optLong("retryAfterSeconds", 60L)
-                    throw Exception(
-                        "The AI server is receiving too many requests right now. " +
-                            "Please wait about ${retryAfter.coerceAtLeast(1)} seconds, then try again."
-                    )
+                    throw Exception("RATE_LIMITED:${retryAfter.coerceAtLeast(1)}")
                 }
                 val diagnostic = if (requestId.isNotBlank()) " (Request ID: $requestId)" else ""
                 throw Exception(
