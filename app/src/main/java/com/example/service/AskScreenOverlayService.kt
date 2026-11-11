@@ -767,7 +767,7 @@ class AskScreenOverlayService : Service() {
             showAnswerWindow()
             liveCaptions.value = "Listening to audio..."
 
-            audioCaptureManager.startContinuousListening { transcript ->
+            audioCaptureManager.startContinuousListening(prefs.audioLanguageTag) { transcript ->
                 serviceScope.launch {
                     if (!audioAnswerMutex.tryLock()) {
                         liveCaptions.value = "Processing the previous question..."
@@ -984,7 +984,7 @@ class AskScreenOverlayService : Service() {
     private fun startVoiceInput() {
         bubbleState.value = BubbleState.LISTENING_AUDIO
         liveCaptions.value = "Listening to your voice..."
-        audioCaptureManager.startListening { speech ->
+        audioCaptureManager.startListening(prefs.audioLanguageTag) { speech ->
             liveCaptions.value = ""
             bubbleState.value = BubbleState.IDLE
             if (speech.isNotBlank()) {
