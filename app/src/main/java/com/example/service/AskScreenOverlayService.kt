@@ -708,15 +708,28 @@ class AskScreenOverlayService : Service() {
                     if (prefs.isTtsEnabled) ttsManager.speak(cleanAnswer, prefs.ttsSpeed)
                 }
             }.onFailure { error ->
-                bubbleState.value = BubbleState.ERROR
-                val errMsg = ChatMessage(
-                    role = "model",
-                    text = "⚠️ Failed to get answer: ${error.message}",
-                    queryType = queryType
-                )
-                sessionMessages.value = sessionMessages.value + errMsg
+                appendRequestFailure(error, queryType, "I could not complete that request.")
             }
         }
+    }
+
+    private fun appendRequestFailure(error: Throwable, queryType: QueryType, fallback: String) {
+        val waitSeconds = error.message
+            ?.takeIf { it.startsWith("RATE_LIMITED:") }
+            ?.substringAfter(":")
+            ?.toLongOrNull()
+            ?.coerceAtLeast(1)
+        val message = if (waitSeconds != null) {
+            bubbleState.value = BubbleState.IDLE
+            val waitText = if (waitSeconds == 1L) "1 second" else "$waitSeconds seconds"
+            "You have reached the temporary request limit. Please wait $waitText before asking again. This question has not been answered yet."
+        } else {
+            bubbleState.value = BubbleState.ERROR
+            "$fallback ${error.message ?: "Please try again."}"
+        }
+        sessionMessages.value = sessionMessages.value + ChatMessage(
+            role = "model", text = message, queryType = queryType
+        )
     }
 
     private fun shouldProcessAudioTranscript(transcript: String): Boolean {
@@ -795,12 +808,7 @@ class AskScreenOverlayService : Service() {
                             ttsManager.speak(answer, prefs.ttsSpeed)
                         }
                     }.onFailure { err ->
-                        bubbleState.value = BubbleState.ERROR
-                        sessionMessages.value = sessionMessages.value + ChatMessage(
-                            role = "model",
-                            text = "Audio query failed: ${err.message}",
-                            queryType = QueryType.AUDIO
-                        )
+                        appendRequestFailure(err, QueryType.AUDIO, "I could not process that audio.")
                     }
                     } finally {
                         audioAnswerMutex.unlock()
@@ -910,12 +918,7 @@ class AskScreenOverlayService : Service() {
                             ttsManager.speak(answer, prefs.ttsSpeed)
                         }
                     }.onFailure { err ->
-                        bubbleState.value = BubbleState.ERROR
-                        sessionMessages.value = sessionMessages.value + ChatMessage(
-                            role = "model",
-                            text = "Analysis failed: ${err.message}",
-                            queryType = QueryType.SCREEN_AND_AUDIO
-                        )
+                        appendRequestFailure(err, QueryType.SCREEN_AND_AUDIO, "I could not analyse the screen and audio.")
                     }
                     } finally {
                         audioAnswerMutex.unlock()
@@ -1025,12 +1028,7 @@ class AskScreenOverlayService : Service() {
                 )
                 if (prefs.isTtsEnabled) ttsManager.speak(answer, prefs.ttsSpeed)
             }.onFailure { err ->
-                bubbleState.value = BubbleState.ERROR
-                sessionMessages.value = sessionMessages.value + ChatMessage(
-                    role = "model",
-                    text = "Could not explain: ${err.message}",
-                    queryType = QueryType.TEXT
-                )
+                appendRequestFailure(err, QueryType.TEXT, "I could not explain that answer.")
             }
         }
     }
@@ -1055,27 +1053,7 @@ class AskScreenOverlayService : Service() {
                     ttsManager.speak(answer, prefs.ttsSpeed)
                 }
             }.onFailure { err ->
-                val rateLimitSeconds = err.message
-                    ?.takeIf { it.startsWith("RATE_LIMITED:") }
-                    ?.substringAfter(":")
-                    ?.toLongOrNull()
-                if (rateLimitSeconds != null) {
-                    val waitSeconds = rateLimitSeconds.coerceAtLeast(1)
-                    bubbleState.value = BubbleState.IDLE
-                    val waitText = if (waitSeconds == 1L) "1 second" else "$waitSeconds seconds"
-                    sessionMessages.value = sessionMessages.value + ChatMessage(
-                        role = "model",
-                        text = "You've reached the temporary request limit. Please wait $waitText before asking your next question. Your question hasn't been answered yet.",
-                        queryType = queryType
-                    )
-                } else {
-                    bubbleState.value = BubbleState.ERROR
-                    sessionMessages.value = sessionMessages.value + ChatMessage(
-                        role = "model",
-                        text = "I couldn't complete that request. ${err.message ?: "Please try again."}",
-                        queryType = queryType
-                    )
-                }
+                appendRequestFailure(err, queryType, "I could not complete that request.")
             }
         }
     }
