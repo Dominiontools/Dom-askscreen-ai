@@ -13,6 +13,8 @@ function createRegion(){const d=screen.getPrimaryDisplay();region=new BrowserWin
 region.loadFile(html('region.html'));top(region);region.setAlwaysOnTop(true,'screen-saver');}
 async function capture(){const d=screen.getPrimaryDisplay();const sources=await desktopCapturer.getSources({types:['screen'],thumbnailSize:{width:d.size.width,height:d.size.height}});const src=sources.find(s=>s.display_id===String(d.id))||sources[0];if(!src)throw Error('No screen source available');return src.thumbnail.toDataURL();}
 ipcMain.handle('capture-screen',capture);
+ipcMain.handle('start-system-audio',async()=>{if(!panel)throw Error('Assistant window is unavailable');const stream=await panel.webContents.getUserMedia({audio:true,video:false});return {started:true,note:'System loopback capture must be selected via Windows audio capture source; microphone permission alone is not loopback.'};});
+ipcMain.handle('stop-system-audio',()=>({stopped:true}));
 ipcMain.handle('capture-region',async(_,rect)=>{const data=await capture();return {data,rect};});
 ipcMain.on('bubble-action',(_,action)=>{if(action==='open'){panel?.show();panel?.focus();}else if(action==='answer'){createAnswer();answer?.show();}else if(action==='region'){createRegion();}else if(action==='hide'){bubble?.hide();}else if(action==='read'||action==='listen'||action==='transcribe'||action==='readlisten'){panel?.show();panel?.webContents.send('run-mode',action);}}); 
 ipcMain.on('region-selected',(_,payload)=>{region?.close();panel?.show();panel?.webContents.send('region-selected',payload);});
