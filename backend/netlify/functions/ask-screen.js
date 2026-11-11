@@ -14,7 +14,11 @@ const rateLimitMap = new Map();
 const cooldowns = new Map();
 
 const RATE_WINDOW_MS = 60_000;
-const MAX_REQUESTS_PER_WINDOW = 30;
+const DEFAULT_MAX_REQUESTS_PER_WINDOW = 60;
+const configuredRateLimit = Number.parseInt(process.env.MAX_REQUESTS_PER_MINUTE || '', 10);
+const MAX_REQUESTS_PER_WINDOW = Number.isFinite(configuredRateLimit)
+  ? Math.min(300, Math.max(10, configuredRateLimit))
+  : DEFAULT_MAX_REQUESTS_PER_WINDOW;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 const PROVIDER_TIMEOUT_MS = 8_000;
 const ROUTER_DEADLINE_MS = 24_000;
@@ -39,8 +43,8 @@ const CORS_HEADERS = {
   'Access-Control-Expose-Headers': 'X-Request-Id'
 };
 
-function response(statusCode, data, requestId) {
-  const headers = { ...CORS_HEADERS };
+function response(statusCode, data, requestId, extraHeaders = {}) {
+  const headers = { ...CORS_HEADERS, ...extraHeaders };
   if (requestId) headers['X-Request-Id'] = requestId;
   return { statusCode, headers, body: JSON.stringify(data) };
 }
@@ -558,13 +562,6 @@ exports.handler = async function handler(event) {
     }, requestId);
   }
 
-  if (isRateLimited(requestIp(event))) {
-    return response(429, {
-      success: false,
-      error: 'Too many requests. Please wait and try again.'
-    }, requestId);
-  }
-
   const raw = safeJsonParse(decodeEventBody(event));
   if (!raw) {
     return response(400, {
@@ -596,6 +593,16 @@ exports.handler = async function handler(event) {
       success: false,
       error: messages[error.message] || 'Invalid attachment or request.'
     }, requestId);
+  }
+
+  // Count only valid requests so malformed payloads do not consume the user's quota.
+  if (isRateLimited(requestIp(event))) {
+    return response(429, {
+      success: false,
+      error: 'Too many requests. Please wait and try again.',
+      code: 'RATE_LIMITED',
+      retryAfterSeconds: 60
+    }, requestId, { 'Retry-After': '60' });
   }
 
   try {
