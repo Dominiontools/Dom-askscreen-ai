@@ -54,6 +54,7 @@ class AskScreenOverlayService : Service() {
         const val ACTION_READ_SCREEN = "com.example.action.READ_SCREEN"
         const val ACTION_LISTEN_SCREEN = "com.example.action.LISTEN_SCREEN"
         const val ACTION_TRANSCRIBE_AUDIO = "com.example.action.TRANSCRIBE_AUDIO"
+        const val ACTION_VOICE_INPUT = "com.example.action.VOICE_INPUT"
         const val ACTION_READ_AND_LISTEN = "com.example.action.READ_AND_LISTEN"
         const val ACTION_TOGGLE_BUBBLE = "com.example.action.TOGGLE_BUBBLE"
         const val ACTION_AUTO_START = "com.example.action.AUTO_START"
@@ -177,6 +178,7 @@ class AskScreenOverlayService : Service() {
             ACTION_READ_SCREEN -> startReadScreenAction()
             ACTION_LISTEN_SCREEN -> startListenAudioAction()
             ACTION_TRANSCRIBE_AUDIO -> startTranscribeAudioAction()
+            ACTION_VOICE_INPUT -> startVoiceInput()
             ACTION_READ_AND_LISTEN -> startReadAndListenAction()
             ACTION_TOGGLE_BUBBLE -> toggleBubbleVisibility()
             ACTION_AUTO_START -> startAutoMonitor()
@@ -988,7 +990,7 @@ class AskScreenOverlayService : Service() {
         regionOverlayView = null
     }
 
-    private fun startVoiceInput() {
+    fun startVoiceInput() {
         bubbleState.value = BubbleState.LISTENING_AUDIO
         liveCaptions.value = "Listening to your voice..."
         audioCaptureManager.startListening(prefs.audioLanguageTag) { speech ->
