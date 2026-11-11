@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const { handler } = require('./netlify/functions/ask-screen');
+const { handler: healthHandler } = require('./netlify/functions/health');
 
 async function run() {
   const cases = [
@@ -87,7 +88,21 @@ async function run() {
   assert.equal(JSON.parse(limited.body).code, 'RATE_LIMITED');
   console.log('PASS Rate limit returns retry guidance after 60 valid requests');
 
-  console.log('All backend request-validation and quota tests passed.');
+
+  const health = await healthHandler({ httpMethod: 'GET', headers: {} });
+  assert.equal(health.statusCode, 200, 'Health endpoint should respond successfully');
+  const healthBody = JSON.parse(health.body);
+  assert.equal(healthBody.status, 'ok');
+  assert.equal(typeof healthBody.configuredProviderCount, 'number');
+  assert.equal(typeof healthBody.providers.gemini, 'boolean');
+  assert.equal(health.headers['Cache-Control'], 'no-store');
+  console.log('PASS Health endpoint reports safe provider configuration status');
+
+  const healthPost = await healthHandler({ httpMethod: 'POST', headers: {} });
+  assert.equal(healthPost.statusCode, 405, 'Health endpoint should reject POST');
+  console.log('PASS Health endpoint rejects unsupported methods');
+
+  console.log('All backend request-validation, quota, and health tests passed.');
 }
 
 run().catch(error => {
