@@ -5,7 +5,7 @@
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win nsis portable",
+    "dist": "electron-builder --win nsis",
     "dist:dir": "electron-builder --dir"
   },
   "devDependencies": {
@@ -24,11 +24,8 @@
       "!node_modules/**/*"
     ],
     "win": {
-      "target": [
-        "nsis",
-        "portable"
-      ],
-      "artifactName": "Dominion-Ask-AI-Windows-${version}-${ext}"
+      "target": "nsis",
+      "artifactName": "Dominion-Ask-AI-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
