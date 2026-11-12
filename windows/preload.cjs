@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('dominion',{
 
  captureRegion:rect=>ipcRenderer.invoke('capture-region',rect),
  action:name=>ipcRenderer.send('bubble-action',name),
+ setFloatingEnabled:v=>ipcRenderer.send('set-floating-enabled',v),
  moveBubble:(dx,dy)=>ipcRenderer.send('bubble-move',dx,dy),
  regionSelected:data=>ipcRenderer.send('region-selected',data),
  showAnswer:text=>ipcRenderer.send('show-answer',text),
