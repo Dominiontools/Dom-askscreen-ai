@@ -1,0 +1,37 @@
+{
+  "name": "dominion-ask-ai-windows",
+  "version": "1.0.0",
+  "description": "Dominion Ask AI desktop assistant for Windows",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis",
+    "dist:dir": "electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "^38.2.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.dominion.asksai.desktop",
+    "productName": "Dominion Ask AI",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!dist/**/*",
+      "!node_modules/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "artifactName": "Dominion-Ask-AI-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}
