@@ -4,7 +4,7 @@ let panel,bubble,answer,region,tray;
 const html=n=>path.join(__dirname,n);
 function top(w){if(w&&!w.isDestroyed())w.setAlwaysOnTop(true,'screen-saver');}
 function createPanel(){panel=new BrowserWindow({width:460,height:760,minWidth:380,minHeight:520,show:true,title:'Dominion Ask AI',alwaysOnTop:true,backgroundColor:'#10131c',webPreferences:{preload:html('preload.cjs'),contextIsolation:true,nodeIntegration:false}});
-panel.loadFile(html('index.html'));panel.on('closed',()=>panel=null);}
+panel.loadFile(html('index.html'));panel.once('ready-to-show',()=>{panel.show();setTimeout(()=>{if(!bubble||bubble.isDestroyed())createBubble();else bubble.show();},700);});panel.on('closed',()=>panel=null);}
 function createBubble(){bubble=new BrowserWindow({width:250,height:430,x:screen.getPrimaryDisplay().workArea.x+screen.getPrimaryDisplay().workArea.width-270,y:180,frame:false,transparent:true,resizable:false,alwaysOnTop:true,skipTaskbar:true,hasShadow:false,webPreferences:{preload:html('preload.cjs'),contextIsolation:true,nodeIntegration:false}});
 bubble.loadFile(html('bubble.html'));top(bubble);}
 function createAnswer(){answer=new BrowserWindow({width:440,height:340,show:false,frame:false,transparent:true,resizable:true,alwaysOnTop:true,skipTaskbar:true,webPreferences:{preload:html('preload.cjs'),contextIsolation:true,nodeIntegration:false}});
@@ -23,6 +23,6 @@ ipcMain.on('panel-hide',()=>panel?.hide());
 ipcMain.on('set-always-on-top',(_,v)=>{if(panel&&!panel.isDestroyed())panel.setAlwaysOnTop(!!v);});
 ipcMain.on('minimize-window',()=>panel?.hide());
 ipcMain.on('close-window',()=>panel?.hide());
-app.whenReady().then(()=>{session.defaultSession.setDisplayMediaRequestHandler(async(_request,callback)=>{const sources=await desktopCapturer.getSources({types:['screen']});callback(sources.length?{video:sources[0],audio:'loopback'}:{});});createPanel();createBubble();createAnswer();globalShortcut.register('CommandOrControl+Shift+Space',()=>{if(panel?.isVisible())panel.hide();else panel?.show();});globalShortcut.register('CommandOrControl+Shift+B',()=>{if(bubble?.isVisible())bubble.hide();else bubble?.show();});globalShortcut.register('CommandOrControl+Shift+R',()=>createRegion());});
+app.whenReady().then(()=>{session.defaultSession.setDisplayMediaRequestHandler(async(_request,callback)=>{const sources=await desktopCapturer.getSources({types:['screen']});callback(sources.length?{video:sources[0],audio:'loopback'}:{});});createPanel();createAnswer();globalShortcut.register('CommandOrControl+Shift+Space',()=>{if(panel?.isVisible())panel.hide();else panel?.show();});globalShortcut.register('CommandOrControl+Shift+B',()=>{if(bubble?.isVisible())bubble.hide();else bubble?.show();});globalShortcut.register('CommandOrControl+Shift+R',()=>createRegion());});
 app.on('will-quit',()=>globalShortcut.unregisterAll());
 app.on('window-all-closed',e=>{});
