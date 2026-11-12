@@ -14,7 +14,7 @@ function showPanel(){if(!panel||panel.isDestroyed())createPanel();else{panel.sho
 function sendMode(mode){if(!panel||panel.isDestroyed()){pendingMode=mode;showPanel();return;}if(panel.webContents.isLoading()){pendingMode=mode;panel.once('ready-to-show',()=>{if(pendingMode){panel.webContents.send('run-mode',pendingMode);pendingMode=null;}});return;}panel.webContents.send('run-mode',mode);}
 function createPanel(){
  if(panel&&!panel.isDestroyed())return panel;
- panel=new BrowserWindow({width:460,height:760,minWidth:380,minHeight:520,show:true,title:'Dominion Ask AI',alwaysOnTop:true,backgroundColor:'#10131c',webPreferences:{preload:html('preload.cjs'),contextIsolation:true,nodeIntegration:false}});
+ panel=new BrowserWindow({width:940,height:650,minWidth:760,minHeight:560,show:true,title:'Dominion Ask AI',alwaysOnTop:true,backgroundColor:'#10131c',webPreferences:{preload:html('preload.cjs'),contextIsolation:true,nodeIntegration:false}});
  applyCaptureProtection(panel);panel.loadFile(html('index.html'));
  panel.webContents.on('did-finish-load',()=>{if(pendingMode){panel.webContents.send('run-mode',pendingMode);pendingMode=null;}});
  panel.on('closed',()=>{panel=null;});
