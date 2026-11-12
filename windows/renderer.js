@@ -4,7 +4,8 @@ let history=[],recognition=null,listeningMode='off',screenImage=null,lastMode='r
 $('endpoint').value=localStorage.getItem('dominionEndpoint')||'';
 $('save').onclick=()=>{localStorage.setItem('dominionEndpoint',$('endpoint').value.trim());setStatus('Backend URL saved');};
 function setStatus(s,active=false){status.textContent=s;document.querySelector('.status').classList.toggle('listening',active);}
-function speakAnswer(text){if(!('speechSynthesis' in window))return;window.speechSynthesis.cancel();const utterance=new SpeechSynthesisUtterance(text);utterance.lang=$('language')?.value||'en-NG';utterance.rate=1;window.speechSynthesis.speak(utterance);}\nfunction addMessage(role,text){const empty=chat.querySelector('.welcome');if(empty)empty.remove();const d=document.createElement('div');d.className='message '+role;d.textContent=text;chat.appendChild(d);chat.scrollTop=chat.scrollHeight;}
+function speakAnswer(text){if(!('speechSynthesis' in window))return;window.speechSynthesis.cancel();const utterance=new SpeechSynthesisUtterance(text);utterance.lang=$('language')?.value||'en-NG';utterance.rate=1;window.speechSynthesis.speak(utterance);}
+function addMessage(role,text){const empty=chat.querySelector('.welcome');if(empty)empty.remove();const d=document.createElement('div');d.className='message '+role;d.textContent=text;chat.appendChild(d);chat.scrollTop=chat.scrollHeight;}
 async function ask(prompt,imageData,audioData){const endpoint=$('endpoint').value.trim();if(!endpoint){setStatus('Add your Netlify backend URL in settings');return;}
  addMessage('user',prompt);setStatus('Processing…',true);
  const payload={prompt,history:history.slice(-12)};if(imageData){const [head,data]=imageData.split(',');payload.images=[{mimeType:(head.match(/data:(.*?);/)||[])[1]||'image/png',data}];}if(audioData)payload.audio=audioData;
@@ -12,7 +13,8 @@ async function ask(prompt,imageData,audioData){const endpoint=$('endpoint').valu
  catch(e){addMessage('assistant','I could not get an answer: '+e.message);setStatus('Connection error');}}
 $('askForm').onsubmit=e=>{e.preventDefault();const p=$('prompt').value.trim();if(!p)return;$('prompt').value='';ask(p,screenImage);screenImage=null;};
 async function readScreen(prompt='Please inspect this screen carefully and answer the visible question(s).'){try{setStatus('Capturing screen…',true);screenImage=await window.dominion.captureScreen();await ask(prompt,screenImage);screenImage=null;}catch(e){setStatus('Screen capture failed: '+e.message);}}
-$('screenBtn').onclick=()=>readScreen();\n$('systemAudioBtn').onclick=()=>loopRecorder&&loopRecorder.state==='recording'?stopSystemAudio():startSystemAudio();
+$('screenBtn').onclick=()=>readScreen();
+$('systemAudioBtn').onclick=()=>loopRecorder&&loopRecorder.state==='recording'?stopSystemAudio():startSystemAudio();
 function cropRegion(data,rect){return new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>{const sx=img.naturalWidth/window.screen.width,sy=img.naturalHeight/window.screen.height;const c=document.createElement('canvas');c.width=Math.max(1,Math.round(rect.width*sx));c.height=Math.max(1,Math.round(rect.height*sy));c.getContext('2d').drawImage(img,Math.round(rect.x*sx),Math.round(rect.y*sy),c.width,c.height,0,0,c.width,c.height);resolve(c.toDataURL('image/png'));};img.onerror=reject;img.src=data;});}
 window.dominion.onRegionSelected(async payload=>{if(!payload)return;try{setStatus('Capturing selected region…',true);const crop=await window.dominion.captureRegion(payload);await ask('Read and explain the selected screen region. Answer any question shown.',crop);}catch(e){setStatus('Could not read selected region: '+e.message);}});
 function startRecognition(mode){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){setStatus('Windows speech recognition unavailable in this build. Check microphone permissions or use Windows voice typing.');return;}
