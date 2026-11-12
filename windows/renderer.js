@@ -6,15 +6,45 @@ $('save').onclick=()=>{const value=$('endpoint').value.trim();if(!value){setStat
 function setStatus(s,active=false){status.textContent=s;document.querySelector('.status').classList.toggle('listening',active);}
 function speakAnswer(text){if(!('speechSynthesis' in window))return;window.speechSynthesis.cancel();const utterance=new SpeechSynthesisUtterance(text);utterance.lang=$('language')?.value||'en-NG';utterance.rate=1;window.speechSynthesis.speak(utterance);}
 function addMessage(role,text){const empty=chat.querySelector('.welcome');if(empty)empty.remove();const d=document.createElement('div');d.className='message '+role;d.textContent=text;chat.appendChild(d);chat.scrollTop=chat.scrollHeight;}
-async function ask(prompt,imageData,audioData){const endpoint=$('endpoint').value.trim();if(!endpoint){setStatus('Add your Netlify backend URL in settings');return;}
- addMessage('user',prompt);setStatus('Processing…',true);
+async function ask(prompt,imageData,audioData,options={}){const endpoint=$('endpoint').value.trim();if(!endpoint){setStatus('Add your Netlify backend URL in settings');return;}
+ if(!options.silent)addMessage('user',prompt);setStatus(options.silent?'Checking for new screen content…':'Processing…',true);
  const payload={prompt,history:history.slice(-12)};if(imageData){const [head,data]=imageData.split(',');payload.images=[{mimeType:(head.match(/data:(.*?);/)||[])[1]||'image/png',data}];}if(audioData)payload.audio=audioData;
- try{const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const body=await response.json();if(!response.ok)throw new Error(body.message||body.error||'Request failed ('+response.status+')');const answer=body.answer||body.text||body.response||body.content||body.output||JSON.stringify(body);if(String(answer).trim().toUpperCase()==='NO_NEW_QUESTION'){setStatus('Watching screen for the next question',true);return;}addMessage('assistant',answer);speakAnswer(answer);history.push({role:'user',text:prompt},{role:'model',text:answer});history=history.slice(-12);window.dominion.showAnswer(answer);setStatus('Ready');}
+ try{const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const body=await response.json();if(!response.ok)throw new Error(body.message||body.error||'Request failed ('+response.status+')');const answer=body.answer||body.text||body.response||body.content||body.output||JSON.stringify(body);if(String(answer).trim().toUpperCase()==='NO_NEW_QUESTION'){setStatus(options.silent?'Monitoring screen for changes':'Watching screen for the next question',true);return;}if(!options.silent)addMessage('assistant',answer);else addMessage('assistant','New screen update: '+answer);speakAnswer(answer);history.push({role:'user',text:prompt},{role:'model',text:answer});history=history.slice(-12);window.dominion.showAnswer(answer);setStatus('Answer displayed');}
  catch(e){addMessage('assistant','I could not get an answer: '+e.message);setStatus('Connection error');}}
 $('askForm').onsubmit=e=>{e.preventDefault();const p=$('prompt').value.trim();if(!p)return;$('prompt').value='';ask(p,screenImage);screenImage=null;};
 async function readScreen(prompt='Please inspect this screen carefully and answer the visible question(s).'){try{setStatus('Capturing screen…',true);screenImage=await window.dominion.captureScreen();await ask(prompt,screenImage);screenImage=null;}catch(e){setStatus('Screen capture failed: '+e.message);}}
 $('screenBtn').onclick=()=>readScreen();
 $('systemAudioBtn').onclick=()=>loopRecorder&&loopRecorder.state==='recording'?stopSystemAudio():startSystemAudio();
+
+let screenMonitorTimer=null,lastScreenSnapshot='',screenMonitorBusy=false,firstScreenScan=true;
+async function startContinuousScreenRead(){
+ if(screenMonitorTimer)return;
+ firstScreenScan=true;lastScreenSnapshot='';
+ setStatus('Continuous screen reading started',true);
+ const scan=async()=>{
+  if(screenMonitorBusy)return;
+  screenMonitorBusy=true;
+  try{
+   const shot=await window.dominion.captureScreen();
+   if(shot===lastScreenSnapshot){setStatus('Monitoring screen — no change detected',true);return;}
+   const initial=firstScreenScan;
+   lastScreenSnapshot=shot;firstScreenScan=false;
+   const prompt=initial
+    ?'Read and describe the entire visible screen. Identify every visible question, explain relevant on-screen content, and answer all questions clearly. If there is no question, describe the important screen content.'
+    :'Compare this screen with the previous screen context. Focus on newly appeared or changed content. If a new question is visible, answer it. If there is no new question or meaningful new content, return exactly NO_NEW_QUESTION.';
+   await ask(prompt,shot,null,{silent:!initial});
+  }catch(e){setStatus('Continuous screen reading error: '+e.message);stopContinuousScreenRead();}
+  finally{screenMonitorBusy=false;}
+ };
+ await scan();
+ screenMonitorTimer=setInterval(scan,2200);
+}
+function stopContinuousScreenRead(){
+ if(screenMonitorTimer){clearInterval(screenMonitorTimer);screenMonitorTimer=null;}
+ screenMonitorBusy=false;firstScreenScan=true;lastScreenSnapshot='';
+ setStatus('Continuous screen reading stopped');
+}
+
 
 // External audio input: supports USB microphones, virtual microphones and AudioRelay-style devices.
 async function refreshAudioInputs(){
