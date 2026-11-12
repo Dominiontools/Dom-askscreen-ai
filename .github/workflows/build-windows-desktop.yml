@@ -20,5 +20,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Dominion-Ask-AI-Windows
-          path: windows/dist/*
+          path: windows/dist/*Setup*.exe
           if-no-files-found: error
