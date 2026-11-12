@@ -2,7 +2,7 @@ const $=id=>document.getElementById(id);
 const chat=$('chat'),status=$('statusText'),transcriptBox=$('transcript');
 let history=[],recognition=null,listeningMode='off',screenImage=null,lastMode='read',loopStream=null,loopRecorder=null,loopChunks=[];
 $('endpoint').value=localStorage.getItem('dominionEndpoint')||'';
-$('save').onclick=()=>{localStorage.setItem('dominionEndpoint',$('endpoint').value.trim());setStatus('Backend URL saved');};
+$('save').onclick=()=>{const value=$('endpoint').value.trim();if(!value){setStatus('Enter a backend URL before saving');$('endpoint').focus();return;}localStorage.setItem('dominionEndpoint',value);setStatus('Backend URL saved on this computer');$('save').textContent='Saved ✓';setTimeout(()=>{$('save').textContent='Save';},1800);};
 function setStatus(s,active=false){status.textContent=s;document.querySelector('.status').classList.toggle('listening',active);}
 function speakAnswer(text){if(!('speechSynthesis' in window))return;window.speechSynthesis.cancel();const utterance=new SpeechSynthesisUtterance(text);utterance.lang=$('language')?.value||'en-NG';utterance.rate=1;window.speechSynthesis.speak(utterance);}
 function addMessage(role,text){const empty=chat.querySelector('.welcome');if(empty)empty.remove();const d=document.createElement('div');d.className='message '+role;d.textContent=text;chat.appendChild(d);chat.scrollTop=chat.scrollHeight;}
