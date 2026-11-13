@@ -3,6 +3,7 @@ package com.example.data.model
 enum class QueryType(val displayName: String) {
     SCREEN("Screen Reading"),
     AUDIO("Audio Listening"),
+    TRANSCRIPTION("Audio Transcription"),
     SCREEN_AND_AUDIO("Screen & Audio"),
     REGION("Selected Region"),
     FILE("File Upload"),
