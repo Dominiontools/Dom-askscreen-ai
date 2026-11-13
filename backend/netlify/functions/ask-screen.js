@@ -704,7 +704,25 @@ exports.handler = async function handler(event) {
     }, requestId);
   }
 
-  // Count only valid requests so malformed payloads do not consume the user's quota.
+  let decodedUser;
+  try {
+    decodedUser = await verifyUser(event);
+  } catch (error) {
+    const status = error.statusCode || 503;
+    const code = error.message === 'AUTH_NOT_CONFIGURED' ? 'AUTH_NOT_CONFIGURED' :
+      (status === 401 ? 'AUTH_REQUIRED' : 'AUTH_ERROR');
+    return response(status, {
+      success: false,
+      error: status === 401
+        ? 'Please sign in to use AskScreen AI.'
+        : 'Account verification is temporarily unavailable.',
+      code
+    }, requestId);
+  }
+
+  const feature = featureForRequest(raw);
+
+  // Count only valid, authenticated requests so malformed requests do not use a trial.
   const retryAfterSeconds = getRateLimitRetryAfterSeconds(requestIp(event));
   if (retryAfterSeconds > 0) {
     return response(429, {
@@ -715,10 +733,34 @@ exports.handler = async function handler(event) {
     }, requestId, { 'Retry-After': String(retryAfterSeconds) });
   }
 
+  let reservation;
+  try {
+    reservation = await reserveFeatureUse(decodedUser.uid, feature, requestId);
+  } catch (error) {
+    if (error.message === 'SUBSCRIPTION_REQUIRED') {
+      return response(402, {
+        success: false,
+        error: 'Your two free uses for this feature have been used. Subscribe to continue.',
+        code: 'SUBSCRIPTION_REQUIRED',
+        feature
+      }, requestId);
+    }
+    console.error('[AskScreen Access] Usage reservation failed', { requestId, code: error.message || 'USAGE_ERROR' });
+    return response(503, {
+      success: false,
+      error: 'We could not verify your usage allowance. Please try again.',
+      code: 'USAGE_CHECK_UNAVAILABLE'
+    }, requestId);
+  }
+
   try {
     const result = await routeRequest(payload);
     return response(200, result, requestId);
   } catch (error) {
+    try { await releaseFeatureUse(decodedUser.uid, reservation); }
+    catch (rollbackError) {
+      console.error('[AskScreen Access] Usage rollback failed', { requestId, code: rollbackError.message || 'ROLLBACK_ERROR' });
+    }
     console.error('[AskScreen Router] Request failed', { requestId, code: error.code || 'UPSTREAM_FAILURE' });
 
     if (error.code === 'NO_PROVIDER_CONFIGURED') {
