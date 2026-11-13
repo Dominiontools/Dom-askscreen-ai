@@ -94,8 +94,6 @@ class AskScreenRepository(private val context: Context) {
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             val selectedModel = prefs.geminiModel.ifEmpty { "gemini-3.8-flash" }
-            val backendUrl = prefs.backendUrl.trim()
-
             val user = FirebaseAuth.getInstance().currentUser
                 ?: throw Exception("SIGN_IN_REQUIRED: Open the Account tab and sign in before using AskScreen AI.")
             val backendUrl = prefs.backendUrl.trim()
