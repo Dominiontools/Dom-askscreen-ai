@@ -851,7 +851,7 @@ class AskScreenOverlayService : Service() {
                     sessionMessages.value = sessionMessages.value + ChatMessage(
                         role = "user",
                         text = "📝 Transcript: $transcript",
-                        queryType = QueryType.AUDIO
+                        queryType = QueryType.TRANSCRIPTION
                     )
                     liveCaptions.value = "Transcript added. Listening for more speech..."
                     bubbleState.value = if (audioCaptureManager.isContinuousListening) {
