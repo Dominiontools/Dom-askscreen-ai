@@ -52,7 +52,109 @@ function response(statusCode, data, requestId, extraHeaders = {}) {
   return { statusCode, headers, body: JSON.stringify(data) };
 }
 
-function safeJsonParse(value) {
+
+// Firebase Admin is configured only with a Netlify environment variable.
+// FIREBASE_SERVICE_ACCOUNT_JSON must contain the service-account JSON string.
+let firebaseAdminPromise;
+async function getFirebaseAdmin() {
+  if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) throw new Error('AUTH_NOT_CONFIGURED');
+  if (!firebaseAdminPromise) {
+    firebaseAdminPromise = (async () => {
+      const admin = require('firebase-admin');
+      if (!admin.apps.length) {
+        const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+        admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+      }
+      return admin;
+    })();
+  }
+  return firebaseAdminPromise;
+}
+
+async function verifyUser(event) {
+  const authHeader = getHeader(event.headers, 'authorization');
+  const match = authHeader.match(/^Bearer\\s+(.+)$/i);
+  if (!match) {
+    const error = new Error('AUTH_REQUIRED');
+    error.statusCode = 401;
+    throw error;
+  }
+  try {
+    const admin = await getFirebaseAdmin();
+    return await admin.auth().verifyIdToken(match[1]);
+  } catch (error) {
+    if (error.message === 'AUTH_NOT_CONFIGURED') throw error;
+    const denied = new Error('INVALID_AUTH_TOKEN');
+    denied.statusCode = 401;
+    throw denied;
+  }
+}
+
+function featureForRequest(raw) {
+  const value = String(raw.feature || '').toLowerCase();
+  if (['screen', 'spoken', 'transcription'].includes(value)) return value;
+  const type = String(raw.queryType || '').toUpperCase();
+  if (['AUDIO', 'VOICE', 'SCREEN_AND_AUDIO'].includes(type)) return 'spoken';
+  if (['SCREEN', 'REGION'].includes(type)) return 'screen';
+  if (type === 'TRANSCRIPTION') return 'transcription';
+  return 'screen';
+}
+
+const FEATURE_FIELDS = {
+  screen: 'screenAnswersUsed',
+  spoken: 'spokenAnswersUsed',
+  transcription: 'transcriptionsUsed'
+};
+const FREE_FEATURE_LIMIT = 2;
+function currentUsagePeriod() {
+  return new Date().toISOString().slice(0, 7);
+}
+async function reserveFeatureUse(uid, feature, requestId) {
+  const admin = await getFirebaseAdmin();
+  const db = admin.firestore();
+  const ref = db.collection('askScreenAccounts').doc(uid);
+  const field = FEATURE_FIELDS[feature];
+  return db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(ref);
+    const data = snapshot.exists ? snapshot.data() : {};
+    const period = currentUsagePeriod();
+    const usage = data.usagePeriod === period ? (data.usage || {}) : {};
+    const subscription = data.subscription || {};
+    const paid = subscription.status === 'active' &&
+      (!subscription.currentPeriodEnd || subscription.currentPeriodEnd.toDate().getTime() > Date.now());
+    const used = Number(usage[field] || 0);
+    if (!paid && used >= FREE_FEATURE_LIMIT) {
+      const error = new Error('SUBSCRIPTION_REQUIRED');
+      error.statusCode = 402;
+      error.feature = feature;
+      throw error;
+    }
+    if (!paid) {
+      transaction.set(ref, {
+        usagePeriod: period,
+        usage: { ...usage, [field]: used + 1 },
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+    }
+    return { paid, field, period };
+  });
+}
+async function releaseFeatureUse(uid, reservation) {
+  if (!reservation || reservation.paid) return;
+  const admin = await getFirebaseAdmin();
+  const db = admin.firestore();
+  const ref = db.collection('askScreenAccounts').doc(uid);
+  await db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(ref);
+    if (!snapshot.exists || snapshot.data().usagePeriod !== reservation.period) return;
+    const usage = snapshot.data().usage || {};
+    transaction.set(ref, {
+      usage: { ...usage, [reservation.field]: Math.max(0, Number(usage[reservation.field] || 0) - 1) },
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  });
+}
+\nfunction safeJsonParse(value) {
   try { return value ? JSON.parse(value) : {}; } catch { return null; }
 }
 
