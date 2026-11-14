@@ -5,6 +5,7 @@ const { handler, isEligibleForFreeTrial } = require('./netlify/functions/ask-scr
 const { handler: healthHandler } = require('./netlify/functions/health');
 const { handler: transcriptionHandler } = require('./netlify/functions/record-transcription');
 const { handler: adminHandler } = require('./netlify/functions/admin-dashboard');
+const { handler: supportHandler } = require('./netlify/functions/support-tickets');
 
 async function run() {
   assert.equal(isEligibleForFreeTrial('2026-11-15T10:00:00.000Z', '2026-11-15T00:00:00.000Z'), true,
@@ -119,6 +120,26 @@ async function run() {
   assert.equal(adminUnconfigured.statusCode, 503, 'Admin endpoint must fail closed until ADMIN_EMAILS is configured');
   if (previousAdminEmails !== undefined) process.env.ADMIN_EMAILS = previousAdminEmails;
   console.log('PASS Admin endpoint fails closed when administrator allowlist is missing');
+
+  const supportOptions = await supportHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(supportOptions.statusCode, 204, 'Support endpoint should allow CORS preflight');
+  console.log('PASS Support endpoint OPTIONS preflight');
+
+  const supportPut = await supportHandler({ httpMethod: 'PUT', headers: {} });
+  assert.equal(supportPut.statusCode, 405, 'Support endpoint should reject unsupported methods');
+  console.log('PASS Support endpoint rejects unsupported methods');
+
+  const supportGetUnauthenticated = await supportHandler({ httpMethod: 'GET', headers: {} });
+  assert.equal(supportGetUnauthenticated.statusCode, 401, 'Support ticket history must require Firebase authentication');
+  console.log('PASS Support ticket history requires Firebase authentication');
+
+  const supportPostUnauthenticated = await supportHandler({
+    httpMethod: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ subject: 'Billing question', message: 'Please help me understand my subscription.' })
+  });
+  assert.equal(supportPostUnauthenticated.statusCode, 401, 'Support ticket submission must require Firebase authentication');
+  console.log('PASS Support ticket submission requires Firebase authentication');
 
   console.log('All backend validation and authentication-gate tests passed.');
 }
