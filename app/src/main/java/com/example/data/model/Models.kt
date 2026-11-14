@@ -7,6 +7,7 @@ enum class QueryType(val displayName: String) {
     REGION("Selected Region"),
     FILE("File Upload"),
     VOICE("Voice Query"),
+    TRANSCRIPTION("Transcription"),
     TEXT("Follow-up Text")
 }
 
