@@ -14,9 +14,6 @@ import com.example.data.model.MediaItem
 import com.example.data.model.QueryType
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.tasks.await
-import com.google.firebase.Firebase
-import com.google.firebase.ai.ai
-import com.google.firebase.ai.type.content
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
@@ -55,33 +52,8 @@ class AskScreenRepository(private val context: Context) {
 
     suspend fun clearHistory() = historyDao.clearAllHistory()
 
-    private val systemInstructionContent = content {
-        text(
-            "You are DOM Ask AI, an on-screen reading and learning assistant. Carefully inspect the visible " +
-            "content, screenshot, audio transcript, or uploaded material. Read visible text and answer choices accurately. " +
-            "For diagrams, charts, tables, maps, and labelled figures, use visual relationships and labels, not guesses from isolated words. " +
-            "If an image is blurry, cropped, too small, or ambiguous, state exactly what cannot be read instead of inventing details. " +
-            "For multiple-choice practice or self-study questions, return only the option letter and its answer text (for example: 'B. Oxygen'). " +
-            "Do not add an explanation unless the user explicitly asks for one or the question itself requests an explanation. " +
-            "For non-multiple-choice questions, give a direct, concise answer. If several independent questions are visible, answer them separately and in screen order. " +
-            "Never claim to have clicked or submitted anything. Only provide answer text; external interaction is handled separately by an explicit user-enabled practice automation setting."
-        )
-    }
-
     /**
-     * Lazily get Firebase AI model based on configured name.
-     */
-    private fun getFirebaseModel(modelName: String) = Firebase.ai.generativeModel(
-        modelName = when (modelName) {
-            "gemini-3.5-flash-lite" -> "gemini-3.5-flash-lite"
-            "gemini-4-argon" -> "gemini-4-argon"
-            else -> "gemini-3.8-flash" // Default recommended model
-        },
-        systemInstruction = systemInstructionContent
-    )
-
-    /**
-     * Ask Gemini via Firebase AI Logic (server-side authenticated) or optional backend.
+     * Send AI requests only through the authenticated Netlify backend.
      */
     suspend fun askScreenAi(
         prompt: String,
@@ -135,69 +107,6 @@ class AskScreenRepository(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error asking AI", e)
             Result.failure(e)
-        }
-    }
-
-    /**
-     * Executes multimodal inference using Firebase AI Logic.
-     */
-    private suspend fun callFirebaseAiLogic(
-        modelName: String,
-        prompt: String,
-        images: List<Bitmap>,
-        audioBase64: String?,
-        files: List<MediaItem>,
-        chatHistory: List<ChatMessage>
-    ): String {
-        val model = getFirebaseModel(modelName)
-
-        val promptContent = content {
-            // Attach captured screen images
-            for (bitmap in images) {
-                val scaled = scaleBitmapIfNeeded(bitmap, 1440)
-                image(scaled)
-            }
-
-            // Attach uploaded file images if any
-            for (file in files) {
-                if (file.mimeType.startsWith("image/")) {
-                    try {
-                        val bytes = Base64.decode(file.base64Data, Base64.DEFAULT)
-                        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                        if (bmp != null) {
-                            image(scaleBitmapIfNeeded(bmp, 1440))
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to decode attached file bitmap", e)
-                    }
-                } else {
-                    text("[Attached Document: ${file.fileName ?: "File"} (${file.mimeType})]")
-                }
-            }
-
-            // Attach user prompt and context
-            text(prompt)
-        }
-
-        val response = withTimeout(60_000L) {
-            if (chatHistory.isNotEmpty()) {
-                val historyContents = chatHistory.takeLast(6).map { turn ->
-                    content(if (turn.role == "model") "model" else "user") {
-                        text(turn.text)
-                    }
-                }
-                val chat = model.startChat(history = historyContents)
-                chat.sendMessage(promptContent)
-            } else {
-                model.generateContent(promptContent)
-            }
-        }
-
-        val text = response.text
-        if (!text.isNullOrBlank()) {
-            return text
-        } else {
-            throw Exception("Model returned an empty response.")
         }
     }
 
