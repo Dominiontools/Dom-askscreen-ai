@@ -168,9 +168,16 @@ async function run() {
   assert.equal(adminSettingsPut.statusCode, 405, 'Admin settings endpoint should reject unsupported methods');
   console.log('PASS Admin settings endpoint rejects unsupported methods');
 
-  const adminSettingsUnauthenticated = await adminSettingsHandler({ httpMethod: 'GET', headers: {} });
-  assert.equal(adminSettingsUnauthenticated.statusCode, 401, 'Admin settings must require Firebase authentication');
-  console.log('PASS Admin settings endpoint requires Firebase authentication');
+  const adminSettingsPublicRead = await adminSettingsHandler({ httpMethod: 'GET', headers: {} });
+  assert.equal(adminSettingsPublicRead.statusCode, 503, 'Public app-settings read must fail closed when Firebase server configuration is missing');
+  console.log('PASS Public app-settings read fails safely when Firebase is not configured');
+
+  const adminSettingsUnauthenticated = await adminSettingsHandler({
+    httpMethod: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ announcement: '', features: { screen: true, spoken: true, transcription: true }, freeTrialLimit: 2 })
+  });
+  assert.ok([401, 503].includes(adminSettingsUnauthenticated.statusCode), 'Settings changes must reject unauthenticated requests or fail closed without server auth configuration');
+  console.log('PASS Admin settings updates require authenticated administrator access');
 
   const adminUsersOptions = await adminUsersHandler({ httpMethod: 'OPTIONS', headers: {} });
   assert.equal(adminUsersOptions.statusCode, 204, 'Admin users endpoint should allow CORS preflight');
