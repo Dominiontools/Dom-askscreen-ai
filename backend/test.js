@@ -16,6 +16,9 @@ const { DEFAULT_PRODUCTS, normalizeCatalog, calculateBundle } = require('./prici
 async function run() {
   const defaultPricing = normalizeCatalog(DEFAULT_PRODUCTS);
   assert.equal(defaultPricing.length, 22, 'The catalogue must include core, specialist products and separate email management');
+  assert.equal(defaultPricing.find(item => item.id === 'core').independent, undefined, 'DOM AI Core remains its own core subscription');
+  assert.equal(defaultPricing.find(item => item.id === 'video_annotation').independent, true, 'Work services can be subscribed to independently of Core');
+  assert.equal(defaultPricing.find(item => item.id === 'email_management').independent, true, 'Email Management remains an independent monthly product');
   const defaultBundles = calculateBundle(defaultPricing, 10);
   assert.equal(defaultBundles.aiSuite.regularPriceCents, 52500, 'AI suite regular total should be $525.00');
   assert.equal(defaultBundles.aiSuite.priceCents, 47250, 'AI suite should apply the configured 10% discount');
