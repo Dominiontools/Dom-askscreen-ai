@@ -1,6 +1,6 @@
 'use strict';
 
-const { DEFAULT_PRODUCTS } = require('../pricing-catalog');
+const { DEFAULT_PRODUCTS } = require('./pricing-catalog');
 
 function timestampMillis(value) {
   if (value && typeof value.toDate === 'function') {
