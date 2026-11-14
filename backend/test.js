@@ -198,10 +198,10 @@ async function run() {
   const appUpdatePostUnconfigured = await appUpdateHandler({
     httpMethod: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ action: 'prepare-upload', versionCode: 2, versionName: '1.1', sizeBytes: 500000, fileName: 'release.apk' })
+    body: JSON.stringify({ action: 'publish', versionCode: 2, versionName: '1.1', downloadUrl: 'https://github.com/Dominiontools/Dom-askscreen-ai/releases/download/v1.1/dom-ask-ai.apk' })
   });
-  assert.equal(appUpdatePostUnconfigured.statusCode, 503, 'APK upload preparation must fail closed without Firebase server configuration');
-  console.log('PASS APK upload preparation fails closed without Firebase server configuration');
+  assert.equal(appUpdatePostUnconfigured.statusCode, 503, 'Release publishing must fail closed without Firebase server configuration');
+  console.log('PASS Release publishing fails safely without Firebase server configuration');
 
   const adminUsersOptions = await adminUsersHandler({ httpMethod: 'OPTIONS', headers: {} });
   assert.equal(adminUsersOptions.statusCode, 204, 'Admin users endpoint should allow CORS preflight');
