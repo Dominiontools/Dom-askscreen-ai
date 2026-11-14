@@ -176,6 +176,30 @@ exports.handler = async event => {
       console.warn('[Admin Dashboard] Audit log records unavailable:', error.message);
     }
 
+    let activityLogs = [];
+    try {
+      const activitySnapshot = await db.collection('askScreenActivityLogs')
+        .orderBy('createdAt', 'desc').limit(100).get();
+      activityLogs = activitySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          uid: data.uid || '',
+          email: data.email || '',
+          feature: data.feature || '',
+          outcome: data.outcome || 'unknown',
+          code: data.code || '',
+          provider: data.provider || '',
+          model: data.model || '',
+          requestId: data.requestId || '',
+          createdAt: data.createdAt && typeof data.createdAt.toDate === 'function'
+            ? data.createdAt.toDate().toISOString() : null
+        };
+      });
+    } catch (error) {
+      console.warn('[Admin Dashboard] Activity records unavailable:', error.message);
+    }
+
     return json(200, {
       generatedAt: new Date().toISOString(),
       totals: {
@@ -187,7 +211,8 @@ exports.handler = async event => {
       users: rows,
       payments,
       supportTickets,
-      auditLogs
+      auditLogs,
+      activityLogs
     });
   } catch (error) {
     const status = error.statusCode || (error.message === 'AUTH_NOT_CONFIGURED' ? 503 : 401);
