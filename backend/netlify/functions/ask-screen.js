@@ -125,7 +125,7 @@ const FEATURE_FIELDS = {
   spoken: 'spokenAnswersUsed',
   transcription: 'transcriptionsUsed'
 };
-const FREE_FEATURE_LIMIT = 2;
+const DEFAULT_FREE_FEATURE_LIMIT = 2;
 
 // Eligibility is based on Firebase Authentication's trusted account creation time.
 // FREE_TRIAL_START_AT is a deployment-controlled ISO-8601 timestamp. If it is missing
@@ -146,6 +146,17 @@ async function reserveFeatureUse(uid, feature, requestId) {
     process.env.FREE_TRIAL_START_AT
   );
   const db = admin.firestore();
+  const configSnapshot = await db.collection('askScreenAppConfig').doc('public').get();
+  const config = configSnapshot.exists ? configSnapshot.data() : {};
+  const featureEnabled = !config.features || config.features[feature] !== false;
+  if (!featureEnabled) {
+    const error = new Error('FEATURE_DISABLED');
+    error.statusCode = 403;
+    error.feature = feature;
+    throw error;
+  }
+  const configuredLimit = Number.isInteger(config.freeTrialLimit) && config.freeTrialLimit >= 0 && config.freeTrialLimit <= 10
+    ? config.freeTrialLimit : DEFAULT_FREE_FEATURE_LIMIT;
   const ref = db.collection('askScreenAccounts').doc(uid);
   const field = FEATURE_FIELDS[feature];
   return db.runTransaction(async transaction => {
@@ -170,7 +181,7 @@ async function reserveFeatureUse(uid, feature, requestId) {
       error.feature = feature;
       throw error;
     }
-    if (!paid && used >= FREE_FEATURE_LIMIT) {
+    if (!paid && used >= configuredLimit) {
       const error = new Error('SUBSCRIPTION_REQUIRED');
       error.statusCode = 402;
       error.feature = feature;
@@ -783,6 +794,10 @@ exports.handler = async function handler(event) {
   try {
     reservation = await reserveFeatureUse(decodedUser.uid, feature, requestId);
   } catch (error) {
+    if (error.message === 'FEATURE_DISABLED') {
+      await recordAdminActivity({ uid: decodedUser.uid, email: decodedUser.email, feature, outcome: 'blocked', code: 'FEATURE_DISABLED', requestId });
+      return response(403, { success: false, error: 'This feature is temporarily unavailable.', code: 'FEATURE_DISABLED', feature }, requestId);
+    }
     if (error.message === 'SUBSCRIPTION_REQUIRED') {
       await recordAdminActivity({ uid: decodedUser.uid, email: decodedUser.email, feature, outcome: 'blocked', code: 'SUBSCRIPTION_REQUIRED', requestId });
       return response(402, {
