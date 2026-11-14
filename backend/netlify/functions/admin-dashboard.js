@@ -61,6 +61,10 @@ exports.handler = async event => {
 
     const accountSnapshot = await db.collection('askScreenAccounts').get();
     const accounts = new Map(accountSnapshot.docs.map(doc => [doc.id, doc.data()]));
+    const appConfigSnapshot = await db.collection('askScreenAppConfig').doc('public').get();
+    const appConfig = appConfigSnapshot.exists ? appConfigSnapshot.data() : {};
+    const freeTrialLimit = Number.isInteger(appConfig.freeTrialLimit) && appConfig.freeTrialLimit >= 0 && appConfig.freeTrialLimit <= 10
+      ? appConfig.freeTrialLimit : 2;
     const now = Date.now();
     const rows = users.map(user => {
       const account = accounts.get(user.uid) || {};
@@ -89,9 +93,9 @@ exports.handler = async event => {
         },
         freeTrial: {
           eligible: freeTrialEligible,
-          screenRemaining: freeTrialEligible ? Math.max(0, 2 - Number(usage.screenAnswersUsed || 0)) : 0,
-          spokenRemaining: freeTrialEligible ? Math.max(0, 2 - Number(usage.spokenAnswersUsed || 0)) : 0,
-          transcriptionRemaining: freeTrialEligible ? Math.max(0, 2 - Number(usage.transcriptionsUsed || 0)) : 0
+          screenRemaining: freeTrialEligible ? Math.max(0, freeTrialLimit - Number(usage.screenAnswersUsed || 0)) : 0,
+          spokenRemaining: freeTrialEligible ? Math.max(0, freeTrialLimit - Number(usage.spokenAnswersUsed || 0)) : 0,
+          transcriptionRemaining: freeTrialEligible ? Math.max(0, freeTrialLimit - Number(usage.transcriptionsUsed || 0)) : 0
         },
         subscription: {
           status: active ? 'active' : (subscription.status === 'active' ? 'expired' : (subscription.status || 'inactive')),
