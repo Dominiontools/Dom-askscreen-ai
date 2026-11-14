@@ -198,7 +198,7 @@ class MainActivity : ComponentActivity() {
                         "versionName" to release.optString("versionName"),
                         "releaseNotes" to release.optString("releaseNotes"),
                         "downloadUrl" to url,
-                        "md5Hash" to release.optString("md5Hash"),
+                        "sha256" to release.optString("sha256"),
                         "sizeBytes" to release.optLong("sizeBytes").toString()
                     )
                 }
@@ -210,7 +210,10 @@ class MainActivity : ComponentActivity() {
         withContext(Dispatchers.IO) {
             val url = release["downloadUrl"] ?: throw IllegalStateException("Update download link is missing.")
             val expectedSize = release["sizeBytes"]?.toLongOrNull() ?: 0L
-            val expectedMd5 = release["md5Hash"].orEmpty()
+            val expectedSha256 = release["sha256"].orEmpty().lowercase()
+            if (!expectedSha256.matches(Regex("[a-f0-9]{64}"))) {
+                throw IllegalStateException("This update has no valid SHA-256 checksum. It cannot be installed safely.")
+            }
             val updateUri = Uri.parse(url)
             if (updateUri.scheme != "https" ||
                 updateUri.host != "github.com" ||
@@ -226,7 +229,7 @@ class MainActivity : ComponentActivity() {
                 if (expectedSize > 0 && body.contentLength() > 0 && body.contentLength() != expectedSize) {
                     throw IllegalStateException("The update file size does not match the published release.")
                 }
-                val digest = MessageDigest.getInstance("MD5")
+                val digest = MessageDigest.getInstance("SHA-256")
                 body.byteStream().use { input ->
                     FileOutputStream(apk).use { output ->
                         val buffer = ByteArray(64 * 1024)
@@ -239,8 +242,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 if (expectedSize > 0 && apk.length() != expectedSize) throw IllegalStateException("The downloaded APK is incomplete.")
-                val actualMd5 = android.util.Base64.encodeToString(digest.digest(), android.util.Base64.NO_WRAP)
-                if (expectedMd5.isNotBlank() && actualMd5 != expectedMd5) throw IllegalStateException("APK integrity check failed. Please try again.")
+                val actualSha256 = digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+                if (actualSha256 != expectedSha256) throw IllegalStateException("APK SHA-256 integrity check failed. Please try again.")
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
                 withContext(Dispatchers.Main) {
