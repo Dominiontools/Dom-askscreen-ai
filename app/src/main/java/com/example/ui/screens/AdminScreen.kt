@@ -92,6 +92,7 @@ fun AdminScreen(onBack: () -> Unit) {
     var releaseNotes by remember { mutableStateOf("") }
     var releaseDownloadUrl by remember { mutableStateOf("") }
     var releaseSizeBytes by remember { mutableStateOf("") }
+    var releaseSha256 by remember { mutableStateOf("") }
     var releaseMessage by remember { mutableStateOf<String?>(null) }
     var grantDialogOpen by remember { mutableStateOf(false) }
     var grantTargetUid by remember { mutableStateOf("") }
@@ -350,12 +351,14 @@ fun AdminScreen(onBack: () -> Unit) {
         }
         val sizeBytes = releaseSizeBytes.toLongOrNull() ?: 0L
         if (sizeBytes < 0L || sizeBytes > 2L * 1024L * 1024L * 1024L) throw IllegalArgumentException("Enter a valid APK size in bytes, or leave it blank.")
+        val checksum = releaseSha256.trim().lowercase()
+        if (!checksum.matches(Regex("[a-f0-9]{64}"))) throw IllegalArgumentException("Enter the APK SHA-256 checksum (64 hexadecimal characters).")
         val configured = prefs.backendUrl.trim().trimEnd('/')
         if (!configured.endsWith("/ask-screen")) throw IllegalStateException("Set your Netlify AskScreen endpoint in Settings first.")
         val endpoint = configured.removeSuffix("/ask-screen") + "/app-update"
         val payload = JSONObject().put("action", "publish").put("versionCode", versionCode)
             .put("versionName", releaseVersionName.trim()).put("releaseNotes", releaseNotes.trim())
-            .put("downloadUrl", downloadUrl).put("sizeBytes", sizeBytes)
+            .put("downloadUrl", downloadUrl).put("sizeBytes", sizeBytes).put("sha256", checksum)
         withContext(Dispatchers.IO) {
             val request = Request.Builder().url(endpoint).header("Authorization", "Bearer $idToken")
                 .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
@@ -484,6 +487,7 @@ fun AdminScreen(onBack: () -> Unit) {
                     OutlinedTextField(value=releaseVersionCode,onValueChange={releaseVersionCode=it.filter(Char::isDigit).take(9)},label={Text("Version code (must increase each release)")},singleLine=true,modifier=Modifier.fillMaxWidth())
                     OutlinedTextField(value=releaseDownloadUrl,onValueChange={releaseDownloadUrl=it.take(1000)},label={Text("GitHub APK download link")},supportingText={Text("Paste the .apk asset link from the GitHub Release.")},modifier=Modifier.fillMaxWidth())
                     OutlinedTextField(value=releaseSizeBytes,onValueChange={releaseSizeBytes=it.filter(Char::isDigit).take(12)},label={Text("APK size in bytes (optional)")},singleLine=true,modifier=Modifier.fillMaxWidth())
+                    OutlinedTextField(value=releaseSha256,onValueChange={releaseSha256=it.filter { ch -> ch.isDigit() || ch.lowercaseChar() in 'a'..'f' }.take(64)},label={Text("APK SHA-256 checksum (required)")},supportingText={Text("Generate this from the exact APK you uploaded to GitHub Releases.")},singleLine=true,modifier=Modifier.fillMaxWidth())
                     OutlinedTextField(value=releaseNotes,onValueChange={releaseNotes=it.take(2000)},label={Text("What's new in this update")},supportingText={Text("${releaseNotes.length}/2000 characters")},minLines=2,maxLines=5,modifier=Modifier.fillMaxWidth())
                     Button(onClick={
                         scope.launch {
@@ -492,11 +496,11 @@ fun AdminScreen(onBack: () -> Unit) {
                             catch(e:Exception) { error = e.message ?: "Could not publish this app update." }
                             finally { busy = false }
                         }
-                    },enabled=!busy && idToken.isNotBlank() && releaseVersionCode.toIntOrNull()!=null && releaseVersionName.isNotBlank() && releaseDownloadUrl.isNotBlank(),modifier=Modifier.fillMaxWidth()) {
+                    },enabled=!busy && idToken.isNotBlank() && releaseVersionCode.toIntOrNull()!=null && releaseVersionName.isNotBlank() && releaseDownloadUrl.isNotBlank() && releaseSha256.length==64,modifier=Modifier.fillMaxWidth()) {
                         Text(if(busy) "Publishing…" else "Publish update link")
                     }
                     releaseMessage?.let { Text(it,color=ElectricCyan,fontSize=12.sp) }
-                    Text("Important: upload only the signed APK built with the same package name and signing key as the customer app. Increase versionCode for every release. Android will ask customers to approve installation.",color=AmberWarning,fontSize=11.sp,lineHeight=16.sp)
+                    Text("Important: upload only the signed APK built with the same package name and signing key as the customer app. Increase versionCode for every release. The SHA-256 checksum must match that exact APK. Android will ask customers to approve installation.",color=AmberWarning,fontSize=11.sp,lineHeight=16.sp)
                 }
             }
             Text("Registered users & free-trial usage",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
