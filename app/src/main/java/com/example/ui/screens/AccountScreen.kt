@@ -182,7 +182,7 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
                 Card(colors = CardDefaults.cardColors(containerColor = Slate900), modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Available AI services and plans", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        Text("Choose the specialist tools you need. Specialist services are separate monthly add-ons to DOM AI Core.", color = Slate400, fontSize = 12.sp)
+                        Text("Browse specialist tools and monthly prices. Specialist services are separate add-ons to DOM AI Core.", color = Slate400, fontSize = 12.sp)
                         val products = settings.optJSONArray("pricing")
                         if (products != null) {
                             for (i in 0 until products.length()) {
@@ -203,7 +203,7 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
                         HorizontalDivider(color = Slate700)
                         Text("AI Suite with ${settings.optInt("bundleDiscountPercent",10)}% discount: USD " + String.format(Locale.US,"%.2f",aiSuite.optInt("priceCents") / 100.0) + "/month", color = Color.White, fontWeight = FontWeight.SemiBold)
                         Text("Complete Business Bundle: USD " + String.format(Locale.US,"%.2f",complete.optInt("priceCents") / 100.0) + "/month", color = Color(0xFF8FE0B0), fontWeight = FontWeight.SemiBold)
-                        Text("Email Management is also available separately. Bundle prices are calculated from the current catalogue.", color = Slate400, fontSize = 11.sp)
+                        Text("Email Management is an independent product. Prices are displayed for planning; checkout will be enabled after Paystack approval.", color = Slate400, fontSize = 11.sp)
                     }
                 }
             }
