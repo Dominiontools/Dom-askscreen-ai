@@ -6,6 +6,7 @@ const { handler: healthHandler } = require('./netlify/functions/health');
 const { handler: transcriptionHandler } = require('./netlify/functions/record-transcription');
 const { handler: adminHandler } = require('./netlify/functions/admin-dashboard');
 const { handler: adminUsersHandler } = require('./netlify/functions/admin-users');
+const { handler: adminSettingsHandler } = require('./netlify/functions/admin-settings');
 const { handler: supportHandler } = require('./netlify/functions/support-tickets');
 const { handler: supportAdminHandler } = require('./netlify/functions/support-admin');
 
@@ -158,6 +159,18 @@ async function run() {
   });
   assert.equal(supportAdminUnauthenticated.statusCode, 401, 'Support admin updates must require Firebase authentication');
   console.log('PASS Support admin updates require Firebase authentication');
+
+  const adminSettingsOptions = await adminSettingsHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(adminSettingsOptions.statusCode, 204, 'Admin settings endpoint should allow CORS preflight');
+  console.log('PASS Admin settings endpoint OPTIONS preflight');
+
+  const adminSettingsPut = await adminSettingsHandler({ httpMethod: 'PUT', headers: {} });
+  assert.equal(adminSettingsPut.statusCode, 405, 'Admin settings endpoint should reject unsupported methods');
+  console.log('PASS Admin settings endpoint rejects unsupported methods');
+
+  const adminSettingsUnauthenticated = await adminSettingsHandler({ httpMethod: 'GET', headers: {} });
+  assert.equal(adminSettingsUnauthenticated.statusCode, 401, 'Admin settings must require Firebase authentication');
+  console.log('PASS Admin settings endpoint requires Firebase authentication');
 
   const adminUsersOptions = await adminUsersHandler({ httpMethod: 'OPTIONS', headers: {} });
   assert.equal(adminUsersOptions.statusCode, 204, 'Admin users endpoint should allow CORS preflight');
