@@ -33,7 +33,7 @@ fun AccountScreen() {
     ) {
         Icon(Icons.Default.AccountCircle, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(54.dp))
         Spacer(Modifier.height(12.dp))
-        Text("YOUR ASKS CREEN ACCOUNT".replace("ASKS CREEN","ASKSCREEN"), color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+        Text("YOUR ASKSCREEN ACCOUNT", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         if (signedInEmail != null) {
             Text("Signed in as", color = Slate400)
@@ -79,6 +79,6 @@ fun AccountScreen() {
             Text(it, color = if (it.contains("success", true)) ElectricCyan else Color(0xFFFFB4AB), fontSize = 12.sp)
         }
         Spacer(Modifier.height(18.dp))
-        Text("Your password is handled by Firebase Authentication. AskScreen does not display or store it.", color = Slate500, fontSize = 11.sp)
+        Text("Your password is handled by Firebase Authentication. AskScreen does not display or store it.", color = Slate400, fontSize = 11.sp)
     }
 }
