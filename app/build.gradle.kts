@@ -112,8 +112,6 @@ dependencies {
 
   // Firebase account sign-in and server-backed customer identity.
   implementation(libs.firebase.auth)
-  // Google Play in-app update flow for customers who installed from Google Play.
-  implementation("com.google.android.play:app-update-ktx:2.1.0")
   implementation(libs.firebase.appcheck.recaptcha)
   implementation(libs.firebase.appcheck.debug)
   implementation(libs.kotlinx.coroutines.android)
