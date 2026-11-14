@@ -814,12 +814,16 @@ class AskScreenOverlayService : Service() {
         val merged = mergeListeningTranscript(previous, transcript).take(24000)
         listeningSessionSegments.clear()
         if (merged.isNotBlank()) listeningSessionSegments.add(merged)
-        if (type == QueryType.SCREEN_AND_AUDIO && listeningSessionFrames.size < 4) {
+        if (type == QueryType.SCREEN_AND_AUDIO) {
             val frame = captureFreshScreenForListening()
-            if (frame != null) listeningSessionFrames.add(frame)
-        } else if (type == QueryType.SCREEN_AND_AUDIO && listeningSessionFrames.isEmpty()) {
-            val frame = captureFreshScreenForListening()
-            if (frame != null) listeningSessionFrames.add(frame)
+            if (frame != null) {
+                // Keep the opening frame and the three most recent frames for a long session.
+                if (listeningSessionFrames.size >= 4) {
+                    val replaced = listeningSessionFrames.removeAt(1)
+                    if (!replaced.isRecycled) replaced.recycle()
+                }
+                listeningSessionFrames.add(frame)
+            }
         }
         val wordCount = merged.split(Regex("\\s+")).count { it.isNotBlank() }
         liveCaptions.value = "Captured $wordCount words. Keep playing, or tap the microphone to finish."
