@@ -4,6 +4,8 @@ on:
   workflow_dispatch:
   push:
     branches: [main, master, upgrade/continuous-assistant-and-reliability, upgrade/account-auth-and-usage, feature/admin-monitoring-dashboard]
+  pull_request:
+    branches: [upgrade/account-auth-and-usage]
 
 permissions:
   contents: read
