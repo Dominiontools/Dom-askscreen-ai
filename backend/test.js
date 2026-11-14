@@ -6,6 +6,7 @@ const { handler: healthHandler } = require('./netlify/functions/health');
 const { handler: transcriptionHandler } = require('./netlify/functions/record-transcription');
 const { handler: adminHandler } = require('./netlify/functions/admin-dashboard');
 const { handler: adminUsersHandler } = require('./netlify/functions/admin-users');
+const { handler: adminProductSubscriptionsHandler } = require('./netlify/functions/admin-product-subscriptions');
 const { handler: adminSettingsHandler } = require('./netlify/functions/admin-settings');
 const { handler: appUpdateHandler } = require('./netlify/functions/app-update');
 const { handler: supportHandler } = require('./netlify/functions/support-tickets');
@@ -230,6 +231,21 @@ async function run() {
   });
   assert.equal(appUpdatePostUnconfigured.statusCode, 503, 'Release publishing must fail closed without Firebase server configuration');
   console.log('PASS Release publishing fails safely without Firebase server configuration');
+
+  const adminProductOptions = await adminProductSubscriptionsHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(adminProductOptions.statusCode, 204, 'Admin product subscriptions endpoint should allow CORS preflight');
+  console.log('PASS Admin product subscriptions endpoint OPTIONS preflight');
+
+  const adminProductGet = await adminProductSubscriptionsHandler({ httpMethod: 'GET', headers: {} });
+  assert.equal(adminProductGet.statusCode, 405, 'Admin product subscriptions endpoint should reject non-POST requests');
+  console.log('PASS Admin product subscriptions endpoint rejects unsupported methods');
+
+  const adminProductUnauthenticated = await adminProductSubscriptionsHandler({
+    httpMethod: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ uid: 'customer-uid', productId: 'video_annotation', action: 'grant', currentPeriodEnd: '2027-01-01T00:00:00.000Z' })
+  });
+  assert.equal(adminProductUnauthenticated.statusCode, 401, 'Product access grants must require verified administrator authentication');
+  console.log('PASS Product access grants require administrator authentication');
 
   const adminUsersOptions = await adminUsersHandler({ httpMethod: 'OPTIONS', headers: {} });
   assert.equal(adminUsersOptions.statusCode, 204, 'Admin users endpoint should allow CORS preflight');
