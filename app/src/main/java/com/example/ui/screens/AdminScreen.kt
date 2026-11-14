@@ -34,7 +34,7 @@ import java.text.DateFormat
 import java.time.Instant
 import java.util.Date
 
-private data class AdminUserRow(val name:String,val email:String,val joined:String,val lastSignIn:String,val screen:Int,val spoken:Int,val transcription:Int,val trialEligible:Boolean,val screenRemaining:Int,val spokenRemaining:Int,val transcriptionRemaining:Int,val subscription:String,val expiry:String)
+private data class AdminUserRow(val name:String,val email:String,val joined:String,val lastSignIn:String,val screen:Int,val spoken:Int,val transcription:Int,val trialEligible:Boolean,val screenRemaining:Int,val spokenRemaining:Int,val transcriptionRemaining:Int,val subscription:String,val expiry:String,val disabled:Boolean,val emailVerified:Boolean)
 private data class AdminPaymentRow(val date:String,val email:String,val reference:String,val amount:String,val status:String)
 private data class AdminTicketRow(val id:String,val date:String,val email:String,val subject:String,val message:String,val status:String,val reply:String)
 
@@ -50,6 +50,8 @@ fun AdminScreen(onBack: () -> Unit) {
     var idToken by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var users by remember { mutableStateOf<List<AdminUserRow>>(emptyList()) }
+    var userSearch by remember { mutableStateOf("") }
+    var userFilter by remember { mutableStateOf("All") }
     var payments by remember { mutableStateOf<List<AdminPaymentRow>>(emptyList()) }
     var supportTickets by remember { mutableStateOf<List<AdminTicketRow>>(emptyList()) }
     var totalUsers by remember { mutableIntStateOf(0) }
@@ -93,7 +95,7 @@ fun AdminScreen(onBack: () -> Unit) {
                     usage.optInt("screen"), usage.optInt("spoken"), usage.optInt("transcription"),
                     trial.optBoolean("eligible"), trial.optInt("screenRemaining"), trial.optInt("spokenRemaining"),
                     trial.optInt("transcriptionRemaining"),
-                    sub.optString("status","inactive"), dateLabel(sub.optString("currentPeriodEnd"))
+                    sub.optString("status","inactive"), dateLabel(sub.optString("currentPeriodEnd")), item.optBoolean("disabled"), item.optBoolean("emailVerified")
                 ))
             }
         }
@@ -193,8 +195,26 @@ fun AdminScreen(onBack: () -> Unit) {
                 AdminMetric("Disabled accounts",disabledUsers.toString(),Modifier.weight(1f))
             }
             Text("Registered users & free-trial usage",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
+            OutlinedTextField(value=userSearch,onValueChange={userSearch=it},label={Text("Search by name or email")},singleLine=true,modifier=Modifier.fillMaxWidth())
+            Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+                listOf("All","Active","Disabled","Trial eligible").forEach { filter ->
+                    FilterChip(selected=userFilter==filter,onClick={userFilter=filter},label={Text(filter)})
+                }
+            }
+            val filteredUsers = users.filter { user ->
+                val matchesText = user.name.contains(userSearch,true) || user.email.contains(userSearch,true)
+                val matchesFilter = when(userFilter) {
+                    "Active" -> !user.disabled
+                    "Disabled" -> user.disabled
+                    "Trial eligible" -> user.trialEligible
+                    else -> true
+                }
+                matchesText && matchesFilter
+            }
+            Text("Showing ${filteredUsers.size} of ${users.size} accounts",color=Slate400,fontSize=11.sp)
             if(users.isEmpty()) Text("No registered users found.",color=Slate400)
-            users.forEach { user ->
+            else if(filteredUsers.isEmpty()) Text("No accounts match this search or filter.",color=Slate400)
+            filteredUsers.forEach { user ->
                 Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(14.dp)) {
                     Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(5.dp)) {
                         Text(user.name,color=Color.White,fontWeight=FontWeight.SemiBold)
@@ -207,6 +227,7 @@ fun AdminScreen(onBack: () -> Unit) {
                             color=if(user.trialEligible) ElectricCyan else Slate400,fontSize=11.sp
                         )
                         Text("Subscription: ${user.subscription} • Expires: ${user.expiry}",color=if(user.subscription=="active") EmeraldGreen else AmberWarning,fontSize=12.sp)
+                        Text("Email: ${if(user.emailVerified) "Verified" else "Not verified"} • Account: ${if(user.disabled) "Disabled" else "Enabled"}",color=if(user.disabled) AmberWarning else Slate400,fontSize=11.sp)
                     }
                 }
             }
