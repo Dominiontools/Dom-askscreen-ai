@@ -19,7 +19,7 @@ Open **Site configuration → Environment variables** and add:
 
 Keep both values private. Never put either secret in the Android app, GitHub source files, or a message. Do not commit a service-account JSON file.
 
-After adding or changing variables, trigger a new Netlify deploy.
+- `ADMIN_EMAILS` — comma-separated list of verified Firebase administrator email addresses. Required to enable the in-app Admin Centre.\n\nAfter adding or changing variables, trigger a new Netlify deploy.
 
 ## 3. Firebase console setup
 
@@ -36,7 +36,7 @@ The Firebase Admin service account must have permission to verify Firebase ID to
 2. Enter the Netlify function URL shown above.
 3. Save the URL.
 4. Open **Account** and create an account or sign in.
-5. Test the AI features after the backend has deployed with both required environment variables.
+5. Test the AI features after the backend has deployed with the required backend environment variables configured.
 
 All AI requests on this upgrade branch require a signed-in Firebase account and go through the backend. The backend grants two lifetime free uses per feature (screen reading, AI spoken answers, and transcription) only to Firebase accounts whose trusted Firebase Authentication creation time is on or after `FREE_TRIAL_START_AT`. Accounts created before that timestamp do not receive a trial, even if their Firestore usage record is missing or recreated. Each successful feature request consumes one use. Allowances never reset monthly or when the app is reopened. After a feature's two uses are consumed, an active subscription is required for that feature. A paid subscription is recognized only when a verified active subscription record with a valid future expiry exists in Firestore.
 
