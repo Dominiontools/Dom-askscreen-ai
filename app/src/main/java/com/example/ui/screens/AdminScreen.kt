@@ -29,6 +29,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.text.DateFormat
+import java.time.Instant
+import java.util.Date
 
 private data class AdminUserRow(val name:String,val email:String,val joined:String,val lastSignIn:String,val screen:Int,val spoken:Int,val transcription:Int,val subscription:String,val expiry:String)
 private data class AdminPaymentRow(val date:String,val email:String,val reference:String,val amount:String,val status:String)
@@ -53,7 +55,7 @@ fun AdminScreen(onBack: () -> Unit) {
     var loaded by remember { mutableStateOf(false) }
 
     fun dateLabel(value:String):String = try {
-        if (value.isBlank() || value == "null") "—" else DateFormat.getDateTimeInstance().format(DateFormat.getDateTimeInstance().parse(value)!!)
+        if (value.isBlank() || value == "null") "—" else DateFormat.getDateTimeInstance().format(Date.from(Instant.parse(value)))
     } catch (_:Exception) { "—" }
 
     suspend fun loadData(token:String) {
@@ -153,7 +155,7 @@ fun AdminScreen(onBack: () -> Unit) {
                 AdminMetric("Subscribers",activeSubscribers.toString(),Modifier.weight(1f))
             }
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                AdminMetric("Trial activity",trialUsers.toString(),Modifier.weight(1f))
+                AdminMetric("Users with usage",trialUsers.toString(),Modifier.weight(1f))
                 AdminMetric("Disabled accounts",disabledUsers.toString(),Modifier.weight(1f))
             }
             Text("Registered users & free-trial usage",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
