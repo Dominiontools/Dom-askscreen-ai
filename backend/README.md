@@ -45,3 +45,19 @@ All AI requests on this upgrade branch require a signed-in Firebase account and 
 Paystack is intentionally not required for this deployment. When the Paystack account is approved, we will add server-side checkout initialization, webhook signature verification, and payment verification. Only verified payments will activate subscriptions. Paystack secret keys will be stored in Netlify environment variables, never in the Android app.
 
 Until that integration is complete, do not manually mark customers as paid.
+
+## 6. Admin monitoring dashboard
+
+The administrator website is served from:
+
+`https://YOUR-SITE.netlify.app/admin/`
+
+Before using it, add this Netlify environment variable:
+
+- `ADMIN_EMAILS` — one or more administrator email addresses, separated by commas. Use the exact email address of the Firebase Authentication account that should administer the platform.
+
+The admin must sign in with Firebase Email/Password and have a verified email address. The server verifies the Firebase ID token and checks the email against `ADMIN_EMAILS` on every dashboard data request. Do not rely on hiding the page URL as security. Never place the Firebase service-account JSON in the browser.
+
+The dashboard currently displays registered users, join/last-sign-in dates, per-feature usage, active subscription status, and available payment records. Payment records will remain empty until the later Paystack integration writes verified transactions to the `askScreenPayments` collection. The dashboard is read-only at this stage; account suspension, manual subscription changes, and refunds are not enabled.
+
+After setting `ADMIN_EMAILS`, redeploy the Netlify site. Open `/admin/`, sign in with the authorized Firebase admin account, and use **Refresh** to reload current data. The dashboard endpoint is `/.netlify/functions/admin-dashboard`.
