@@ -42,12 +42,11 @@ exports.handler = async event => {
   if (event.httpMethod === 'OPTIONS') return json(204, {});
   if (!['GET', 'POST'].includes(event.httpMethod)) return json(405, { error: 'Method not allowed.' });
   try {
-    const admin = await getAdmin();
-    const db = admin.firestore();
-    const ref = db.collection('askScreenAppConfig').doc('public');
-
     // Public GET exposes only customer-safe display and feature availability settings.
     if (event.httpMethod === 'GET') {
+      const admin = await getAdmin();
+      const db = admin.firestore();
+      const ref = db.collection('askScreenAppConfig').doc('public');
       const snapshot = await ref.get();
       const saved = snapshot.exists ? snapshot.data() : {};
       return json(200, {
@@ -70,6 +69,9 @@ exports.handler = async event => {
       return json(403, { error: 'This account is not authorized to change app settings.' });
     }
 
+    const admin = await getAdmin();
+    const db = admin.firestore();
+    const ref = db.collection('askScreenAppConfig').doc('public');
     const contentType = String(event.headers?.['content-type'] || event.headers?.['Content-Type'] || '').toLowerCase();
     if (!contentType.includes('application/json')) return json(415, { error: 'Content-Type must be application/json.' });
     if (!event.body || Buffer.byteLength(event.body, 'utf8') > 4000) return json(413, { error: 'Settings request is too large.' });
