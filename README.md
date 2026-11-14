@@ -60,7 +60,7 @@ The self-hosted update workflow is not considered ready for customer distributio
 The Admin Centre requires the SHA-256 checksum of the exact APK asset. On Windows PowerShell, generate it with:
 
 ```powershell
-Get-FileHash .\\dom-ask-ai.apk -Algorithm SHA256
+Get-FileHash .\dom-ask-ai.apk -Algorithm SHA256
 ```
 
 Copy the 64-character value shown in the `Hash` column into the Admin Centre. On every customer update, the app downloads the APK and verifies its SHA-256 value before opening Android's installer. A missing or mismatched checksum blocks installation.
