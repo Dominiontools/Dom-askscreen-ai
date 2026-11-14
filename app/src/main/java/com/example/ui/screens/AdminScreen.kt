@@ -49,7 +49,7 @@ import java.util.Locale
 import java.math.BigDecimal
 import java.math.RoundingMode
 
-private data class AdminUserRow(val uid:String,val name:String,val email:String,val joined:String,val lastSignIn:String,val screen:Int,val spoken:Int,val transcription:Int,val trialEligible:Boolean,val screenRemaining:Int,val spokenRemaining:Int,val transcriptionRemaining:Int,val subscription:String,val expiry:String,val disabled:Boolean,val emailVerified:Boolean)
+private data class AdminUserRow(val uid:String,val name:String,val email:String,val joined:String,val lastSignIn:String,val screen:Int,val spoken:Int,val transcription:Int,val trialEligible:Boolean,val screenRemaining:Int,val spokenRemaining:Int,val transcriptionRemaining:Int,val subscription:String,val expiry:String,val productAccess:String,val disabled:Boolean,val emailVerified:Boolean)
 private data class AdminPaymentRow(val date:String,val email:String,val reference:String,val amount:String,val status:String)
 private data class AdminTicketRow(val id:String,val date:String,val email:String,val subject:String,val message:String,val status:String,val reply:String)
 private data class AdminAuditRow(val action:String,val targetEmail:String,val adminEmail:String,val detail:String,val date:String)
@@ -93,6 +93,11 @@ fun AdminScreen(onBack: () -> Unit) {
     var releaseDownloadUrl by remember { mutableStateOf("") }
     var releaseSizeBytes by remember { mutableStateOf("") }
     var releaseMessage by remember { mutableStateOf<String?>(null) }
+    var grantDialogOpen by remember { mutableStateOf(false) }
+    var grantTargetUid by remember { mutableStateOf("") }
+    var selectedGrantProduct by remember { mutableStateOf("video_annotation") }
+    var grantExpiry by remember { mutableStateOf("") }
+    var showGrantProductMenu by remember { mutableStateOf(false) }
 
     fun dateLabel(value:String):String = try {
         if (value.isBlank() || value == "null") "—" else DateFormat.getDateTimeInstance().format(Date.from(Instant.parse(value)))
@@ -184,13 +189,23 @@ fun AdminScreen(onBack: () -> Unit) {
                 val usage = item.optJSONObject("usage") ?: JSONObject()
                 val trial = item.optJSONObject("freeTrial") ?: JSONObject()
                 val sub = item.optJSONObject("subscription") ?: JSONObject()
+                val productArray = item.optJSONArray("productSubscriptions")
+                val activeProducts = buildList {
+                    if (productArray != null) for (productIndex in 0 until productArray.length()) {
+                        val product = productArray.optJSONObject(productIndex) ?: continue
+                        if (product.optString("status") == "active") {
+                            add(product.optString("name") + " (until " + dateLabel(product.optString("currentPeriodEnd")) + ")")
+                        }
+                    }
+                }.joinToString(" • ").ifBlank { "No active Work Centre products" }
                 add(AdminUserRow(
                     item.optString("uid"), item.optString("displayName").ifBlank { item.optString("email").ifBlank { "Unnamed account" } },
                     item.optString("email"), dateLabel(item.optString("createdAt")), dateLabel(item.optString("lastSignInAt")),
                     usage.optInt("screen"), usage.optInt("spoken"), usage.optInt("transcription"),
                     trial.optBoolean("eligible"), trial.optInt("screenRemaining"), trial.optInt("spokenRemaining"),
                     trial.optInt("transcriptionRemaining"),
-                    sub.optString("status","inactive"), dateLabel(sub.optString("currentPeriodEnd")), item.optBoolean("disabled"), item.optBoolean("emailVerified")
+                    sub.optString("status","inactive"), dateLabel(sub.optString("currentPeriodEnd")), activeProducts,
+                    item.optBoolean("disabled"), item.optBoolean("emailVerified")
                 ))
             }
         }
@@ -298,6 +313,27 @@ fun AdminScreen(onBack: () -> Unit) {
                 val body = response.body?.string().orEmpty()
                 val json = try { JSONObject(body) } catch (_:Exception) { JSONObject() }
                 if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "Could not update ticket." })
+            }
+        }
+        loadData(idToken)
+    }
+
+    suspend fun setProductAccess(uid:String, productId:String, action:String, expiry:String = "") {
+        if (idToken.isBlank()) throw IllegalStateException("Sign in to the administrator account again.")
+        val configured = prefs.backendUrl.trim().trimEnd('/')
+        if (!configured.endsWith("/ask-screen")) throw IllegalStateException("Set your Netlify AskScreen endpoint in Settings first.")
+        val endpoint = configured.removeSuffix("/ask-screen") + "/admin-product-subscriptions"
+        val payload = JSONObject().put("uid",uid).put("productId",productId).put("action",action)
+        if (action == "grant") payload.put("currentPeriodEnd",expiry)
+        withContext(Dispatchers.IO) {
+            val request = Request.Builder().url(endpoint)
+                .header("Authorization","Bearer $idToken")
+                .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+            http.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                val json = try { JSONObject(body) } catch (_:Exception) { JSONObject() }
+                if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "Could not update product access." })
             }
         }
         loadData(idToken)
@@ -496,6 +532,13 @@ fun AdminScreen(onBack: () -> Unit) {
                             color=if(user.trialEligible) ElectricCyan else Slate400,fontSize=11.sp
                         )
                         Text("Subscription: ${user.subscription} • Expires: ${user.expiry}",color=if(user.subscription=="active") EmeraldGreen else AmberWarning,fontSize=12.sp)
+                        Text("Work Centre access: ${user.productAccess}",color=if(user.productAccess.startsWith("No active")) Slate400 else EmeraldGreen,fontSize=11.sp)
+                        OutlinedButton(onClick={
+                            grantTargetUid=user.uid
+                            grantExpiry=""
+                            selectedGrantProduct=pricingRows.firstOrNull { it.id != "core" }?.id ?: "video_annotation"
+                            grantDialogOpen=true
+                        },enabled=!busy && user.uid.isNotBlank()) { Text("Manage Work Centre access") }
                         Text("Email: ${if(user.emailVerified) "Verified" else "Not verified"} • Account: ${if(user.disabled) "Disabled" else "Enabled"}",color=if(user.disabled) AmberWarning else Slate400,fontSize=11.sp)
                         OutlinedButton(onClick={
                             scope.launch {
@@ -597,6 +640,58 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             }
+        }
+        if (grantDialogOpen) {
+            val targetUser = users.firstOrNull { it.uid == grantTargetUid }
+            val selectedProductName = pricingRows.firstOrNull { it.id == selectedGrantProduct }?.name ?: selectedGrantProduct
+            AlertDialog(
+                onDismissRequest = { if (!busy) grantDialogOpen = false },
+                title = { Text("Manage Work Centre access") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Customer: ${targetUser?.email ?: grantTargetUid}",fontSize=12.sp)
+                        Box {
+                            OutlinedButton(onClick={showGrantProductMenu=true},modifier=Modifier.fillMaxWidth()) { Text(selectedProductName) }
+                            DropdownMenu(expanded=showGrantProductMenu,onDismissRequest={showGrantProductMenu=false}) {
+                                pricingRows.filter { it.id != "core" }.forEach { product ->
+                                    DropdownMenuItem(text={Text(product.name)},onClick={selectedGrantProduct=product.id;showGrantProductMenu=false})
+                                }
+                            }
+                        }
+                        OutlinedTextField(
+                            value=grantExpiry,onValueChange={grantExpiry=it.take(40)},
+                            label={Text("Access expiry (ISO date/time)")},
+                            placeholder={Text("2027-11-15T00:00:00Z")},
+                            supportingText={Text("Required for a manual grant. Maximum two years ahead.")},
+                            singleLine=true,modifier=Modifier.fillMaxWidth()
+                        )
+                        Text("Manual grants are recorded in the administrator audit log. They do not represent a Paystack payment.",color=Slate400,fontSize=11.sp)
+                    }
+                },
+                confirmButton = {
+                    TextButton(enabled=!busy && grantExpiry.isNotBlank(),onClick={
+                        scope.launch {
+                            busy=true;error=null
+                            try { setProductAccess(grantTargetUid,selectedGrantProduct,"grant",grantExpiry);grantDialogOpen=false }
+                            catch(e:Exception) { error=e.message ?: "Could not grant product access." }
+                            finally { busy=false }
+                        }
+                    }) { Text("Grant access") }
+                },
+                dismissButton = {
+                    Row {
+                        TextButton(enabled=!busy,onClick={
+                            scope.launch {
+                                busy=true;error=null
+                                try { setProductAccess(grantTargetUid,selectedGrantProduct,"revoke");grantDialogOpen=false }
+                                catch(e:Exception) { error=e.message ?: "Could not revoke product access." }
+                                finally { busy=false }
+                            }
+                        }) { Text("Revoke") }
+                        TextButton(enabled=!busy,onClick={grantDialogOpen=false}) { Text("Cancel") }
+                    }
+                }
+            )
         }
         error?.let { Text(it,color=Color(0xFFFF8A80),fontSize=12.sp) }
         if(busy && loaded) LinearProgressIndicator(Modifier.fillMaxWidth(),color=ElectricCyan)
