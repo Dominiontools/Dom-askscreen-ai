@@ -15,7 +15,7 @@ This backend securely handles screen-reading, spoken-answer, and transcription r
 Open **Site configuration → Environment variables** and add:
 
 - `GEMINI_API_KEY` — your server-side Gemini API key.
-- `FIREBASE_SERVICE_ACCOUNT_JSON` — the complete Firebase service-account JSON for the same Firebase project used by the Android app. Paste the full JSON as the variable value.
+- `FIREBASE_SERVICE_ACCOUNT_JSON` — the complete Firebase service-account JSON for the same Firebase project used by the Android app. Paste the full JSON as the variable value.\n- `FREE_TRIAL_START_AT` — the UTC ISO-8601 launch timestamp from which newly created Firebase accounts become eligible for the two-use-per-feature free trial (example format: `2026-11-15T00:00:00.000Z`). Choose the actual public launch time and keep it fixed. If this variable is missing or invalid, free trials are disabled rather than granted to older accounts.
 
 Keep both values private. Never put either secret in the Android app, GitHub source files, or a message. Do not commit a service-account JSON file.
 
@@ -38,7 +38,7 @@ The Firebase Admin service account must have permission to verify Firebase ID to
 4. Open **Account** and create an account or sign in.
 5. Test the AI features after the backend has deployed with both required environment variables.
 
-All AI requests on this upgrade branch require a signed-in Firebase account and go through the backend. The backend grants each newly registered account two lifetime free uses per feature (screen reading, AI spoken answers, and transcription). Each successful feature request consumes one use. Allowances never reset monthly or when the app is reopened. After a feature's two uses are consumed, an active subscription is required for that feature. A paid subscription is recognized only when a verified active subscription record with a valid future expiry exists in Firestore.
+All AI requests on this upgrade branch require a signed-in Firebase account and go through the backend. The backend grants two lifetime free uses per feature (screen reading, AI spoken answers, and transcription) only to Firebase accounts whose trusted Firebase Authentication creation time is on or after `FREE_TRIAL_START_AT`. Accounts created before that timestamp do not receive a trial, even if their Firestore usage record is missing or recreated. Each successful feature request consumes one use. Allowances never reset monthly or when the app is reopened. After a feature's two uses are consumed, an active subscription is required for that feature. A paid subscription is recognized only when a verified active subscription record with a valid future expiry exists in Firestore.
 
 ## 5. Paystack — later phase
 
