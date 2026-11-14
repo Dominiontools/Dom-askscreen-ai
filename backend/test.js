@@ -5,6 +5,7 @@ const { handler, isEligibleForFreeTrial } = require('./netlify/functions/ask-scr
 const { handler: healthHandler } = require('./netlify/functions/health');
 const { handler: transcriptionHandler } = require('./netlify/functions/record-transcription');
 const { handler: adminHandler } = require('./netlify/functions/admin-dashboard');
+const { handler: adminUsersHandler } = require('./netlify/functions/admin-users');
 const { handler: supportHandler } = require('./netlify/functions/support-tickets');
 const { handler: supportAdminHandler } = require('./netlify/functions/support-admin');
 
@@ -157,6 +158,21 @@ async function run() {
   });
   assert.equal(supportAdminUnauthenticated.statusCode, 401, 'Support admin updates must require Firebase authentication');
   console.log('PASS Support admin updates require Firebase authentication');
+
+  const adminUsersOptions = await adminUsersHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(adminUsersOptions.statusCode, 204, 'Admin users endpoint should allow CORS preflight');
+  console.log('PASS Admin users endpoint OPTIONS preflight');
+
+  const adminUsersGet = await adminUsersHandler({ httpMethod: 'GET', headers: {} });
+  assert.equal(adminUsersGet.statusCode, 405, 'Admin users endpoint should reject non-POST requests');
+  console.log('PASS Admin users endpoint rejects unsupported methods');
+
+  const adminUsersUnauthenticated = await adminUsersHandler({
+    httpMethod: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ uid: 'customer-uid', disabled: true })
+  });
+  assert.equal(adminUsersUnauthenticated.statusCode, 401, 'Account management must require Firebase authentication');
+  console.log('PASS Account management requires Firebase authentication');
 
   console.log('All backend validation and authentication-gate tests passed.');
 }
