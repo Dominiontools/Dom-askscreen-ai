@@ -151,6 +151,27 @@ exports.handler = async event => {
       console.warn('[Admin Dashboard] Support tickets unavailable:', error.message);
     }
 
+    let auditLogs = [];
+    try {
+      const auditSnapshot = await db.collection('askScreenAdminAuditLogs')
+        .orderBy('createdAt', 'desc').limit(100).get();
+      auditLogs = auditSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          action: data.action || 'admin_action',
+          targetUid: data.targetUid || '',
+          targetEmail: data.targetEmail || '',
+          adminUid: data.adminUid || '',
+          adminEmail: data.adminEmail || '',
+          createdAt: data.createdAt && typeof data.createdAt.toDate === 'function'
+            ? data.createdAt.toDate().toISOString() : null
+        };
+      });
+    } catch (error) {
+      console.warn('[Admin Dashboard] Audit log records unavailable:', error.message);
+    }
+
     return json(200, {
       generatedAt: new Date().toISOString(),
       totals: {
@@ -161,7 +182,8 @@ exports.handler = async event => {
       },
       users: rows,
       payments,
-      supportTickets
+      supportTickets,
+      auditLogs
     });
   } catch (error) {
     const status = error.statusCode || (error.message === 'AUTH_NOT_CONFIGURED' ? 503 : 401);
