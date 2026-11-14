@@ -39,6 +39,7 @@ private data class AdminUserRow(val uid:String,val name:String,val email:String,
 private data class AdminPaymentRow(val date:String,val email:String,val reference:String,val amount:String,val status:String)
 private data class AdminTicketRow(val id:String,val date:String,val email:String,val subject:String,val message:String,val status:String,val reply:String)
 private data class AdminAuditRow(val action:String,val targetEmail:String,val adminEmail:String,val detail:String,val date:String)
+private data class AdminActivityRow(val email:String,val feature:String,val outcome:String,val code:String,val provider:String,val requestId:String,val date:String)
 
 @Composable
 fun AdminScreen(onBack: () -> Unit) {
@@ -57,6 +58,7 @@ fun AdminScreen(onBack: () -> Unit) {
     var payments by remember { mutableStateOf<List<AdminPaymentRow>>(emptyList()) }
     var supportTickets by remember { mutableStateOf<List<AdminTicketRow>>(emptyList()) }
     var auditLogs by remember { mutableStateOf<List<AdminAuditRow>>(emptyList()) }
+    var activityLogs by remember { mutableStateOf<List<AdminActivityRow>>(emptyList()) }
     var totalUsers by remember { mutableIntStateOf(0) }
     var activeSubscribers by remember { mutableIntStateOf(0) }
     var trialUsers by remember { mutableIntStateOf(0) }
@@ -139,6 +141,21 @@ fun AdminScreen(onBack: () -> Unit) {
                             append(if (item.optBoolean("replySent")) "Reply sent" else "Status updated")
                         }
                     },
+                    dateLabel(item.optString("createdAt"))
+                ))
+            }
+        }
+        val activityArray = result.optJSONArray("activityLogs")
+        activityLogs = buildList {
+            if (activityArray != null) for (i in 0 until activityArray.length()) {
+                val item = activityArray.optJSONObject(i) ?: continue
+                add(AdminActivityRow(
+                    item.optString("email"),
+                    item.optString("feature"),
+                    item.optString("outcome"),
+                    item.optString("code"),
+                    item.optString("provider"),
+                    item.optString("requestId"),
                     dateLabel(item.optString("createdAt"))
                 ))
             }
@@ -299,6 +316,20 @@ fun AdminScreen(onBack: () -> Unit) {
                         Text(payment.email.ifBlank { "Customer payment" },color=Color.White,fontWeight=FontWeight.SemiBold)
                         Text("${payment.amount} • ${payment.status}",color=ElectricCyan,fontSize=12.sp)
                         Text("${payment.reference} • ${payment.date}",color=Slate400,fontSize=11.sp)
+                    }
+                }
+            }
+            Text("Recent app activity and errors",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
+            Text("Only technical event details are stored here. Customer questions and uploaded content are not recorded.",color=Slate400,fontSize=11.sp)
+            if(activityLogs.isEmpty()) Text("No activity records yet.",color=Slate400,fontSize=12.sp)
+            activityLogs.forEach { activity ->
+                Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(12.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                        Text("${activity.outcome.uppercase()} • ${activity.feature.ifBlank { "unknown feature" }}",color=if(activity.outcome=="success") ElectricCyan else Color(0xFFFFB74D),fontWeight=FontWeight.SemiBold,fontSize=12.sp)
+                        Text(activity.email.ifBlank { "Unknown account" },color=Slate300,fontSize=12.sp)
+                        if(activity.provider.isNotBlank()) Text("Provider: ${activity.provider}",color=Slate400,fontSize=11.sp)
+                        if(activity.code.isNotBlank()) Text("Error: ${activity.code}",color=Color(0xFFFF8A80),fontSize=11.sp)
+                        Text("${activity.date} • Request: ${activity.requestId.take(12)}",color=Slate400,fontSize=10.sp)
                     }
                 }
             }
