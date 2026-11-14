@@ -5,6 +5,8 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.result.ActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
@@ -18,6 +20,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.android.play.core.appupdate.AppUpdateInfo
+import com.google.android.play.core.appupdate.AppUpdateManager
+import com.google.android.play.core.appupdate.AppUpdateManagerFactory
+import com.google.android.play.core.appupdate.AppUpdateOptions
+import com.google.android.play.core.install.model.AppUpdateType
+import com.google.android.play.core.install.model.UpdateAvailability
 import com.example.ui.screens.AccountScreen
 import com.example.ui.screens.AdminScreen
 import com.example.ui.screens.HistoryScreen
@@ -40,10 +48,28 @@ enum class NavigationTab(val label: String, val icon: ImageVector) {
 }
 
 class MainActivity : ComponentActivity() {
+    private lateinit var appUpdateManager: AppUpdateManager
+    private lateinit var updateResultLauncher: androidx.activity.result.ActivityResultLauncher<androidx.activity.result.IntentSenderRequest>
+
     private var currentSelectedTab = mutableStateOf(NavigationTab.HOME)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        updateResultLauncher = registerForActivityResult(
+            ActivityResultContracts.StartIntentSenderForResult()
+        ) { result: ActivityResult ->
+            if (result.resultCode != RESULT_OK) {
+                Toast.makeText(
+                    this,
+                    "The update was not completed. You can try again when you reopen the app.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+        appUpdateManager = AppUpdateManagerFactory.create(this)
+        checkForAppUpdate()
+
         com.example.util.configureAppCheck(this, intent)
         enableEdgeToEdge()
         handleIncomingShareIntent(intent)
@@ -108,6 +134,38 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::appUpdateManager.isInitialized) {
+            appUpdateManager.appUpdateInfo.addOnSuccessListener { info ->
+                if (info.updateAvailability() == UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS) {
+                    startImmediateUpdate(info)
+                }
+            }
+        }
+    }
+
+    /**
+     * Google Play supplies the new signed app build. This does not download or execute
+     * arbitrary code from our backend. It works for installations distributed by Play.
+     */
+    private fun checkForAppUpdate() {
+        appUpdateManager.appUpdateInfo.addOnSuccessListener { info ->
+            val immediateOptions = AppUpdateOptions.newBuilder(AppUpdateType.IMMEDIATE).build()
+            if (
+                info.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE &&
+                info.isUpdateTypeAllowed(immediateOptions)
+            ) {
+                startImmediateUpdate(info)
+            }
+        }
+    }
+
+    private fun startImmediateUpdate(info: AppUpdateInfo) {
+        val options = AppUpdateOptions.newBuilder(AppUpdateType.IMMEDIATE).build()
+        appUpdateManager.startUpdateFlowForResult(info, updateResultLauncher, options)
     }
 
     override fun onNewIntent(intent: Intent) {
