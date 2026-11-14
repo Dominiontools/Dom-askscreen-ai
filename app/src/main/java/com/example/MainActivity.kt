@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.screens.AccountScreen
+import com.example.ui.screens.AdminScreen
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.SettingsScreen
@@ -38,74 +39,63 @@ enum class NavigationTab(val label: String, val icon: ImageVector) {
 }
 
 class MainActivity : ComponentActivity() {
-
     private var currentSelectedTab = mutableStateOf(NavigationTab.HOME)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Step 1: Configure App Check with launch intent before any UI or Firebase operations
         com.example.util.configureAppCheck(this, intent)
-
         enableEdgeToEdge()
-
         handleIncomingShareIntent(intent)
 
         setContent {
             AskScreenTheme {
                 var selectedTab by remember { currentSelectedTab }
+                var showAdminScreen by remember { mutableStateOf(false) }
 
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    containerColor = Slate950,
-                    bottomBar = {
-                        NavigationBar(
-                            containerColor = Slate900,
-                            tonalElevation = 8.dp,
-                            modifier = Modifier
-                                .windowInsetsPadding(WindowInsets.navigationBars)
-                                .testTag("main_bottom_nav")
-                        ) {
-                            NavigationTab.values().forEach { tab ->
-                                NavigationBarItem(
-                                    selected = selectedTab == tab,
-                                    onClick = { selectedTab = tab },
-                                    icon = {
-                                        Icon(
-                                            imageVector = tab.icon,
-                                            contentDescription = tab.label
-                                        )
-                                    },
-                                    label = {
-                                        Text(text = tab.label, fontSize = 11.sp)
-                                    },
-                                    colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = Slate950,
-                                        selectedTextColor = ElectricCyan,
-                                        indicatorColor = ElectricCyan,
-                                        unselectedIconColor = Color(0xFF94A3B8),
-                                        unselectedTextColor = Color(0xFF94A3B8)
-                                    ),
-                                    modifier = Modifier.testTag("nav_item_${tab.name.lowercase()}")
-                                )
+                if (showAdminScreen) {
+                    AdminScreen(onBack = { showAdminScreen = false })
+                } else {
+                    Scaffold(
+                        modifier = Modifier.fillMaxSize(),
+                        containerColor = Slate950,
+                        bottomBar = {
+                            NavigationBar(
+                                containerColor = Slate900,
+                                tonalElevation = 8.dp,
+                                modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars).testTag("main_bottom_nav")
+                            ) {
+                                NavigationTab.values().forEach { tab ->
+                                    NavigationBarItem(
+                                        selected = selectedTab == tab,
+                                        onClick = { selectedTab = tab },
+                                        icon = { Icon(imageVector = tab.icon, contentDescription = tab.label) },
+                                        label = { Text(text = tab.label, fontSize = 11.sp) },
+                                        colors = NavigationBarItemDefaults.colors(
+                                            selectedIconColor = Slate950,
+                                            selectedTextColor = ElectricCyan,
+                                            indicatorColor = ElectricCyan,
+                                            unselectedIconColor = Color(0xFF94A3B8),
+                                            unselectedTextColor = Color(0xFF94A3B8)
+                                        ),
+                                        modifier = Modifier.testTag("nav_item_${tab.name.lowercase()}")
+                                    )
+                                }
                             }
                         }
-                    }
-                ) { innerPadding ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding)
-                            .windowInsetsPadding(WindowInsets.statusBars)
-                    ) {
-                        when (selectedTab) {
-                            NavigationTab.HOME -> HomeScreen(
-                                onNavigateToUpload = { selectedTab = NavigationTab.UPLOAD },
-                                onNavigateToSettings = { selectedTab = NavigationTab.SETTINGS }
-                            )
-                            NavigationTab.UPLOAD -> UploadScreen()
-                            NavigationTab.HISTORY -> HistoryScreen()
-                            NavigationTab.SETTINGS -> SettingsScreen()
-                            NavigationTab.ACCOUNT -> AccountScreen()
+                    ) { innerPadding ->
+                        Box(
+                            modifier = Modifier.fillMaxSize().padding(innerPadding).windowInsetsPadding(WindowInsets.statusBars)
+                        ) {
+                            when (selectedTab) {
+                                NavigationTab.HOME -> HomeScreen(
+                                    onNavigateToUpload = { selectedTab = NavigationTab.UPLOAD },
+                                    onNavigateToSettings = { selectedTab = NavigationTab.SETTINGS }
+                                )
+                                NavigationTab.UPLOAD -> UploadScreen()
+                                NavigationTab.HISTORY -> HistoryScreen()
+                                NavigationTab.SETTINGS -> SettingsScreen()
+                                NavigationTab.ACCOUNT -> AccountScreen(onAdminAccess = { showAdminScreen = true })
+                            }
                         }
                     }
                 }
@@ -122,7 +112,6 @@ class MainActivity : ComponentActivity() {
         if (intent == null) return
         val action = intent.action
         val type = intent.type
-
         if (Intent.ACTION_SEND == action && type != null) {
             currentSelectedTab.value = NavigationTab.UPLOAD
             val uri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
