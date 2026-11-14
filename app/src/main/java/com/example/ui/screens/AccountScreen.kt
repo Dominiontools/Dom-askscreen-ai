@@ -40,8 +40,9 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
     var accountStatus by remember { mutableStateOf<JSONObject?>(null) }
     var statusLoading by remember { mutableStateOf(false) }
     var statusError by remember { mutableStateOf<String?>(null) }
+    var refreshCounter by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(signedInEmail, emailVerified) {
+    LaunchedEffect(signedInEmail, emailVerified, refreshCounter) {
         accountStatus = null
         statusError = null
         val user = auth.currentUser
@@ -157,10 +158,7 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
                         }
                     } else {
                         Text(statusError ?: "Account status is not available.", color = AmberWarning, fontSize = 12.sp)
-                        OutlinedButton(onClick = {
-                            // Re-trigger the account status request through a state change.
-                            statusError = "Please leave and reopen this account screen to retry."
-                        }) { Text("Status unavailable") }
+                        OutlinedButton(onClick = { refreshCounter++ }) { Text("Retry account status") }
                     }
                     Text("Usage is linked to this signed-in account.", color = Slate400, fontSize = 11.sp)
                 }
