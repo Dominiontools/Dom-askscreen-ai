@@ -51,9 +51,10 @@ exports.handler = async event => {
   try {
     const admin = await getAdmin();
     const db = admin.firestore();
-    const bucketName = process.env.FIREBASE_STORAGE_BUCKET || process.env.GCLOUD_STORAGE_BUCKET;
+    const bucketName = process.env.FIREBASE_STORAGE_BUCKET || process.env.GCLOUD_STORAGE_BUCKET || 'gen-lang-client-0417033738.firebasestorage.app';
     if (!bucketName) return json(503, { error: 'App update storage is not configured.' });
-    const bucket = admin.storage().bucket(bucketName);
+    const { getStorage } = require('firebase-admin/storage');
+    const bucket = getStorage().bucket(bucketName);
 
     if (event.httpMethod === 'GET') {
       const release = await latestRelease(db);
@@ -62,7 +63,7 @@ exports.handler = async event => {
       const [downloadUrl] = await file.getSignedUrl({
         version: 'v4',
         action: 'read',
-        expires: Date.now() + 60 * 60 * 1000
+        expires: Date.now() + 24 * 60 * 60 * 1000
       });
       return json(200, {
         updateAvailable: true,
@@ -128,6 +129,10 @@ exports.handler = async event => {
       const pending = uploadSnap.data();
       if (pending.adminUid !== decoded.uid || pending.adminEmail !== email) return json(403, { error: 'This upload session belongs to another administrator.' });
       if (!pending.expiresAt || pending.expiresAt.toMillis() < Date.now()) return json(410, { error: 'Upload session expired. Prepare the upload again.' });
+      const currentRelease = await latestRelease(db);
+      if (currentRelease && Number(pending.versionCode) <= Number(currentRelease.versionCode || 0)) {
+        return json(409, { error: 'A newer or equal version has already been published. Build a higher version code.' });
+      }
       const file = bucket.file(pending.storagePath);
       const [metadata] = await file.getMetadata().catch(() => [null]);
       if (!metadata) return json(400, { error: 'APK upload was not found in storage.' });
