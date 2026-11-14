@@ -6,6 +6,7 @@ const { handler: healthHandler } = require('./netlify/functions/health');
 const { handler: transcriptionHandler } = require('./netlify/functions/record-transcription');
 const { handler: adminHandler } = require('./netlify/functions/admin-dashboard');
 const { handler: supportHandler } = require('./netlify/functions/support-tickets');
+const { handler: supportAdminHandler } = require('./netlify/functions/support-admin');
 
 async function run() {
   assert.equal(isEligibleForFreeTrial('2026-11-15T10:00:00.000Z', '2026-11-15T00:00:00.000Z'), true,
@@ -140,6 +141,22 @@ async function run() {
   });
   assert.equal(supportPostUnauthenticated.statusCode, 401, 'Support ticket submission must require Firebase authentication');
   console.log('PASS Support ticket submission requires Firebase authentication');
+
+  const supportAdminOptions = await supportAdminHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(supportAdminOptions.statusCode, 204, 'Support admin endpoint should allow CORS preflight');
+  console.log('PASS Support admin endpoint OPTIONS preflight');
+
+  const supportAdminGet = await supportAdminHandler({ httpMethod: 'GET', headers: {} });
+  assert.equal(supportAdminGet.statusCode, 405, 'Support admin endpoint should reject non-POST requests');
+  console.log('PASS Support admin endpoint rejects unsupported methods');
+
+  const supportAdminUnauthenticated = await supportAdminHandler({
+    httpMethod: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ticketId: 'test-ticket', reply: 'We are checking this.', status: 'in_progress' })
+  });
+  assert.equal(supportAdminUnauthenticated.statusCode, 401, 'Support admin updates must require Firebase authentication');
+  console.log('PASS Support admin updates require Firebase authentication');
 
   console.log('All backend validation and authentication-gate tests passed.');
 }
