@@ -1,5 +1,14 @@
 package com.example.ui.screens
 
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import okhttp3.RequestBody.Companion.asRequestBody
+import java.io.File
+import java.io.FileOutputStream
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -47,6 +56,7 @@ fun AdminScreen(onBack: () -> Unit) {
     val prefs = remember { AskScreenApp.instance.preferencesManager }
     val scope = rememberCoroutineScope()
     val http = remember { OkHttpClient() }
+    val context = LocalContext.current
     var email by remember { mutableStateOf(auth.currentUser?.email.orEmpty()) }
     var password by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -69,6 +79,18 @@ fun AdminScreen(onBack: () -> Unit) {
     var trialUsers by remember { mutableIntStateOf(0) }
     var disabledUsers by remember { mutableIntStateOf(0) }
     var loaded by remember { mutableStateOf(false) }
+    var releaseVersionCode by remember { mutableStateOf("2") }
+    var releaseVersionName by remember { mutableStateOf("1.1") }
+    var releaseNotes by remember { mutableStateOf("") }
+    var selectedApkUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedApkName by remember { mutableStateOf("No APK selected") }
+    var releaseMessage by remember { mutableStateOf<String?>(null) }
+    val apkPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            selectedApkUri = uri
+            selectedApkName = "APK selected and ready to upload"
+        }
+    }
 
     fun dateLabel(value:String):String = try {
         if (value.isBlank() || value == "null") "—" else DateFormat.getDateTimeInstance().format(Date.from(Instant.parse(value)))
@@ -260,6 +282,77 @@ fun AdminScreen(onBack: () -> Unit) {
         loadData(idToken)
     }
 
+    suspend fun publishApk(uri: Uri) {
+        val versionCode = releaseVersionCode.toIntOrNull()
+            ?: throw IllegalArgumentException("Version code must be a whole number.")
+        if (versionCode < 2) throw IllegalArgumentException("Version code must be at least 2.")
+        if (releaseVersionName.isBlank()) throw IllegalArgumentException("Enter the version name.")
+        val configured = prefs.backendUrl.trim().trimEnd('/')
+        if (!configured.endsWith("/ask-screen")) throw IllegalStateException("Set your Netlify AskScreen endpoint in Settings first.")
+        val endpoint = configured.removeSuffix("/ask-screen") + "/app-update"
+        val tempFile = File.createTempFile("dom-ask-release-", ".apk", context.cacheDir)
+        try {
+            withContext(Dispatchers.IO) {
+                val input = context.contentResolver.openInputStream(uri) ?: throw IllegalStateException("Could not read the selected APK.")
+                input.use { source -> FileOutputStream(tempFile).use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val count = source.read(buffer)
+                        if (count < 0) break
+                        output.write(buffer, 0, count)
+                    }
+                } }
+            }
+            if (tempFile.length() !in 1024L..(200L * 1024L * 1024L)) throw IllegalArgumentException("APK must be between 1 KB and 200 MB.")
+            val preparePayload = JSONObject()
+                .put("action", "prepare-upload")
+                .put("versionCode", versionCode)
+                .put("versionName", releaseVersionName.trim())
+                .put("sizeBytes", tempFile.length())
+                .put("fileName", "dom-ask-ai.apk")
+            val prepared = withContext(Dispatchers.IO) {
+                val request = Request.Builder().url(endpoint).header("Authorization", "Bearer $idToken")
+                    .post(preparePayload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
+                http.newCall(request).execute().use { response ->
+                    val body = response.body?.string().orEmpty()
+                    val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
+                    if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "Could not prepare APK upload." })
+                    json
+                }
+            }
+            val uploadUrl = prepared.optString("uploadUrl")
+            val uploadId = prepared.optString("uploadId")
+            if (uploadUrl.isBlank() || uploadId.isBlank()) throw IllegalStateException("The server did not return a valid upload session.")
+            withContext(Dispatchers.IO) {
+                val request = Request.Builder().url(uploadUrl)
+                    .header("Content-Type", "application/vnd.android.package-archive")
+                    .put(tempFile.asRequestBody("application/vnd.android.package-archive".toMediaType()))
+                    .build()
+                http.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) throw IllegalStateException("APK upload failed (HTTP ${response.code}).")
+                }
+            }
+            val publishPayload = JSONObject()
+                .put("action", "publish")
+                .put("uploadId", uploadId)
+                .put("releaseNotes", releaseNotes.trim())
+            withContext(Dispatchers.IO) {
+                val request = Request.Builder().url(endpoint).header("Authorization", "Bearer $idToken")
+                    .post(publishPayload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
+                http.newCall(request).execute().use { response ->
+                    val body = response.body?.string().orEmpty()
+                    val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
+                    if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "APK uploaded but release could not be published." })
+                }
+            }
+            releaseMessage = "Version ${releaseVersionName.trim()} has been published. Customer apps can now check for this update."
+            selectedApkUri = null
+            selectedApkName = "No APK selected"
+        } finally {
+            tempFile.delete()
+        }
+    }
+
     Column(Modifier.fillMaxSize().background(Slate950).verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement=Arrangement.spacedBy(14.dp)) {
         Row(verticalAlignment=Alignment.CenterVertically) {
             IconButton(onClick=onBack) { Icon(Icons.Default.ArrowBack,contentDescription="Back",tint=Color.White) }
@@ -337,6 +430,36 @@ fun AdminScreen(onBack: () -> Unit) {
                     },enabled=!busy && idToken.isNotBlank() && (freeTrialLimit.toIntOrNull() ?: -1) in 0..10,modifier=Modifier.fillMaxWidth()) {
                         Text("Save app settings")
                     }
+                }
+            }
+            Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(16.dp)) {
+                Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+                    Text("App Update Centre",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
+                    Text("Publish a signed APK here. Customer apps will see the update when they check for a new release.",color=Slate400,fontSize=11.sp)
+                    OutlinedTextField(value=releaseVersionName,onValueChange={releaseVersionName=it.take(40)},label={Text("Version name (example: 1.1)")},singleLine=true,modifier=Modifier.fillMaxWidth())
+                    OutlinedTextField(value=releaseVersionCode,onValueChange={releaseVersionCode=it.filter(Char::isDigit).take(9)},label={Text("Version code (must increase each release)")},singleLine=true,modifier=Modifier.fillMaxWidth())
+                    OutlinedTextField(value=releaseNotes,onValueChange={releaseNotes=it.take(2000)},label={Text("What's new in this update")},supportingText={Text("${releaseNotes.length}/2000 characters")},minLines=2,maxLines=5,modifier=Modifier.fillMaxWidth())
+                    OutlinedButton(onClick={apkPicker.launch(arrayOf("application/vnd.android.package-archive","application/octet-stream"))},modifier=Modifier.fillMaxWidth()) {
+                        Text("Choose APK file")
+                    }
+                    Text(selectedApkName,color=Slate300,fontSize=11.sp)
+                    Button(onClick={
+                        val uri = selectedApkUri
+                        if (uri == null) {
+                            error = "Choose the new APK file first."
+                        } else {
+                            scope.launch {
+                                busy = true; error = null; releaseMessage = null
+                                try { publishApk(uri) }
+                                catch(e:Exception) { error = e.message ?: "Could not publish this app update." }
+                                finally { busy = false }
+                            }
+                        }
+                    },enabled=!busy && selectedApkUri!=null && idToken.isNotBlank() && releaseVersionCode.toIntOrNull()!=null && releaseVersionName.isNotBlank(),modifier=Modifier.fillMaxWidth()) {
+                        Text(if(busy) "Uploading and publishing…" else "Upload and publish update")
+                    }
+                    releaseMessage?.let { Text(it,color=ElectricCyan,fontSize=12.sp) }
+                    Text("Important: the APK must use package com.dominion.askscreenai, the exact same release signing key as the installed app, and a higher version code. Android will ask customers to approve installation.",color=AmberWarning,fontSize=11.sp,lineHeight=16.sp)
                 }
             }
             Text("Registered users & free-trial usage",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
