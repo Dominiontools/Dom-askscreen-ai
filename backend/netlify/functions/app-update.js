@@ -2,8 +2,16 @@
 
 const { randomUUID } = require('crypto');
 const { verifyUser } = require('./ask-screen');
+const {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand
+} = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 
 let adminPromise;
+let s3Client;
 async function getAdmin() {
   if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) throw new Error('AUTH_NOT_CONFIGURED');
   if (!adminPromise) {
@@ -17,6 +25,24 @@ async function getAdmin() {
     })();
   }
   return adminPromise;
+}
+
+function getR2() {
+  const accountId = process.env.R2_ACCOUNT_ID;
+  const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+  const bucket = process.env.R2_BUCKET_NAME;
+  if (!accountId || !accessKeyId || !secretAccessKey || !bucket) {
+    throw new Error('R2_NOT_CONFIGURED');
+  }
+  if (!s3Client) {
+    s3Client = new S3Client({
+      region: 'auto',
+      endpoint: 'https://' + accountId + '.r2.cloudflarestorage.com',
+      credentials: { accessKeyId, secretAccessKey }
+    });
+  }
+  return { client: s3Client, bucket };
 }
 
 function json(statusCode, data) {
@@ -44,6 +70,11 @@ async function latestRelease(db) {
   return snap.exists ? snap.data() : null;
 }
 
+function md5Base64FromEtag(etag) {
+  const hex = String(etag || '').replace(/"/g, '');
+  return /^[a-f0-9]{32}$/i.test(hex) ? Buffer.from(hex, 'hex').toString('base64') : '';
+}
+
 exports.handler = async event => {
   if (event.httpMethod === 'OPTIONS') return json(204, {});
   if (!['GET', 'POST'].includes(event.httpMethod)) return json(405, { error: 'Method not allowed.' });
@@ -51,20 +82,16 @@ exports.handler = async event => {
   try {
     const admin = await getAdmin();
     const db = admin.firestore();
-    const bucketName = process.env.FIREBASE_STORAGE_BUCKET || process.env.GCLOUD_STORAGE_BUCKET || 'gen-lang-client-0417033738.firebasestorage.app';
-    if (!bucketName) return json(503, { error: 'App update storage is not configured.' });
-    const { getStorage } = require('firebase-admin/storage');
-    const bucket = getStorage().bucket(bucketName);
+    const { client, bucket } = getR2();
 
     if (event.httpMethod === 'GET') {
       const release = await latestRelease(db);
       if (!release || release.published !== true) return json(200, { updateAvailable: false, release: null });
-      const file = bucket.file(release.storagePath);
-      const [downloadUrl] = await file.getSignedUrl({
-        version: 'v4',
-        action: 'read',
-        expires: Date.now() + 24 * 60 * 60 * 1000
-      });
+      const downloadUrl = await getSignedUrl(
+        client,
+        new GetObjectCommand({ Bucket: bucket, Key: release.storagePath }),
+        { expiresIn: 24 * 60 * 60 }
+      );
       return json(200, {
         updateAvailable: true,
         release: {
@@ -99,17 +126,19 @@ exports.handler = async event => {
       if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 1024 || sizeBytes > 200 * 1024 * 1024) return json(400, { error: 'APK size must be between 1 KB and 200 MB.' });
       if (!fileName.toLowerCase().endsWith('.apk')) return json(400, { error: 'Choose an APK file.' });
       const current = await latestRelease(db);
-      if (current && versionCode <= Number(current.versionCode || 0)) return json(409, { error: 'The new version code must be higher than the published version.' });
+      if (current && versionCode <= Number(current.versionCode || 0)) return json(409, { error: 'The new version code must be a whole number higher than the published version.' });
       const uploadId = randomUUID();
       const storagePath = 'app-releases/' + versionCode + '/' + uploadId + '.apk';
       const expiresAt = Date.now() + 10 * 60 * 1000;
-      const file = bucket.file(storagePath);
-      const [uploadUrl] = await file.getSignedUrl({
-        version: 'v4',
-        action: 'write',
-        expires: expiresAt,
-        contentType: 'application/vnd.android.package-archive'
-      });
+      const uploadUrl = await getSignedUrl(
+        client,
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: storagePath,
+          ContentType: 'application/vnd.android.package-archive'
+        }),
+        { expiresIn: 10 * 60 }
+      );
       await db.collection('askScreenAppUpdateUploads').doc(uploadId).set({
         storagePath, versionCode, versionName, sizeBytes, adminUid: decoded.uid,
         adminEmail: email, expiresAt: admin.firestore.Timestamp.fromMillis(expiresAt),
@@ -133,11 +162,10 @@ exports.handler = async event => {
       if (currentRelease && Number(pending.versionCode) <= Number(currentRelease.versionCode || 0)) {
         return json(409, { error: 'A newer or equal version has already been published. Build a higher version code.' });
       }
-      const file = bucket.file(pending.storagePath);
-      const [metadata] = await file.getMetadata().catch(() => [null]);
-      if (!metadata) return json(400, { error: 'APK upload was not found in storage.' });
-      const actualSize = Number(metadata.size || 0);
-      if (actualSize !== Number(pending.sizeBytes) || metadata.contentType !== 'application/vnd.android.package-archive') {
+      const metadata = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: pending.storagePath })).catch(() => null);
+      if (!metadata) return json(400, { error: 'APK upload was not found in Cloudflare R2.' });
+      const actualSize = Number(metadata.ContentLength || 0);
+      if (actualSize !== Number(pending.sizeBytes) || metadata.ContentType !== 'application/vnd.android.package-archive') {
         return json(400, { error: 'Uploaded APK size or file type does not match the prepared upload.' });
       }
       const release = {
@@ -147,7 +175,7 @@ exports.handler = async event => {
         releaseNotes,
         storagePath: pending.storagePath,
         sizeBytes: actualSize,
-        md5Hash: metadata.md5Hash || '',
+        md5Hash: md5Base64FromEtag(metadata.ETag),
         published: true,
         publishedBy: email,
         publishedByUid: decoded.uid,
@@ -166,8 +194,13 @@ exports.handler = async event => {
 
     return json(400, { error: 'Choose prepare-upload or publish.' });
   } catch (error) {
-    const status = error.statusCode || (error.message === 'AUTH_NOT_CONFIGURED' ? 503 : 500);
+    const status = error.statusCode || (
+      error.message === 'AUTH_NOT_CONFIGURED' || error.message === 'R2_NOT_CONFIGURED' ? 503 : 500
+    );
     console.error('[App Update] Request failed:', error.message);
-    return json(status, { error: status === 401 ? 'Please sign in again.' : 'App update request could not be completed.' });
+    const message = error.message === 'R2_NOT_CONFIGURED'
+      ? 'Cloudflare R2 is not configured yet. Add the four R2 environment variables in Netlify.'
+      : status === 401 ? 'Please sign in again.' : 'App update request could not be completed.';
+    return json(status, { error: message });
   }
 };
