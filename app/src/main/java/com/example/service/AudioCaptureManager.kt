@@ -145,7 +145,12 @@ class AudioCaptureManager(private val context: Context) {
                         _liveCaptions.value = text
                         _isListening.value = false
                         if (text.isNotBlank()) onSpeechResultCallback?.invoke(text)
-                        if (continuousMode) scheduleRecognitionRestart(500L)
+                        if (continuousMode) {
+                            scheduleRecognitionRestart(500L)
+                        } else {
+                            onSpeechResultCallback = null
+                            onFatalRecognitionError = null
+                        }
                     }
 
                     override fun onPartialResults(partialResults: Bundle?) {
@@ -193,6 +198,25 @@ class AudioCaptureManager(private val context: Context) {
             restartRunnable?.let(mainHandler::removeCallbacks)
             try { speechRecognizer?.cancel() } catch (_: Exception) { }
             startRecognitionRequest()
+        }
+    }
+
+    /**
+     * End a continuous session but allow the active recognizer request to deliver its
+     * final result before the callback is released.
+     */
+    fun stopContinuousListeningAndFlush() {
+        continuousMode = false
+        restartRunnable?.let(mainHandler::removeCallbacks)
+        restartRunnable = null
+        mainHandler.post {
+            try {
+                speechRecognizer?.stopListening()
+            } catch (_: Exception) {
+                onSpeechResultCallback = null
+                onFatalRecognitionError = null
+            }
+            _isListening.value = false
         }
     }
 
