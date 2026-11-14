@@ -3,7 +3,9 @@ name: Build AskScreen AI APK
 on:
   workflow_dispatch:
   push:
-    branches: [main, master, upgrade/continuous-assistant-and-reliability, upgrade/account-auth-and-usage]
+    branches: [main, master, upgrade/continuous-assistant-and-reliability, upgrade/account-auth-and-usage, feature/admin-monitoring-dashboard]
+  pull_request:
+    branches: [upgrade/account-auth-and-usage]
 
 permissions:
   contents: read
@@ -20,6 +22,10 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: '22'
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm install --no-package-lock --no-audit --no-fund
 
       - name: Run backend validation tests
         working-directory: backend

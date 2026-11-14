@@ -39,6 +39,11 @@ import com.example.AskScreenApp
 import com.example.service.AskScreenOverlayService
 import com.example.service.ScreenCaptureActivity
 import com.example.ui.theme.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
 
 @Composable
 fun HomeScreen(
@@ -47,6 +52,25 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val prefs = remember { AskScreenApp.instance.preferencesManager }
+    val http = remember { OkHttpClient() }
+    var announcement by remember { mutableStateOf("") }
+
+    LaunchedEffect(prefs.backendUrl) {
+        val configured = prefs.backendUrl.trim().trimEnd('/')
+        if (configured.endsWith("/ask-screen")) {
+            announcement = withContext(Dispatchers.IO) {
+                runCatching {
+                    val endpoint = configured.removeSuffix("/ask-screen") + "/admin-settings"
+                    val request = Request.Builder().url(endpoint).get().build()
+                    http.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) ""
+                        else JSONObject(response.body?.string().orEmpty())
+                            .optJSONObject("settings")?.optString("announcement").orEmpty()
+                    }
+                }.getOrDefault("")
+            }
+        } else announcement = ""
+    }
 
     var isServiceRunning by remember { mutableStateOf(AskScreenOverlayService.isRunning()) }
     var hasOverlayPermission by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
@@ -195,6 +219,21 @@ fun HomeScreen(
                         color = Slate300,
                         lineHeight = 18.sp
                     )
+                }
+            }
+        }
+
+        if (announcement.isNotBlank()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = DeepIndigo,
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.45f))
+            ) {
+                Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                    Text("ANNOUNCEMENT",color=ElectricCyan,fontSize=10.sp,fontWeight=FontWeight.Bold,letterSpacing=1.sp)
+                    Text(announcement,color=Color.White,fontSize=13.sp,lineHeight=19.sp)
                 }
             }
         }

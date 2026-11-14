@@ -1,11 +1,29 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { handler } = require('./netlify/functions/ask-screen');
+const { handler, isEligibleForFreeTrial } = require('./netlify/functions/ask-screen');
 const { handler: healthHandler } = require('./netlify/functions/health');
 const { handler: transcriptionHandler } = require('./netlify/functions/record-transcription');
+const { handler: adminHandler } = require('./netlify/functions/admin-dashboard');
+const { handler: adminUsersHandler } = require('./netlify/functions/admin-users');
+const { handler: adminSettingsHandler } = require('./netlify/functions/admin-settings');
+const { handler: appUpdateHandler } = require('./netlify/functions/app-update');
+const { handler: supportHandler } = require('./netlify/functions/support-tickets');
+const { handler: supportAdminHandler } = require('./netlify/functions/support-admin');
 
 async function run() {
+  assert.equal(isEligibleForFreeTrial('2026-11-15T10:00:00.000Z', '2026-11-15T00:00:00.000Z'), true,
+    'Accounts created after the configured trial launch are eligible');
+  assert.equal(isEligibleForFreeTrial('2026-11-14T23:59:59.000Z', '2026-11-15T00:00:00.000Z'), false,
+    'Accounts created before the configured trial launch are not eligible');
+  assert.equal(isEligibleForFreeTrial('2026-11-15T00:00:00.000Z', '2026-11-15T00:00:00.000Z'), true,
+    'Accounts created at the configured trial launch are eligible');
+  assert.equal(isEligibleForFreeTrial('2026-11-15T10:00:00.000Z', undefined), false,
+    'Free trials fail closed when the launch timestamp is not configured');
+  assert.equal(isEligibleForFreeTrial('not-a-date', '2026-11-15T00:00:00.000Z'), false,
+    'Invalid account creation timestamps are not eligible');
+  console.log('PASS Free-trial eligibility is limited to new accounts after configured launch');
+
   const cases = [
     {
       name: 'OPTIONS preflight',
@@ -91,6 +109,114 @@ async function run() {
   const healthPost = await healthHandler({ httpMethod: 'POST', headers: {} });
   assert.equal(healthPost.statusCode, 405, 'Health endpoint should reject POST');
   console.log('PASS Health endpoint rejects unsupported methods');
+
+  const adminOptions = await adminHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(adminOptions.statusCode, 204, 'Admin endpoint should allow CORS preflight');
+  console.log('PASS Admin endpoint OPTIONS preflight');
+
+  const adminPost = await adminHandler({ httpMethod: 'POST', headers: {} });
+  assert.equal(adminPost.statusCode, 405, 'Admin endpoint should reject non-GET requests');
+  console.log('PASS Admin endpoint rejects non-GET requests');
+
+  const previousAdminEmails = process.env.ADMIN_EMAILS;
+  delete process.env.ADMIN_EMAILS;
+  const adminUnconfigured = await adminHandler({ httpMethod: 'GET', headers: {} });
+  assert.equal(adminUnconfigured.statusCode, 503, 'Admin endpoint must fail closed until ADMIN_EMAILS is configured');
+  if (previousAdminEmails !== undefined) process.env.ADMIN_EMAILS = previousAdminEmails;
+  console.log('PASS Admin endpoint fails closed when administrator allowlist is missing');
+
+  const supportOptions = await supportHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(supportOptions.statusCode, 204, 'Support endpoint should allow CORS preflight');
+  console.log('PASS Support endpoint OPTIONS preflight');
+
+  const supportPut = await supportHandler({ httpMethod: 'PUT', headers: {} });
+  assert.equal(supportPut.statusCode, 405, 'Support endpoint should reject unsupported methods');
+  console.log('PASS Support endpoint rejects unsupported methods');
+
+  const supportGetUnauthenticated = await supportHandler({ httpMethod: 'GET', headers: {} });
+  assert.equal(supportGetUnauthenticated.statusCode, 401, 'Support ticket history must require Firebase authentication');
+  console.log('PASS Support ticket history requires Firebase authentication');
+
+  const supportPostUnauthenticated = await supportHandler({
+    httpMethod: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ subject: 'Billing question', message: 'Please help me understand my subscription.' })
+  });
+  assert.equal(supportPostUnauthenticated.statusCode, 401, 'Support ticket submission must require Firebase authentication');
+  console.log('PASS Support ticket submission requires Firebase authentication');
+
+  const supportAdminOptions = await supportAdminHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(supportAdminOptions.statusCode, 204, 'Support admin endpoint should allow CORS preflight');
+  console.log('PASS Support admin endpoint OPTIONS preflight');
+
+  const supportAdminGet = await supportAdminHandler({ httpMethod: 'GET', headers: {} });
+  assert.equal(supportAdminGet.statusCode, 405, 'Support admin endpoint should reject non-POST requests');
+  console.log('PASS Support admin endpoint rejects unsupported methods');
+
+  const supportAdminUnauthenticated = await supportAdminHandler({
+    httpMethod: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ticketId: 'test-ticket', reply: 'We are checking this.', status: 'in_progress' })
+  });
+  assert.equal(supportAdminUnauthenticated.statusCode, 401, 'Support admin updates must require Firebase authentication');
+  console.log('PASS Support admin updates require Firebase authentication');
+
+  const adminSettingsOptions = await adminSettingsHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(adminSettingsOptions.statusCode, 204, 'Admin settings endpoint should allow CORS preflight');
+  console.log('PASS Admin settings endpoint OPTIONS preflight');
+
+  const adminSettingsPut = await adminSettingsHandler({ httpMethod: 'PUT', headers: {} });
+  assert.equal(adminSettingsPut.statusCode, 405, 'Admin settings endpoint should reject unsupported methods');
+  console.log('PASS Admin settings endpoint rejects unsupported methods');
+
+  const previousFirebaseServiceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  delete process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  const adminSettingsPublicRead = await adminSettingsHandler({ httpMethod: 'GET', headers: {} });
+  assert.equal(adminSettingsPublicRead.statusCode, 503, 'Public app-settings read must fail closed when Firebase server configuration is missing');
+  console.log('PASS Public app-settings read fails safely when Firebase is not configured');
+
+  const adminSettingsUnauthenticated = await adminSettingsHandler({
+    httpMethod: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ announcement: '', features: { screen: true, spoken: true, transcription: true }, freeTrialLimit: 2 })
+  });
+  assert.equal(adminSettingsUnauthenticated.statusCode, 401, 'Settings writes must require a signed-in Firebase administrator');
+  if (previousFirebaseServiceAccount !== undefined) process.env.FIREBASE_SERVICE_ACCOUNT_JSON = previousFirebaseServiceAccount;
+  console.log('PASS Admin settings updates require authenticated administrator access');
+
+  const appUpdateOptions = await appUpdateHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(appUpdateOptions.statusCode, 204, 'App update endpoint should allow CORS preflight');
+  console.log('PASS App update endpoint OPTIONS preflight');
+
+  const appUpdatePut = await appUpdateHandler({ httpMethod: 'PUT', headers: {} });
+  assert.equal(appUpdatePut.statusCode, 405, 'App update endpoint should reject unsupported methods');
+  console.log('PASS App update endpoint rejects unsupported methods');
+
+  const appUpdateGetUnconfigured = await appUpdateHandler({ httpMethod: 'GET', headers: {} });
+  assert.equal(appUpdateGetUnconfigured.statusCode, 503, 'App update metadata must fail closed when Firebase server configuration is missing');
+  console.log('PASS App update metadata fails safely when Firebase is not configured');
+
+  const appUpdatePostUnconfigured = await appUpdateHandler({
+    httpMethod: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ action: 'publish', versionCode: 2, versionName: '1.1', downloadUrl: 'https://github.com/Dominiontools/Dom-askscreen-ai/releases/download/v1.1/dom-ask-ai.apk' })
+  });
+  assert.equal(appUpdatePostUnconfigured.statusCode, 503, 'Release publishing must fail closed without Firebase server configuration');
+  console.log('PASS Release publishing fails safely without Firebase server configuration');
+
+  const adminUsersOptions = await adminUsersHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(adminUsersOptions.statusCode, 204, 'Admin users endpoint should allow CORS preflight');
+  console.log('PASS Admin users endpoint OPTIONS preflight');
+
+  const adminUsersGet = await adminUsersHandler({ httpMethod: 'GET', headers: {} });
+  assert.equal(adminUsersGet.statusCode, 405, 'Admin users endpoint should reject non-POST requests');
+  console.log('PASS Admin users endpoint rejects unsupported methods');
+
+  const adminUsersUnauthenticated = await adminUsersHandler({
+    httpMethod: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ uid: 'customer-uid', disabled: true })
+  });
+  assert.equal(adminUsersUnauthenticated.statusCode, 401, 'Account management must require Firebase authentication');
+  console.log('PASS Account management requires Firebase authentication');
 
   console.log('All backend validation and authentication-gate tests passed.');
 }

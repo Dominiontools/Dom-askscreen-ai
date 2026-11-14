@@ -44,6 +44,19 @@ View your app in AI Studio: https://ai.studio/apps/39ea7161-a90e-403a-b87c-d7468
 
 Open the project folder in Android Studio and allow Gradle sync. The project targets SDK 36 and requires a compatible Android Gradle Plugin, Kotlin plugin, Android SDK 36, and Firebase configuration. The supplied archive does not include the Gradle wrapper JAR or a built APK, so this archive should be treated as source code, not an installable package. Build and test on a physical Android device, including Android 14+ MediaProjection behavior, accessibility interaction, rotation, microphone permissions, and background restrictions.
 
+## Self-hosted Android updates
+
+DOM Ask AI is being prepared to distribute signed APK updates from its own Update Centre, without requiring Google Play.
+
+- The Admin Centre will provide a release workflow for uploading an APK, entering its version code/name and release notes, and publishing the release metadata.
+- Customer installations will check the published release, compare its version code with the installed app, and offer an **Update** action when a newer release is available.
+- Android will still show its system installation approval when required. Ordinary apps cannot silently install an APK on a customer's personal phone.
+- Every update must use the same application ID (`com.dominion.askscreenai`), the same release signing certificate/key as the installed customer app, and a strictly higher `versionCode`. A mismatched signature or package ID will cause Android to reject the update.
+- The existing signing configuration must be preserved. Before publishing the first APK update, verify the signing certificate against the APK customers currently have; do not rotate or replace the keystore.
+- Release uploads and metadata must be authorized by the server-side admin allowlist. Never expose service-account credentials or signing keys in the app or repository.
+
+The self-hosted update workflow is not considered ready for customer distribution until APK upload, checksum verification, install approval, and an upgrade test from the currently distributed APK have all passed.
+
 ## Security
 
 Do not commit `.env`, API keys, signing keys, or debug tokens. Configure secrets locally from `.env.example` or your deployment environment. Review the Firebase App Check and Google Services configuration for your own Firebase project before release.
