@@ -16,11 +16,20 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.auth.FirebaseAuth
+import com.example.AskScreenApp
 import com.example.ui.theme.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
 
 @Composable
 fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = {}) {
     val auth = remember { FirebaseAuth.getInstance() }
+    val prefs = remember { AskScreenApp.instance.preferencesManager }
+    val http = remember { OkHttpClient() }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var signedInEmail by remember { mutableStateOf(auth.currentUser?.email) }
@@ -28,6 +37,43 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var createAccount by remember { mutableStateOf(false) }
+    var accountStatus by remember { mutableStateOf<JSONObject?>(null) }
+    var statusLoading by remember { mutableStateOf(false) }
+    var statusError by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(signedInEmail, emailVerified) {
+        accountStatus = null
+        statusError = null
+        val user = auth.currentUser
+        if (user != null && signedInEmail != null) {
+            statusLoading = true
+            try {
+                val token = user.getIdToken(true).await().token
+                    ?: throw IllegalStateException("Could not verify your account.")
+                val configured = prefs.backendUrl.trim().trimEnd('/')
+                if (!configured.endsWith("/ask-screen")) {
+                    throw IllegalStateException("Set your AskScreen backend URL in Settings to view account usage.")
+                }
+                val endpoint = configured.removeSuffix("/ask-screen") + "/account-status"
+                val result = withContext(Dispatchers.IO) {
+                    val request = Request.Builder().url(endpoint).header("Authorization", "Bearer $token").get().build()
+                    http.newCall(request).execute().use { response ->
+                        val body = response.body?.string().orEmpty()
+                        val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
+                        if (!response.isSuccessful) throw IllegalStateException(
+                            json.optString("error").ifBlank { "Could not load your account status." }
+                        )
+                        json
+                    }
+                }
+                accountStatus = result
+            } catch (e: Exception) {
+                statusError = e.message ?: "Could not load your account status."
+            } finally {
+                statusLoading = false
+            }
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().background(Slate950).padding(20.dp),
@@ -49,17 +95,13 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
                     enabled = !busy,
                     onClick = {
                         val user = auth.currentUser
-                        if (user == null) {
-                            message = "Please sign in again."
-                        } else {
+                        if (user == null) message = "Please sign in again."
+                        else {
                             busy = true
                             user.sendEmailVerification().addOnCompleteListener { result ->
                                 busy = false
-                                message = if (result.isSuccessful) {
-                                    "Verification email sent. Check your inbox and spam folder."
-                                } else {
-                                    result.exception?.localizedMessage ?: "Could not send verification email."
-                                }
+                                message = if (result.isSuccessful) "Verification email sent. Check your inbox and spam folder."
+                                else result.exception?.localizedMessage ?: "Could not send verification email."
                             }
                         }
                     },
@@ -69,31 +111,67 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
                     enabled = !busy,
                     onClick = {
                         val user = auth.currentUser
-                        if (user == null) {
-                            message = "Please sign in again."
-                        } else {
+                        if (user == null) message = "Please sign in again."
+                        else {
                             busy = true
                             user.reload().addOnCompleteListener { result ->
                                 busy = false
                                 if (result.isSuccessful) {
                                     emailVerified = auth.currentUser?.isEmailVerified == true
-                                    message = if (emailVerified) "Email verified successfully." else "Your email is not verified yet. Open the verification link first."
-                                } else {
-                                    message = result.exception?.localizedMessage ?: "Could not refresh account status."
-                                }
+                                    message = if (emailVerified) "Email verified successfully."
+                                    else "Your email is not verified yet. Open the verification link first."
+                                } else message = result.exception?.localizedMessage ?: "Could not refresh account status."
                             }
                         }
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("I've verified my email — refresh status") }
             }
-            Spacer(Modifier.height(20.dp))
-            Text("Your free feature allowances and subscription will be linked to this account.", color = Slate300)
-            Spacer(Modifier.height(20.dp))
+
+            Spacer(Modifier.height(16.dp))
+            Card(colors = CardDefaults.cardColors(containerColor = Slate900), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Your usage and subscription", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    if (statusLoading) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                        Text("Loading your account status…", color = Slate400, fontSize = 12.sp)
+                    } else if (accountStatus != null) {
+                        val trial = accountStatus!!.optJSONObject("trial") ?: JSONObject()
+                        val usage = accountStatus!!.optJSONObject("usage") ?: JSONObject()
+                        val subscription = accountStatus!!.optJSONObject("subscription") ?: JSONObject()
+                        val active = subscription.optString("status") == "active"
+                        Text("Subscription: ${subscription.optString("status", "inactive").replaceFirstChar { it.uppercase() }}",
+                            color = if (active) ElectricCyan else AmberWarning, fontWeight = FontWeight.SemiBold)
+                        if (active) {
+                            Text("Your paid access is active.", color = Slate300, fontSize = 12.sp)
+                            Text("Period ends: ${subscription.optString("currentPeriodEnd").ifBlank { "Not available" }}", color = Slate400, fontSize = 11.sp)
+                        } else if (trial.optBoolean("eligible")) {
+                            val limit = trial.optInt("limit", 2)
+                            Text("Free trial: ${limit} uses per feature", color = Slate300, fontSize = 12.sp)
+                            Text("Screen answers: ${usage.optInt("screen")}/$limit used • ${trial.optInt("screenRemaining")} remaining", color = Slate300, fontSize = 12.sp)
+                            Text("Spoken answers: ${usage.optInt("spoken")}/$limit used • ${trial.optInt("spokenRemaining")} remaining", color = Slate300, fontSize = 12.sp)
+                            Text("Transcription: ${usage.optInt("transcription")}/$limit used • ${trial.optInt("transcriptionRemaining")} remaining", color = Slate300, fontSize = 12.sp)
+                        } else {
+                            Text("This account is not eligible for the new-user free trial.", color = Slate300, fontSize = 12.sp)
+                            Text("Subscribe to continue using paid features.", color = Slate400, fontSize = 12.sp)
+                        }
+                    } else {
+                        Text(statusError ?: "Account status is not available.", color = AmberWarning, fontSize = 12.sp)
+                        OutlinedButton(onClick = {
+                            // Re-trigger the account status request through a state change.
+                            statusError = "Please leave and reopen this account screen to retry."
+                        }) { Text("Status unavailable") }
+                    }
+                    Text("Usage is linked to this signed-in account.", color = Slate400, fontSize = 11.sp)
+                }
+            }
+            Spacer(Modifier.height(16.dp))
             Button(onClick = {
                 auth.signOut()
                 signedInEmail = null
                 emailVerified = false
+                accountStatus = null
+                statusError = null
                 message = "You have signed out."
             }) { Text("Sign out") }
         } else {
@@ -118,11 +196,8 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
                             if (createAccount && user != null) {
                                 user.sendEmailVerification().addOnCompleteListener { verification ->
                                     busy = false
-                                    message = if (verification.isSuccessful) {
-                                        "Account created. A verification link has been sent to your email. Please verify it."
-                                    } else {
-                                        "Account created, but the verification email could not be sent. Use Resend verification email below."
-                                    }
+                                    message = if (verification.isSuccessful) "Account created. A verification link has been sent to your email. Please verify it."
+                                    else "Account created, but the verification email could not be sent. Use Resend verification email below."
                                 }
                             } else {
                                 busy = false
