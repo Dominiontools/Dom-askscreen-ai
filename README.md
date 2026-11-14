@@ -44,14 +44,18 @@ View your app in AI Studio: https://ai.studio/apps/39ea7161-a90e-403a-b87c-d7468
 
 Open the project folder in Android Studio and allow Gradle sync. The project targets SDK 36 and requires a compatible Android Gradle Plugin, Kotlin plugin, Android SDK 36, and Firebase configuration. The supplied archive does not include the Gradle wrapper JAR or a built APK, so this archive should be treated as source code, not an installable package. Build and test on a physical Android device, including Android 14+ MediaProjection behavior, accessibility interaction, rotation, microphone permissions, and background restrictions.
 
-## Google Play in-app app updates
+## Self-hosted Android updates
 
-- The Android app now checks Google Play for a newer release when it starts and when it returns to the foreground.
-- When Google Play reports an eligible release, the app starts the **immediate in-app update** flow. The customer sees Google's update confirmation, taps **Update**, and Play downloads and installs the newer signed app before returning to the app.
-- This is for app installations distributed by Google Play (including eligible Play testing tracks). An APK installed manually or from another store cannot use the Play in-app update service reliably; those installations need a separate update/distribution route.
-- To publish each release, upload a new Android App Bundle (AAB) to Play Console, keep the same application ID (`com.dominion.askscreenai`) and the same Play app signing identity, and increase `versionCode` for every release. Roll out the release to the intended testing or production track.
-- Test with a Play-installed build and a higher-version release on an eligible test track. A locally installed debug APK is not a valid end-to-end test of Play in-app updates.
-- This update mechanism installs a new native app build from Google Play. The Admin Centre's remote settings remain separate and can change supported content/settings without publishing a new app build. It does not let the backend silently replace native app code.
+DOM Ask AI is being prepared to distribute signed APK updates from its own Update Centre, without requiring Google Play.
+
+- The Admin Centre will provide a release workflow for uploading an APK, entering its version code/name and release notes, and publishing the release metadata.
+- Customer installations will check the published release, compare its version code with the installed app, and offer an **Update** action when a newer release is available.
+- Android will still show its system installation approval when required. Ordinary apps cannot silently install an APK on a customer's personal phone.
+- Every update must use the same application ID (`com.dominion.askscreenai`), the same release signing certificate/key as the installed customer app, and a strictly higher `versionCode`. A mismatched signature or package ID will cause Android to reject the update.
+- The existing signing configuration must be preserved. Before publishing the first APK update, verify the signing certificate against the APK customers currently have; do not rotate or replace the keystore.
+- Release uploads and metadata must be authorized by the server-side admin allowlist. Never expose service-account credentials or signing keys in the app or repository.
+
+The self-hosted update workflow is not considered ready for customer distribution until APK upload, checksum verification, install approval, and an upgrade test from the currently distributed APK have all passed.
 
 ## Security
 
