@@ -183,7 +183,13 @@ class MainActivity : ComponentActivity() {
                     val current = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
                     if (release.optLong("versionCode") <= current) return@withContext null
                     val url = release.optString("downloadUrl")
-                    if (!url.startsWith("https://")) return@withContext null
+                    val updateUri = Uri.parse(url)
+                    if (updateUri.scheme != "https" ||
+                        updateUri.host != "github.com" ||
+                        updateUri.userInfo != null ||
+                        !updateUri.encodedPath.orEmpty().startsWith("/Dominiontools/Dom-askscreen-ai/releases/download/") ||
+                        !updateUri.encodedPath.orEmpty().lowercase().endsWith(".apk")
+                    ) return@withContext null
                     mapOf(
                         "versionCode" to release.optLong("versionCode").toString(),
                         "versionName" to release.optString("versionName"),
@@ -202,6 +208,13 @@ class MainActivity : ComponentActivity() {
             val url = release["downloadUrl"] ?: throw IllegalStateException("Update download link is missing.")
             val expectedSize = release["sizeBytes"]?.toLongOrNull() ?: 0L
             val expectedMd5 = release["md5Hash"].orEmpty()
+            val updateUri = Uri.parse(url)
+            if (updateUri.scheme != "https" ||
+                updateUri.host != "github.com" ||
+                updateUri.userInfo != null ||
+                !updateUri.encodedPath.orEmpty().startsWith("/Dominiontools/Dom-askscreen-ai/releases/download/") ||
+                !updateUri.encodedPath.orEmpty().lowercase().endsWith(".apk")
+            ) throw IllegalStateException("The update link is not a trusted AskScreen AI GitHub release.")
             val apk = File(cacheDir, "dom-ask-ai-update.apk")
             val request = Request.Builder().url(url).get().build()
             OkHttpClient().newCall(request).execute().use { response ->
