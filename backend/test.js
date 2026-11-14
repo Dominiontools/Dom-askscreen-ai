@@ -12,6 +12,7 @@ const { handler: supportHandler } = require('./netlify/functions/support-tickets
 const { handler: supportAdminHandler } = require('./netlify/functions/support-admin');
 const { handler: accountStatusHandler } = require('./netlify/functions/account-status');
 const { DEFAULT_PRODUCTS, normalizeCatalog, calculateBundle } = require('./pricing-catalog');
+const { evaluateProductSubscription, summarizeProductSubscriptions } = require('./product-subscriptions');
 
 async function run() {
   const defaultPricing = normalizeCatalog(DEFAULT_PRODUCTS);
@@ -28,6 +29,17 @@ async function run() {
   assert.throws(() => normalizeCatalog([{ id: 'core', monthlyPriceCents: 900 }]), /every product/);
   assert.throws(() => calculateBundle(defaultPricing, 31), /0 to 30/);
   console.log('PASS Product catalogue validation and 10% bundle calculations');
+  const activeProduct = evaluateProductSubscription({ status: 'active', currentPeriodEnd: '2026-12-01T00:00:00.000Z' }, Date.parse('2026-11-15T00:00:00.000Z'));
+  assert.equal(activeProduct.status, 'active', 'A product subscription with a future expiry grants active status');
+  const expiredProduct = evaluateProductSubscription({ status: 'active', currentPeriodEnd: '2026-11-01T00:00:00.000Z' }, Date.parse('2026-11-15T00:00:00.000Z'));
+  assert.equal(expiredProduct.status, 'expired', 'An expired product subscription never remains active');
+  assert.equal(evaluateProductSubscription({ status: 'active' }, Date.now()).status, 'expired',
+    'An active product record without an expiry fails closed');
+  const products = summarizeProductSubscriptions({ video_annotation: { status: 'active', currentPeriodEnd: '2026-12-01T00:00:00.000Z' } }, Date.parse('2026-11-15T00:00:00.000Z'));
+  assert.equal(products.length, 21, 'All independent specialist and email products are reported separately');
+  assert.equal(products.find(item => item.id === 'video_annotation').status, 'active');
+  assert.equal(products.find(item => item.id === 'core'), undefined, 'Core is not treated as a Work Centre product');
+  console.log('PASS Independent product subscription status and expiry checks');
   assert.equal(isEligibleForFreeTrial('2026-11-15T10:00:00.000Z', '2026-11-15T00:00:00.000Z'), true,
     'Accounts created after the configured trial launch are eligible');
   assert.equal(isEligibleForFreeTrial('2026-11-14T23:59:59.000Z', '2026-11-15T00:00:00.000Z'), false,
