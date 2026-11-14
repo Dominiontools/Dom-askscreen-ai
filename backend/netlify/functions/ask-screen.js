@@ -787,3 +787,8 @@ exports.handler = async function handler(event) {
     }, requestId);
   }
 };
+
+
+// Shared authenticated usage helpers for feature-only endpoints.
+exports.verifyUser = verifyUser;
+exports.reserveFeatureUse = reserveFeatureUse;
