@@ -34,6 +34,7 @@ import java.util.Date
 
 private data class AdminUserRow(val name:String,val email:String,val joined:String,val lastSignIn:String,val screen:Int,val spoken:Int,val transcription:Int,val trialEligible:Boolean,val screenRemaining:Int,val spokenRemaining:Int,val transcriptionRemaining:Int,val subscription:String,val expiry:String)
 private data class AdminPaymentRow(val date:String,val email:String,val reference:String,val amount:String,val status:String)
+private data class AdminTicketRow(val date:String,val email:String,val subject:String,val message:String,val status:String)
 
 @Composable
 fun AdminScreen(onBack: () -> Unit) {
@@ -48,6 +49,7 @@ fun AdminScreen(onBack: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var users by remember { mutableStateOf<List<AdminUserRow>>(emptyList()) }
     var payments by remember { mutableStateOf<List<AdminPaymentRow>>(emptyList()) }
+    var supportTickets by remember { mutableStateOf<List<AdminTicketRow>>(emptyList()) }
     var totalUsers by remember { mutableIntStateOf(0) }
     var activeSubscribers by remember { mutableIntStateOf(0) }
     var trialUsers by remember { mutableIntStateOf(0) }
@@ -98,6 +100,13 @@ fun AdminScreen(onBack: () -> Unit) {
             if (paymentArray != null) for (i in 0 until paymentArray.length()) {
                 val item = paymentArray.optJSONObject(i) ?: continue
                 add(AdminPaymentRow(dateLabel(item.optString("createdAt")),item.optString("email"),item.optString("reference").ifBlank { item.optString("id") },item.optString("amount","—")+" "+item.optString("currency","NGN"),item.optString("status","unknown")))
+            }
+        }
+        val ticketArray = result.optJSONArray("supportTickets")
+        supportTickets = buildList {
+            if (ticketArray != null) for (i in 0 until ticketArray.length()) {
+                val item = ticketArray.optJSONObject(i) ?: continue
+                add(AdminTicketRow(dateLabel(item.optString("createdAt")),item.optString("email"),item.optString("subject"),item.optString("message"),item.optString("status","open")))
             }
         }
         loaded = true
@@ -187,6 +196,18 @@ fun AdminScreen(onBack: () -> Unit) {
                         Text(payment.email.ifBlank { "Customer payment" },color=Color.White,fontWeight=FontWeight.SemiBold)
                         Text("${payment.amount} • ${payment.status}",color=ElectricCyan,fontSize=12.sp)
                         Text("${payment.reference} • ${payment.date}",color=Slate400,fontSize=11.sp)
+                    }
+                }
+            }
+            Text("Customer support requests",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
+            if(supportTickets.isEmpty()) Text("No customer support tickets yet.",color=Slate400,fontSize=12.sp)
+            supportTickets.forEach { ticket ->
+                Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(12.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(5.dp)) {
+                        Text(ticket.subject,color=Color.White,fontWeight=FontWeight.SemiBold)
+                        Text(ticket.email,color=ElectricCyan,fontSize=11.sp)
+                        Text(ticket.message,color=Slate300,fontSize=12.sp)
+                        Text("Status: ${ticket.status} • ${ticket.date}",color=AmberWarning,fontSize=11.sp)
                     }
                 }
             }
