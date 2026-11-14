@@ -52,7 +52,7 @@ exports.handler = async event => {
       return json(200, { updateAvailable: true, release: {
         versionCode: release.versionCode, versionName: release.versionName,
         releaseNotes: release.releaseNotes, packageName: 'com.dominion.askscreenai',
-        sizeBytes: release.sizeBytes || 0, md5Hash: '',
+        sizeBytes: release.sizeBytes || 0, sha256: release.sha256 || '',
         downloadUrl: release.downloadUrl,
         publishedAt: release.publishedAt?.toDate ? release.publishedAt.toDate().toISOString() : null
       } });
@@ -70,22 +70,24 @@ exports.handler = async event => {
     const versionName = typeof body.versionName === 'string' ? body.versionName.trim() : '';
     const downloadUrl = typeof body.downloadUrl === 'string' ? body.downloadUrl.trim() : '';
     const sizeBytes = Number(body.sizeBytes || 0);
+    const sha256 = typeof body.sha256 === 'string' ? body.sha256.trim().toLowerCase() : '';
     const releaseNotes = typeof body.releaseNotes === 'string' ? body.releaseNotes.trim() : '';
     if (!Number.isSafeInteger(versionCode) || versionCode < 2) return json(400, { error: 'Version code must be a whole number greater than 1.' });
     if (!versionName || versionName.length > 40) return json(400, { error: 'Enter a valid version name (maximum 40 characters).' });
     if (!validReleaseAssetUrl(downloadUrl)) return json(400, { error: 'Use the HTTPS APK asset link from a GitHub Release in Dominiontools/Dom-askscreen-ai.' });
     if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0 || sizeBytes > 2 * 1024 * 1024 * 1024) return json(400, { error: 'APK size must be 0 or a valid size up to 2 GB.' });
+    if (!/^[a-f0-9]{64}$/.test(sha256)) return json(400, { error: 'Provide the APK SHA-256 checksum (64 hexadecimal characters).' });
     if (releaseNotes.length > 2000) return json(400, { error: 'Release notes must not exceed 2,000 characters.' });
     const current = await latestRelease(db);
     if (current && versionCode <= Number(current.versionCode || 0)) return json(409, { error: 'The new version code must be higher than the published version.' });
     const release = { packageName: 'com.dominion.askscreenai', versionCode, versionName, releaseNotes,
-      downloadUrl, sizeBytes, published: true, publishedBy: email, publishedByUid: decoded.uid,
+      downloadUrl, sizeBytes, sha256, published: true, publishedBy: email, publishedByUid: decoded.uid,
       publishedAt: admin.firestore.FieldValue.serverTimestamp() };
     await db.collection('askScreenAppReleases').doc('current').set(release);
     await db.collection('askScreenAdminAuditLogs').add({ action: 'app_update_published',
       targetEmail: 'DOM Ask AI release', adminUid: decoded.uid, adminEmail: email,
       status: 'published', versionCode, versionName, createdAt: admin.firestore.FieldValue.serverTimestamp() });
-    return json(200, { success: true, release: { versionCode, versionName, releaseNotes, downloadUrl } });
+    return json(200, { success: true, release: { versionCode, versionName, releaseNotes, downloadUrl, sha256 } });
   } catch (error) {
     const status = error.statusCode || (error.message === 'AUTH_NOT_CONFIGURED' ? 503 : 500);
     console.error('[App Update] Request failed:', error.message);
