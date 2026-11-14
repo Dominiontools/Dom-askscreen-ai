@@ -57,6 +57,16 @@ DOM Ask AI is being prepared to distribute signed APK updates from its own Updat
 
 The self-hosted update workflow is not considered ready for customer distribution until APK upload, checksum verification, install approval, and an upgrade test from the currently distributed APK have all passed.
 
+The Admin Centre requires the SHA-256 checksum of the exact APK asset. On Windows PowerShell, generate it with:
+
+```powershell
+Get-FileHash .\\dom-ask-ai.apk -Algorithm SHA256
+```
+
+Copy the 64-character value shown in the `Hash` column into the Admin Centre. On every customer update, the app downloads the APK and verifies its SHA-256 value before opening Android's installer. A missing or mismatched checksum blocks installation.
+
+Administrators can also manually grant or revoke an independent Work Centre product for a customer. Grants require a future expiry date (maximum two years ahead), are restricted to verified administrator accounts, and create an audit-log entry. This is a manual access override, not a payment record; Paystack payment activation remains deferred.
+
 ## Security
 
 Do not commit `.env`, API keys, signing keys, or debug tokens. Configure secrets locally from `.env.example` or your deployment environment. Review the Firebase App Check and Google Services configuration for your own Firebase project before release.
