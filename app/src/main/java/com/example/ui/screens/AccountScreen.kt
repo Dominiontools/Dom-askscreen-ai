@@ -159,7 +159,8 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
                             color = if (active) ElectricCyan else AmberWarning, fontWeight = FontWeight.SemiBold)
                         if (active) {
                             Text("Your paid access is active.", color = Slate300, fontSize = 12.sp)
-                            Text("Period ends: ${subscription.optString("currentPeriodEnd").ifBlank { "Not available" }}", color = Slate400, fontSize = 11.sp)
+                            val periodEnd = subscription.optString("currentPeriodEnd").takeIf { it.isNotBlank() && it != "null" } ?: "Not available"
+                            Text("Period ends: $periodEnd", color = Slate400, fontSize = 11.sp)
                         } else if (trial.optBoolean("eligible")) {
                             val limit = trial.optInt("limit", 2)
                             Text("Free trial: ${limit} uses per feature", color = Slate300, fontSize = 12.sp)
