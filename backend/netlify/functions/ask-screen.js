@@ -120,8 +120,13 @@ async function reserveFeatureUse(uid, feature, requestId) {
     const period = currentUsagePeriod();
     const usage = data.usagePeriod === period ? (data.usage || {}) : {};
     const subscription = data.subscription || {};
+    const periodEnd = subscription.currentPeriodEnd;
+    const periodEndMs = periodEnd && typeof periodEnd.toDate === 'function'
+      ? periodEnd.toDate().getTime()
+      : 0;
+    // Never grant paid access without a valid, unexpired subscription end date.
     const paid = subscription.status === 'active' &&
-      (!subscription.currentPeriodEnd || subscription.currentPeriodEnd.toDate().getTime() > Date.now());
+      Number.isFinite(periodEndMs) && periodEndMs > Date.now();
     const used = Number(usage[field] || 0);
     if (!paid && used >= FREE_FEATURE_LIMIT) {
       const error = new Error('SUBSCRIPTION_REQUIRED');
