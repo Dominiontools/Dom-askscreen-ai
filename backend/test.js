@@ -179,9 +179,9 @@ async function run() {
     httpMethod: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ announcement: '', features: { screen: true, spoken: true, transcription: true }, freeTrialLimit: 2 })
   });
-  assert.equal(adminSettingsUnauthenticated.statusCode, 503, 'Settings writes must fail closed without Firebase server authentication configuration');
+  assert.equal(adminSettingsUnauthenticated.statusCode, 401, 'Settings writes must require a signed-in Firebase administrator');
   if (previousFirebaseServiceAccount !== undefined) process.env.FIREBASE_SERVICE_ACCOUNT_JSON = previousFirebaseServiceAccount;
-  console.log('PASS Admin settings updates fail closed without authenticated administrator access');
+  console.log('PASS Admin settings updates require authenticated administrator access');
 
   const appUpdateOptions = await appUpdateHandler({ httpMethod: 'OPTIONS', headers: {} });
   assert.equal(appUpdateOptions.statusCode, 204, 'App update endpoint should allow CORS preflight');
