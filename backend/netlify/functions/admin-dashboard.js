@@ -164,6 +164,10 @@ exports.handler = async event => {
           targetEmail: data.targetEmail || '',
           adminUid: data.adminUid || '',
           adminEmail: data.adminEmail || '',
+          ticketId: data.ticketId || '',
+          ticketSubject: data.ticketSubject || '',
+          status: data.status || '',
+          replySent: typeof data.replySent === 'boolean' ? data.replySent : null,
           createdAt: data.createdAt && typeof data.createdAt.toDate === 'function'
             ? data.createdAt.toDate().toISOString() : null
         };
