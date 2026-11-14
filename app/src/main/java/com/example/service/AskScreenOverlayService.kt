@@ -887,7 +887,7 @@ Instructions:
 - Use headings exactly like "Answer for Question 1", "Answer for Question 2", and so on. Do not repeat the full question unless needed to identify an ambiguous reference.
 - For multiple-choice questions, include both the option letter and its wording, for example "A. Photosynthesis".
 - Give clear, accurate, professional answers in natural language. Do not invent missing information.
-- After all answers, add a "Summary" section with a short separate summary for each question, retaining the same question numbers.
+- After all answers, add a "Summary" section with one separate line for each question, using exactly "Question 1: [short summary]", "Question 2: [short summary]", and so on.
 - If the recording contains no questions, provide a concise, useful summary of the complete session.
 - Do not expose a raw transcript in the final response.
 """.trimIndent()
@@ -926,7 +926,7 @@ Instructions:
             beginListeningSession(QueryType.AUDIO)
             bubbleState.value = BubbleState.LISTENING_AUDIO
             showAnswerWindow()
-            liveCaptions.value = "Listening to the full audio session. Tap the microphone when playback ends."
+            liveCaptions.value = "Listening through the microphone. Speaker playback may be heard; headphones or protected apps may block it. Tap the microphone when finished."
             audioCaptureManager.startContinuousListening(
                 languageTag = prefs.audioLanguageTag,
                 onFatalError = { message ->
@@ -1005,7 +1005,7 @@ Instructions:
             beginListeningSession(QueryType.SCREEN_AND_AUDIO)
             bubbleState.value = BubbleState.LISTENING_AUDIO
             showAnswerWindow()
-            liveCaptions.value = "Reading the screen and listening to the full session. Tap the microphone when playback ends."
+            liveCaptions.value = "Reading screen snapshots and listening through the microphone. Headphones or protected apps may block audio. Tap the microphone when finished."
             audioCaptureManager.startContinuousListening(
                 languageTag = prefs.audioLanguageTag,
                 onFatalError = { message ->
