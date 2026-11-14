@@ -34,7 +34,7 @@ import java.text.DateFormat
 import java.time.Instant
 import java.util.Date
 
-private data class AdminUserRow(val name:String,val email:String,val joined:String,val lastSignIn:String,val screen:Int,val spoken:Int,val transcription:Int,val trialEligible:Boolean,val screenRemaining:Int,val spokenRemaining:Int,val transcriptionRemaining:Int,val subscription:String,val expiry:String,val disabled:Boolean,val emailVerified:Boolean)
+private data class AdminUserRow(val uid:String,val name:String,val email:String,val joined:String,val lastSignIn:String,val screen:Int,val spoken:Int,val transcription:Int,val trialEligible:Boolean,val screenRemaining:Int,val spokenRemaining:Int,val transcriptionRemaining:Int,val subscription:String,val expiry:String,val disabled:Boolean,val emailVerified:Boolean)
 private data class AdminPaymentRow(val date:String,val email:String,val reference:String,val amount:String,val status:String)
 private data class AdminTicketRow(val id:String,val date:String,val email:String,val subject:String,val message:String,val status:String,val reply:String)
 
@@ -90,7 +90,7 @@ fun AdminScreen(onBack: () -> Unit) {
                 val trial = item.optJSONObject("freeTrial") ?: JSONObject()
                 val sub = item.optJSONObject("subscription") ?: JSONObject()
                 add(AdminUserRow(
-                    item.optString("displayName").ifBlank { item.optString("email").ifBlank { "Unnamed account" } },
+                    item.optString("uid"), item.optString("displayName").ifBlank { item.optString("email").ifBlank { "Unnamed account" } },
                     item.optString("email"), dateLabel(item.optString("createdAt")), dateLabel(item.optString("lastSignInAt")),
                     usage.optInt("screen"), usage.optInt("spoken"), usage.optInt("transcription"),
                     trial.optBoolean("eligible"), trial.optInt("screenRemaining"), trial.optInt("spokenRemaining"),
@@ -123,6 +123,26 @@ fun AdminScreen(onBack: () -> Unit) {
             try { loadData(idToken) } catch (e:Exception) { error = e.message ?: "Could not load admin data." }
             finally { busy = false }
         }
+    }
+
+    suspend fun setUserDisabled(uid:String, disabled:Boolean) {
+        if (idToken.isBlank()) throw IllegalStateException("Sign in to the administrator account again.")
+        val configured = prefs.backendUrl.trim().trimEnd('/')
+        if (!configured.endsWith("/ask-screen")) throw IllegalStateException("Set your Netlify AskScreen endpoint in Settings first.")
+        val endpoint = configured.removeSuffix("/ask-screen") + "/admin-users"
+        val payload = JSONObject().put("uid",uid).put("disabled",disabled)
+        withContext(Dispatchers.IO) {
+            val request = Request.Builder().url(endpoint)
+                .header("Authorization","Bearer $idToken")
+                .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+            http.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                val json = try { JSONObject(body) } catch (_:Exception) { JSONObject() }
+                if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "Could not update account." })
+            }
+        }
+        loadData(idToken)
     }
 
     suspend fun updateSupportTicket(ticketId:String, reply:String, status:String) {
@@ -228,6 +248,16 @@ fun AdminScreen(onBack: () -> Unit) {
                         )
                         Text("Subscription: ${user.subscription} • Expires: ${user.expiry}",color=if(user.subscription=="active") EmeraldGreen else AmberWarning,fontSize=12.sp)
                         Text("Email: ${if(user.emailVerified) "Verified" else "Not verified"} • Account: ${if(user.disabled) "Disabled" else "Enabled"}",color=if(user.disabled) AmberWarning else Slate400,fontSize=11.sp)
+                        OutlinedButton(onClick={
+                            scope.launch {
+                                busy=true; error=null
+                                try { setUserDisabled(user.uid,!user.disabled) }
+                                catch(e:Exception) { error=e.message ?: "Could not update account." }
+                                finally { busy=false }
+                            }
+                        },enabled=!busy && user.uid.isNotBlank()) {
+                            Text(if(user.disabled) "Enable account" else "Disable account")
+                        }
                     }
                 }
             }
