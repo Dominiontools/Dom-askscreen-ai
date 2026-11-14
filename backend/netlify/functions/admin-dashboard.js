@@ -129,6 +129,28 @@ exports.handler = async event => {
       console.warn('[Admin Dashboard] Payment records unavailable:', error.message);
     }
 
+    let supportTickets = [];
+    try {
+      const ticketSnapshot = await db.collection('askScreenSupportTickets')
+        .orderBy('createdAt', 'desc').limit(100).get();
+      supportTickets = ticketSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          uid: data.uid || '',
+          email: data.email || '',
+          subject: data.subject || '',
+          message: data.message || '',
+          status: data.status || 'open',
+          reply: data.reply || '',
+          createdAt: data.createdAt && typeof data.createdAt.toDate === 'function'
+            ? data.createdAt.toDate().toISOString() : null
+        };
+      });
+    } catch (error) {
+      console.warn('[Admin Dashboard] Support tickets unavailable:', error.message);
+    }
+
     return json(200, {
       generatedAt: new Date().toISOString(),
       totals: {
@@ -138,7 +160,8 @@ exports.handler = async event => {
         trialUsers: rows.filter(user => user.freeTrial.eligible).length
       },
       users: rows,
-      payments
+      payments,
+      supportTickets
     });
   } catch (error) {
     const status = error.statusCode || (error.message === 'AUTH_NOT_CONFIGURED' ? 503 : 401);
