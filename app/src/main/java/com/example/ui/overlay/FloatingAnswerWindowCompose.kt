@@ -381,7 +381,7 @@ fun FloatingAnswerWindow(
                 ) {
                     Icon(
                         imageVector = if (bubbleState == BubbleState.LISTENING_AUDIO) Icons.Default.MicOff else Icons.Default.Mic,
-                        contentDescription = "Voice Input",
+                        contentDescription = if (bubbleState == BubbleState.LISTENING_AUDIO) "Stop Listening and Analyse Session" else "Start Voice Input",
                         tint = if (bubbleState == BubbleState.LISTENING_AUDIO) Color(0xFFEF4444) else Color(0xFF38BDF8)
                     )
                 }
