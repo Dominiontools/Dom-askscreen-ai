@@ -87,3 +87,25 @@ The Admin Centre stores release metadata in Firebase Firestore. APK binaries are
 - Android may ask each customer to allow AskScreen AI to install apps from this source and approve the installation. Silent installation is not available to ordinary apps.
 - Test the upgrade on a spare phone using the exact APK currently distributed before publishing an update to customers.
 
+## 10. Subscription product pricing
+
+The Admin Centre's **App & feature settings → Subscription & product pricing** section manages the public monthly product catalogue stored in `askScreenAppConfig/public`.
+
+- DOM AI Core defaults to USD $9/month.
+- Each specialist AI module has its own monthly price.
+- DOM Email Management defaults to USD $20/month and remains an independent product.
+- The complete AI suite includes DOM AI Core and all specialist modules.
+- The complete business bundle adds the separate Email Management product.
+- The default complete-bundle discount is 10%; administrators can change it from 0–30%.
+- Prices are stored as integer US cents to avoid floating-point billing errors.
+- The public GET response exposes only customer-safe catalogue data and calculated bundle totals.
+- Only a verified administrator in `ADMIN_EMAILS` can update prices. Changes are audited through the existing admin settings audit log.
+
+Default catalogue arithmetic:
+- Specialist AI modules: $516/month.
+- DOM AI Core: $9/month.
+- Complete AI suite before discount: $525/month; after 10% discount: $472.50/month.
+- Email Management: $20/month.
+- Complete business bundle before discount: $545/month; after 10% discount: $490.50/month.
+
+These are catalogue prices, not payment activation. Paystack checkout and verified payment webhooks remain a separate future implementation; do not grant paid access merely because a customer views the catalogue.
