@@ -59,6 +59,11 @@ fun AdminScreen(onBack: () -> Unit) {
     var supportTickets by remember { mutableStateOf<List<AdminTicketRow>>(emptyList()) }
     var auditLogs by remember { mutableStateOf<List<AdminAuditRow>>(emptyList()) }
     var activityLogs by remember { mutableStateOf<List<AdminActivityRow>>(emptyList()) }
+    var announcement by remember { mutableStateOf("") }
+    var screenEnabled by remember { mutableStateOf(true) }
+    var spokenEnabled by remember { mutableStateOf(true) }
+    var transcriptionEnabled by remember { mutableStateOf(true) }
+    var freeTrialLimit by remember { mutableStateOf("2") }
     var totalUsers by remember { mutableIntStateOf(0) }
     var activeSubscribers by remember { mutableIntStateOf(0) }
     var trialUsers by remember { mutableIntStateOf(0) }
@@ -68,6 +73,48 @@ fun AdminScreen(onBack: () -> Unit) {
     fun dateLabel(value:String):String = try {
         if (value.isBlank() || value == "null") "—" else DateFormat.getDateTimeInstance().format(Date.from(Instant.parse(value)))
     } catch (_:Exception) { "—" }
+
+    suspend fun loadSettings(token:String) {
+        val configured = prefs.backendUrl.trim().trimEnd('/')
+        if (!configured.endsWith("/ask-screen")) throw IllegalStateException("Set your Netlify AskScreen endpoint in Settings first.")
+        val endpoint = configured.removeSuffix("/ask-screen") + "/admin-settings"
+        val result = withContext(Dispatchers.IO) {
+            val request = Request.Builder().url(endpoint).header("Authorization","Bearer $token").get().build()
+            http.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                val json = try { JSONObject(body) } catch (_:Exception) { JSONObject() }
+                if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "Could not load app settings." })
+                json
+            }
+        }
+        val settings = result.optJSONObject("settings") ?: JSONObject()
+        val features = settings.optJSONObject("features") ?: JSONObject()
+        announcement = settings.optString("announcement")
+        screenEnabled = features.optBoolean("screen",true)
+        spokenEnabled = features.optBoolean("spoken",true)
+        transcriptionEnabled = features.optBoolean("transcription",true)
+        freeTrialLimit = settings.optInt("freeTrialLimit",2).toString()
+    }
+
+    suspend fun saveSettings(token:String) {
+        val limit = freeTrialLimit.toIntOrNull() ?: throw IllegalArgumentException("Free-trial limit must be a whole number from 0 to 10.")
+        if (limit !in 0..10) throw IllegalArgumentException("Free-trial limit must be a whole number from 0 to 10.")
+        val configured = prefs.backendUrl.trim().trimEnd('/')
+        if (!configured.endsWith("/ask-screen")) throw IllegalStateException("Set your Netlify AskScreen endpoint in Settings first.")
+        val endpoint = configured.removeSuffix("/ask-screen") + "/admin-settings"
+        val features = JSONObject().put("screen",screenEnabled).put("spoken",spokenEnabled).put("transcription",transcriptionEnabled)
+        val payload = JSONObject().put("announcement",announcement).put("features",features).put("freeTrialLimit",limit)
+        withContext(Dispatchers.IO) {
+            val request = Request.Builder().url(endpoint).header("Authorization","Bearer $token")
+                .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
+            http.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                val json = try { JSONObject(body) } catch (_:Exception) { JSONObject() }
+                if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "Could not save app settings." })
+            }
+        }
+        loadSettings(token)
+    }
 
     suspend fun loadData(token:String) {
         val configured = prefs.backendUrl.trim().trimEnd('/')
@@ -160,6 +207,7 @@ fun AdminScreen(onBack: () -> Unit) {
                 ))
             }
         }
+        loadSettings(token)
         loaded = true
     }
 
@@ -261,6 +309,36 @@ fun AdminScreen(onBack: () -> Unit) {
                 AdminMetric("Trial-eligible users",trialUsers.toString(),Modifier.weight(1f))
                 AdminMetric("Disabled accounts",disabledUsers.toString(),Modifier.weight(1f))
             }
+            Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(16.dp)) {
+                Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+                    Text("App & feature settings",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
+                    Text("Make routine app changes here without editing source code. Changes are saved on the server.",color=Slate400,fontSize=11.sp)
+                    OutlinedTextField(value=announcement,onValueChange={if(it.length<=240) announcement=it},label={Text("Customer announcement (optional)")},supportingText={Text("${announcement.length}/240 characters")},modifier=Modifier.fillMaxWidth(),minLines=2,maxLines=3)
+                    Row(verticalAlignment=Alignment.CenterVertically,modifier=Modifier.fillMaxWidth()) {
+                        Column(Modifier.weight(1f)) { Text("Screen reading",color=Color.White); Text("Allow screen and image questions",color=Slate400,fontSize=11.sp) }
+                        Switch(checked=screenEnabled,onCheckedChange={screenEnabled=it})
+                    }
+                    Row(verticalAlignment=Alignment.CenterVertically,modifier=Modifier.fillMaxWidth()) {
+                        Column(Modifier.weight(1f)) { Text("Spoken answers",color=Color.White); Text("Allow voice-based AI answers",color=Slate400,fontSize=11.sp) }
+                        Switch(checked=spokenEnabled,onCheckedChange={spokenEnabled=it})
+                    }
+                    Row(verticalAlignment=Alignment.CenterVertically,modifier=Modifier.fillMaxWidth()) {
+                        Column(Modifier.weight(1f)) { Text("Transcription",color=Color.White); Text("Allow speech transcription",color=Slate400,fontSize=11.sp) }
+                        Switch(checked=transcriptionEnabled,onCheckedChange={transcriptionEnabled=it})
+                    }
+                    OutlinedTextField(value=freeTrialLimit,onValueChange={freeTrialLimit=it.filter(Char::isDigit).take(2)},label={Text("Free uses per feature (0–10)")},singleLine=true,modifier=Modifier.fillMaxWidth())
+                    Button(onClick={
+                        scope.launch {
+                            busy=true; error=null
+                            try { saveSettings(idToken); loadData(idToken) }
+                            catch(e:Exception) { error=e.message ?: "Could not save app settings." }
+                            finally { busy=false }
+                        }
+                    },enabled=!busy && idToken.isNotBlank() && freeTrialLimit.toIntOrNull() in 0..10,modifier=Modifier.fillMaxWidth()) {
+                        Text("Save app settings")
+                    }
+                }
+            }
             Text("Registered users & free-trial usage",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
             OutlinedTextField(value=userSearch,onValueChange={userSearch=it},label={Text("Search by name or email")},singleLine=true,modifier=Modifier.fillMaxWidth())
             Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
@@ -287,7 +365,7 @@ fun AdminScreen(onBack: () -> Unit) {
                         Text(user.name,color=Color.White,fontWeight=FontWeight.SemiBold)
                         Text(user.email,color=ElectricCyan,fontSize=12.sp)
                         Text("Joined: ${user.joined} • Last sign-in: ${user.lastSignIn}",color=Slate400,fontSize=11.sp)
-                        Text("Used — Screen: ${user.screen}/2 • Spoken: ${user.spoken}/2 • Transcription: ${user.transcription}/2",color=Slate300,fontSize=12.sp)
+                        Text("Used — Screen: ${user.screen}/${freeTrialLimit.toIntOrNull() ?: 2} • Spoken: ${user.spoken}/${freeTrialLimit.toIntOrNull() ?: 2} • Transcription: ${user.transcription}/${freeTrialLimit.toIntOrNull() ?: 2}",color=Slate300,fontSize=12.sp)
                         Text(
                             if (user.trialEligible) "Free trial eligible • Remaining — Screen: ${user.screenRemaining}, Spoken: ${user.spokenRemaining}, Transcription: ${user.transcriptionRemaining}"
                             else "Not eligible for the new-user free trial",
