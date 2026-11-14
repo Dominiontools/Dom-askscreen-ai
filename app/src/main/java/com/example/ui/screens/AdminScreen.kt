@@ -3,6 +3,7 @@ package com.example.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -216,7 +217,7 @@ fun AdminScreen(onBack: () -> Unit) {
             }
             Text("Registered users & free-trial usage",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
             OutlinedTextField(value=userSearch,onValueChange={userSearch=it},label={Text("Search by name or email")},singleLine=true,modifier=Modifier.fillMaxWidth())
-            Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
                 listOf("All","Active","Disabled","Trial eligible").forEach { filter ->
                     FilterChip(selected=userFilter==filter,onClick={userFilter=filter},label={Text(filter)})
                 }
@@ -301,6 +302,14 @@ fun AdminScreen(onBack: () -> Unit) {
                                     finally { busy=false }
                                 }
                             },enabled=!busy && ticket.status!="resolved",modifier=Modifier.weight(1f)) { Text("Resolve") }
+                            if(ticket.status=="resolved") OutlinedButton(onClick={
+                                scope.launch {
+                                    busy=true; error=null
+                                    try { updateSupportTicket(ticket.id,"","open") }
+                                    catch(e:Exception) { error=e.message ?: "Could not reopen ticket." }
+                                    finally { busy=false }
+                                }
+                            },enabled=!busy,modifier=Modifier.weight(1f)) { Text("Reopen") }
                         }
                     }
                 }
