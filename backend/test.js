@@ -11,8 +11,20 @@ const { handler: appUpdateHandler } = require('./netlify/functions/app-update');
 const { handler: supportHandler } = require('./netlify/functions/support-tickets');
 const { handler: supportAdminHandler } = require('./netlify/functions/support-admin');
 const { handler: accountStatusHandler } = require('./netlify/functions/account-status');
+const { DEFAULT_PRODUCTS, normalizeCatalog, calculateBundle } = require('./pricing-catalog');
 
 async function run() {
+  const defaultPricing = normalizeCatalog(DEFAULT_PRODUCTS);
+  assert.equal(defaultPricing.length, 22, 'The catalogue must include core, specialist products and separate email management');
+  const defaultBundles = calculateBundle(defaultPricing, 10);
+  assert.equal(defaultBundles.aiSuite.regularPriceCents, 52500, 'AI suite regular total should be $525.00');
+  assert.equal(defaultBundles.aiSuite.priceCents, 47250, 'AI suite should apply the configured 10% discount');
+  assert.equal(defaultBundles.completeBusiness.regularPriceCents, 54500, 'Complete bundle regular total should be $545.00');
+  assert.equal(defaultBundles.completeBusiness.priceCents, 49050, 'Complete bundle should apply the configured 10% discount');
+  assert.equal(defaultBundles.completeBusiness.savingsCents, 5450, 'Complete bundle should save $54.50');
+  assert.throws(() => normalizeCatalog([{ id: 'core', monthlyPriceCents: 900 }]), /every product/);
+  assert.throws(() => calculateBundle(defaultPricing, 31), /0 to 30/);
+  console.log('PASS Product catalogue validation and 10% bundle calculations');
   assert.equal(isEligibleForFreeTrial('2026-11-15T10:00:00.000Z', '2026-11-15T00:00:00.000Z'), true,
     'Accounts created after the configured trial launch are eligible');
   assert.equal(isEligibleForFreeTrial('2026-11-14T23:59:59.000Z', '2026-11-15T00:00:00.000Z'), false,
