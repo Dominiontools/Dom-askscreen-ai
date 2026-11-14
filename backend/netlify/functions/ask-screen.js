@@ -101,7 +101,8 @@ async function verifyUser(event) {
   }
   try {
     const admin = await getFirebaseAdmin();
-    return await admin.auth().verifyIdToken(match[1]);
+    // checkRevoked=true also rejects tokens belonging to disabled users or sessions revoked by an administrator.
+    return await admin.auth().verifyIdToken(match[1], true);
   } catch (error) {
     if (error.message === 'AUTH_NOT_CONFIGURED') throw error;
     const denied = new Error('INVALID_AUTH_TOKEN');
