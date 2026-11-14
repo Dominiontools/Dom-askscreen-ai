@@ -306,7 +306,8 @@ fun AdminScreen(onBack: () -> Unit) {
         }
         releaseMessage = "Version ${releaseVersionName.trim()} has been published. Customer apps can now check for this update."
     }
-Column(Modifier.fillMaxSize().background(Slate950).verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement=Arrangement.spacedBy(14.dp)) {
+
+    Column(Modifier.fillMaxSize().background(Slate950).verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement=Arrangement.spacedBy(14.dp)) {
         Row(verticalAlignment=Alignment.CenterVertically) {
             IconButton(onClick=onBack) { Icon(Icons.Default.ArrowBack,contentDescription="Back",tint=Color.White) }
             Column(Modifier.weight(1f)) {
