@@ -46,18 +46,10 @@ Paystack is intentionally not required for this deployment. When the Paystack ac
 
 Until that integration is complete, do not manually mark customers as paid.
 
-## 6. Admin monitoring dashboard
+## 6. In-app administrator centre
 
-The administrator website is served from:
+The administrator centre is part of the Android app. Open **Account → Open Admin Centre**. It uses the same Firebase Authentication project as customer accounts, but the backend grants access only to verified email addresses listed in the Netlify `ADMIN_EMAILS` environment variable.
 
-`https://YOUR-SITE.netlify.app/admin/`
+Add `ADMIN_EMAILS` as one or more authorized Firebase administrator email addresses separated by commas. The server checks the signed Firebase ID token, verified email status, and allowlist on every dashboard request. Do not create public admin registration and do not rely on hiding the screen as security.
 
-Before using it, add this Netlify environment variable:
-
-- `ADMIN_EMAILS` — one or more administrator email addresses, separated by commas. Use the exact email address of the Firebase Authentication account that should administer the platform.
-
-The admin must sign in with Firebase Email/Password and have a verified email address. The server verifies the Firebase ID token and checks the email against `ADMIN_EMAILS` on every dashboard data request. Do not rely on hiding the page URL as security. Never place the Firebase service-account JSON in the browser.
-
-The dashboard currently displays registered users, join/last-sign-in dates, per-feature usage, active subscription status, and available payment records. Payment records will remain empty until the later Paystack integration writes verified transactions to the `askScreenPayments` collection. The dashboard is read-only at this stage; account suspension, manual subscription changes, and refunds are not enabled.
-
-After setting `ADMIN_EMAILS`, redeploy the Netlify site. Open `/admin/`, sign in with the authorized Firebase admin account, and use **Refresh** to reload current data. The dashboard endpoint is `/.netlify/functions/admin-dashboard`.
+The in-app dashboard displays registered users, join/last-sign-in dates, per-feature usage, subscription status, and available payment records. Payment records will populate after the later Paystack integration writes verified transactions to `askScreenPayments`. The dashboard is read-only for now; account suspension, manual subscription changes, and refunds are not enabled. The Android app calls `/.netlify/functions/admin-dashboard` using the backend URL configured in Settings.
