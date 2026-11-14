@@ -127,8 +127,8 @@ fun AdminScreen(onBack: () -> Unit) {
                         scope.launch {
                             busy=true; error=null
                             try {
-                                val user=auth.signInWithEmailAndPassword(email.trim(),password).await().user ?: error("Sign-in failed.")
-                                val token=user.getIdToken(true).await().token ?: error("Could not verify account.")
+                                val user=auth.signInWithEmailAndPassword(email.trim(),password).await().user ?: throw IllegalStateException("Sign-in failed.")
+                                val token=user.getIdToken(true).await().token ?: throw IllegalStateException("Could not verify account.")
                                 idToken=token
                                 loadData(token)
                                 password=""
