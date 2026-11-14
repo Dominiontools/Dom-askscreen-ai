@@ -42,16 +42,11 @@ exports.handler = async event => {
   if (event.httpMethod === 'OPTIONS') return json(204, {});
   if (!['GET', 'POST'].includes(event.httpMethod)) return json(405, { error: 'Method not allowed.' });
   try {
-    const decoded = await verifyUser(event);
-    const email = String(decoded.email || '').trim().toLowerCase();
-    const allowed = (process.env.ADMIN_EMAILS || '').split(',').map(v => v.trim().toLowerCase()).filter(Boolean);
-    if (decoded.email_verified !== true || !email || !allowed.includes(email)) {
-      return json(403, { error: 'This account is not authorized to change app settings.' });
-    }
     const admin = await getAdmin();
     const db = admin.firestore();
     const ref = db.collection('askScreenAppConfig').doc('public');
 
+    // Public GET exposes only customer-safe display and feature availability settings.
     if (event.httpMethod === 'GET') {
       const snapshot = await ref.get();
       const saved = snapshot.exists ? snapshot.data() : {};
@@ -66,6 +61,13 @@ exports.handler = async event => {
           freeTrialLimit: Number.isInteger(saved.freeTrialLimit) ? saved.freeTrialLimit : DEFAULTS.freeTrialLimit
         }
       });
+    }
+
+    const decoded = await verifyUser(event);
+    const email = String(decoded.email || '').trim().toLowerCase();
+    const allowed = (process.env.ADMIN_EMAILS || '').split(',').map(v => v.trim().toLowerCase()).filter(Boolean);
+    if (decoded.email_verified !== true || !email || !allowed.includes(email)) {
+      return json(403, { error: 'This account is not authorized to change app settings.' });
     }
 
     const contentType = String(event.headers?.['content-type'] || event.headers?.['Content-Type'] || '').toLowerCase();
