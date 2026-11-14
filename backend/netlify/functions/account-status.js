@@ -1,6 +1,7 @@
 'use strict';
 
 const { verifyUser } = require('./ask-screen');
+const { summarizeProductSubscriptions } = require('../../product-subscriptions');
 
 let adminPromise;
 async function getAdmin() {
@@ -41,6 +42,7 @@ exports.handler = async event => {
     const account = accountSnapshot.exists ? accountSnapshot.data() : {};
     const usage = account.usage || {};
     const subscription = account.subscription || {};
+    const productSubscriptions = summarizeProductSubscriptions(account.productSubscriptions || {});
     const config = configSnapshot.exists ? configSnapshot.data() : {};
     const limit = Number.isInteger(config.freeTrialLimit) && config.freeTrialLimit >= 0 && config.freeTrialLimit <= 10
       ? config.freeTrialLimit : 2;
@@ -62,6 +64,7 @@ exports.handler = async event => {
         transcription: count('transcriptionsUsed') },
       subscription: { status: paid ? 'active' : (subscription.status === 'active' ? 'expired' : (subscription.status || 'inactive')),
         currentPeriodEnd: end ? new Date(end).toISOString() : null },
+      productSubscriptions,
       features: { screen: features.screen !== false, spoken: features.spoken !== false,
         transcription: features.transcription !== false }
     });
