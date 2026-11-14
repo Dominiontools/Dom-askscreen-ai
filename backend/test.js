@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const { handler } = require('./netlify/functions/ask-screen');
 const { handler: healthHandler } = require('./netlify/functions/health');
 const { handler: transcriptionHandler } = require('./netlify/functions/record-transcription');
+const { handler: adminHandler } = require('./netlify/functions/admin-dashboard');
 
 async function run() {
   const cases = [
@@ -91,6 +92,21 @@ async function run() {
   const healthPost = await healthHandler({ httpMethod: 'POST', headers: {} });
   assert.equal(healthPost.statusCode, 405, 'Health endpoint should reject POST');
   console.log('PASS Health endpoint rejects unsupported methods');
+
+  const adminOptions = await adminHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(adminOptions.statusCode, 204, 'Admin endpoint should allow CORS preflight');
+  console.log('PASS Admin endpoint OPTIONS preflight');
+
+  const adminPost = await adminHandler({ httpMethod: 'POST', headers: {} });
+  assert.equal(adminPost.statusCode, 405, 'Admin endpoint should reject non-GET requests');
+  console.log('PASS Admin endpoint rejects non-GET requests');
+
+  const previousAdminEmails = process.env.ADMIN_EMAILS;
+  delete process.env.ADMIN_EMAILS;
+  const adminUnconfigured = await adminHandler({ httpMethod: 'GET', headers: {} });
+  assert.equal(adminUnconfigured.statusCode, 503, 'Admin endpoint must fail closed until ADMIN_EMAILS is configured');
+  if (previousAdminEmails !== undefined) process.env.ADMIN_EMAILS = previousAdminEmails;
+  console.log('PASS Admin endpoint fails closed when administrator allowlist is missing');
 
   console.log('All backend validation and authentication-gate tests passed.');
 }
