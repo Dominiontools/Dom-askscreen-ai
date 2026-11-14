@@ -106,8 +106,25 @@ const FEATURE_FIELDS = {
   transcription: 'transcriptionsUsed'
 };
 const FREE_FEATURE_LIMIT = 2;
+
+// Eligibility is based on Firebase Authentication's trusted account creation time.
+// FREE_TRIAL_START_AT is a deployment-controlled ISO-8601 timestamp. If it is missing
+// or invalid, free trials fail closed rather than being granted to existing accounts.
+function isEligibleForFreeTrial(accountCreationTime, configuredStartAt) {
+  const createdAt = Date.parse(accountCreationTime || '');
+  const trialStartAt = Date.parse(configuredStartAt || '');
+  return Number.isFinite(createdAt) &&
+    Number.isFinite(trialStartAt) &&
+    createdAt >= trialStartAt;
+}
+
 async function reserveFeatureUse(uid, feature, requestId) {
   const admin = await getFirebaseAdmin();
+  const authUser = await admin.auth().getUser(uid);
+  const trialEligible = isEligibleForFreeTrial(
+    authUser.metadata && authUser.metadata.creationTime,
+    process.env.FREE_TRIAL_START_AT
+  );
   const db = admin.firestore();
   const ref = db.collection('askScreenAccounts').doc(uid);
   const field = FEATURE_FIELDS[feature];
@@ -125,6 +142,14 @@ async function reserveFeatureUse(uid, feature, requestId) {
     const paid = subscription.status === 'active' &&
       Number.isFinite(periodEndMs) && periodEndMs > Date.now();
     const used = Number(usage[field] || 0);
+    // Older/returning accounts are never granted the new-user trial, even if their
+    // Firestore usage document is missing or has been recreated.
+    if (!paid && !trialEligible) {
+      const error = new Error('SUBSCRIPTION_REQUIRED');
+      error.statusCode = 402;
+      error.feature = feature;
+      throw error;
+    }
     if (!paid && used >= FREE_FEATURE_LIMIT) {
       const error = new Error('SUBSCRIPTION_REQUIRED');
       error.statusCode = 402;
@@ -792,3 +817,4 @@ exports.handler = async function handler(event) {
 // Shared authenticated usage helpers for feature-only endpoints.
 exports.verifyUser = verifyUser;
 exports.reserveFeatureUse = reserveFeatureUse;
+exports.isEligibleForFreeTrial = isEligibleForFreeTrial;
