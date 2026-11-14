@@ -53,7 +53,7 @@ private data class AdminUserRow(val uid:String,val name:String,val email:String,
 private data class AdminPaymentRow(val date:String,val email:String,val reference:String,val amount:String,val status:String)
 private data class AdminTicketRow(val id:String,val date:String,val email:String,val subject:String,val message:String,val status:String,val reply:String)
 private data class AdminAuditRow(val action:String,val targetEmail:String,val adminEmail:String,val detail:String,val date:String)
-private data class AdminPriceRow(val id:String,val name:String,val category:String,val monthlyPriceCents:Int)
+private data class AdminPriceRow(val id:String,val name:String,val category:String,val monthlyPriceCents:Int,val priceText:String)
 private data class AdminActivityRow(val email:String,val feature:String,val outcome:String,val code:String,val provider:String,val requestId:String,val date:String)
 
 @Composable
@@ -124,7 +124,8 @@ fun AdminScreen(onBack: () -> Unit) {
             pricingRows = buildList {
                 for (i in 0 until priceArray.length()) {
                     val item = priceArray.optJSONObject(i) ?: continue
-                    add(AdminPriceRow(item.optString("id"),item.optString("name"),item.optString("category"),item.optInt("monthlyPriceCents")))
+                    val cents = item.optInt("monthlyPriceCents")
+                    add(AdminPriceRow(item.optString("id"),item.optString("name"),item.optString("category"),cents,String.format(Locale.US,"%.2f",cents / 100.0)))
                 }
             }
         }
@@ -139,7 +140,7 @@ fun AdminScreen(onBack: () -> Unit) {
         val features = JSONObject().put("screen",screenEnabled).put("spoken",spokenEnabled).put("transcription",transcriptionEnabled)
         val discount = bundleDiscountPercent.toIntOrNull() ?: throw IllegalArgumentException("Bundle discount must be a whole number from 0 to 30.")
         if (discount !in 0..30) throw IllegalArgumentException("Bundle discount must be a whole number from 0 to 30.")
-        if (pricingRows.isEmpty()) throw IllegalArgumentException("Load the pricing catalogue before saving.")
+        if (pricingRows.isEmpty() || pricingRows.any { it.priceText.toBigDecimalOrNull() == null || it.priceText.toBigDecimal() < BigDecimal.ZERO }) throw IllegalArgumentException("Enter a valid non-negative monthly price for every product.")
         val priceArray = org.json.JSONArray()
         pricingRows.forEach { row ->
             priceArray.put(JSONObject().put("id",row.id).put("monthlyPriceCents",row.monthlyPriceCents))
@@ -405,12 +406,11 @@ fun AdminScreen(onBack: () -> Unit) {
                     pricingRows.groupBy { it.category }.forEach { (category, rows) ->
                         Text(category,color=Color(0xFF8CB4FF),fontSize=13.sp,fontWeight=FontWeight.Bold)
                         rows.forEach { row ->
-                            val priceText = String.format(Locale.US,"%.2f",row.monthlyPriceCents / 100.0)
                             OutlinedTextField(
-                                value=priceText,
+                                value=row.priceText,
                                 onValueChange={ value ->
                                     val cents = value.toBigDecimalOrNull()?.takeIf { it >= BigDecimal.ZERO }?.multiply(BigDecimal(100))?.setScale(0,RoundingMode.HALF_UP)?.toInt()
-                                    if (cents != null && cents <= 1000000) pricingRows = pricingRows.map { if (it.id == row.id) it.copy(monthlyPriceCents=cents) else it }
+                                    pricingRows = pricingRows.map { if (it.id == row.id) it.copy(priceText=value,monthlyPriceCents=cents?.takeIf { amount -> amount <= 1000000 } ?: it.monthlyPriceCents) else it }
                                 },
                                 label={Text("${row.name} — USD/month")},
                                 singleLine=true,
@@ -435,7 +435,7 @@ fun AdminScreen(onBack: () -> Unit) {
                             catch(e:Exception) { error=e.message ?: "Could not save app settings." }
                             finally { busy=false }
                         }
-                    },enabled=!busy && idToken.isNotBlank() && (freeTrialLimit.toIntOrNull() ?: -1) in 0..10 && (bundleDiscountPercent.toIntOrNull() ?: -1) in 0..30 && pricingRows.isNotEmpty(),modifier=Modifier.fillMaxWidth()) {
+                    },enabled=!busy && idToken.isNotBlank() && (freeTrialLimit.toIntOrNull() ?: -1) in 0..10 && (bundleDiscountPercent.toIntOrNull() ?: -1) in 0..30 && pricingRows.isNotEmpty() && pricingRows.all { it.priceText.toBigDecimalOrNull() != null && it.priceText.toBigDecimal() >= BigDecimal.ZERO && it.priceText.toBigDecimal().multiply(BigDecimal(100)) <= BigDecimal(1000000) },modifier=Modifier.fillMaxWidth()) {
                         Text("Save app settings")
                     }
                 }
