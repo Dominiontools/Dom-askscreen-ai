@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ui.screens.AccountScreen
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.SettingsScreen
@@ -32,7 +33,8 @@ enum class NavigationTab(val label: String, val icon: ImageVector) {
     HOME("Hub", Icons.Default.Home),
     UPLOAD("Uploads", Icons.Default.CloudUpload),
     HISTORY("History", Icons.Default.History),
-    SETTINGS("Settings", Icons.Default.Settings)
+    SETTINGS("Settings", Icons.Default.Settings),
+    ACCOUNT("Account", Icons.Default.AccountCircle)
 }
 
 class MainActivity : ComponentActivity() {
@@ -103,6 +105,7 @@ class MainActivity : ComponentActivity() {
                             NavigationTab.UPLOAD -> UploadScreen()
                             NavigationTab.HISTORY -> HistoryScreen()
                             NavigationTab.SETTINGS -> SettingsScreen()
+                            NavigationTab.ACCOUNT -> AccountScreen()
                         }
                     }
                 }

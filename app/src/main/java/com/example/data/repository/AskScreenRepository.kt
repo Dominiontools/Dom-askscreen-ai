@@ -12,9 +12,8 @@ import com.example.data.local.PreferencesManager
 import com.example.data.model.ChatMessage
 import com.example.data.model.MediaItem
 import com.example.data.model.QueryType
-import com.google.firebase.Firebase
-import com.google.firebase.ai.ai
-import com.google.firebase.ai.type.content
+import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
@@ -53,33 +52,8 @@ class AskScreenRepository(private val context: Context) {
 
     suspend fun clearHistory() = historyDao.clearAllHistory()
 
-    private val systemInstructionContent = content {
-        text(
-            "You are DOM Ask AI, an on-screen reading and learning assistant. Carefully inspect the visible " +
-            "content, screenshot, audio transcript, or uploaded material. Read visible text and answer choices accurately. " +
-            "For diagrams, charts, tables, maps, and labelled figures, use visual relationships and labels, not guesses from isolated words. " +
-            "If an image is blurry, cropped, too small, or ambiguous, state exactly what cannot be read instead of inventing details. " +
-            "For multiple-choice practice or self-study questions, return only the option letter and its answer text (for example: 'B. Oxygen'). " +
-            "Do not add an explanation unless the user explicitly asks for one or the question itself requests an explanation. " +
-            "For non-multiple-choice questions, give a direct, concise answer. If several independent questions are visible, answer them separately and in screen order. " +
-            "Never claim to have clicked or submitted anything. Only provide answer text; external interaction is handled separately by an explicit user-enabled practice automation setting."
-        )
-    }
-
     /**
-     * Lazily get Firebase AI model based on configured name.
-     */
-    private fun getFirebaseModel(modelName: String) = Firebase.ai.generativeModel(
-        modelName = when (modelName) {
-            "gemini-3.5-flash-lite" -> "gemini-3.5-flash-lite"
-            "gemini-4-argon" -> "gemini-4-argon"
-            else -> "gemini-3.8-flash" // Default recommended model
-        },
-        systemInstruction = systemInstructionContent
-    )
-
-    /**
-     * Ask Gemini via Firebase AI Logic (server-side authenticated) or optional backend.
+     * Send AI requests only through the authenticated Netlify backend.
      */
     suspend fun askScreenAi(
         prompt: String,
@@ -92,48 +66,20 @@ class AskScreenRepository(private val context: Context) {
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             val selectedModel = prefs.geminiModel.ifEmpty { "gemini-3.8-flash" }
+            val user = FirebaseAuth.getInstance().currentUser
+                ?: throw Exception("SIGN_IN_REQUIRED: Open the Account tab and sign in before using AskScreen AI.")
             val backendUrl = prefs.backendUrl.trim()
-
-            val answerText: String
-            val modelUsed: String
-
-            if (backendUrl.isNotEmpty() && backendUrl.startsWith("http")) {
-                // Route through custom serverless backend if user entered one
-                answerText = callCustomBackend(
-                    backendUrl = backendUrl,
-                    prompt = prompt,
-                    model = selectedModel,
-                    images = images,
-                    audioBase64 = audioBase64,
-                    audioMimeType = audioMimeType,
-                    files = files,
-                    chatHistory = chatHistory
-                )
-                modelUsed = selectedModel
-            } else {
-                // Primary Path: Firebase AI Logic (No client API keys needed!)
-                answerText = try {
-                    callFirebaseAiLogic(
-                        modelName = selectedModel,
-                        prompt = prompt,
-                        images = images,
-                        audioBase64 = audioBase64,
-                        files = files,
-                        chatHistory = chatHistory
-                    )
-                } catch (e: TimeoutCancellationException) {
-                    throw e
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    throw Exception(
-                        "No backend link is saved and Firebase AI Logic failed (" + (e.message ?: "unknown error") +
-                            "). Open Settings, paste your Netlify link and tap Save & Test Connection.",
-                        e
-                    )
-                }
-                modelUsed = selectedModel
+            if (backendUrl.isBlank() || !backendUrl.startsWith("https://")) {
+                throw Exception("BACKEND_REQUIRED: Add your existing Netlify AskScreen endpoint in Settings before continuing.")
             }
+            val answerText = callCustomBackend(
+                backendUrl = backendUrl, prompt = prompt, model = selectedModel,
+                queryType = queryType, images = images, audioBase64 = audioBase64,
+                audioMimeType = audioMimeType, files = files, chatHistory = chatHistory,
+                idToken = user.getIdToken(false).await().token
+                    ?: throw Exception("Could not verify your account. Please sign in again.")
+            )
+            val modelUsed = selectedModel
 
             // Save to local database if history is enabled
             if (prefs.isPermanentHistoryEnabled) {
@@ -164,66 +110,51 @@ class AskScreenRepository(private val context: Context) {
         }
     }
 
-    /**
-     * Executes multimodal inference using Firebase AI Logic.
-     */
-    private suspend fun callFirebaseAiLogic(
-        modelName: String,
-        prompt: String,
-        images: List<Bitmap>,
-        audioBase64: String?,
-        files: List<MediaItem>,
-        chatHistory: List<ChatMessage>
-    ): String {
-        val model = getFirebaseModel(modelName)
-
-        val promptContent = content {
-            // Attach captured screen images
-            for (bitmap in images) {
-                val scaled = scaleBitmapIfNeeded(bitmap, 1440)
-                image(scaled)
+    /** Reserve one lifetime transcription use without invoking an AI provider. */
+    suspend fun recordTranscriptionUse(): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val user = FirebaseAuth.getInstance().currentUser
+                ?: throw Exception("SIGN_IN_REQUIRED: Open the Account tab and sign in before using transcription.")
+            val configuredUrl = prefs.backendUrl.trim()
+            if (configuredUrl.isBlank() || !configuredUrl.startsWith("https://")) {
+                throw Exception("BACKEND_REQUIRED: Add your Netlify AskScreen endpoint in Settings before transcribing.")
             }
-
-            // Attach uploaded file images if any
-            for (file in files) {
-                if (file.mimeType.startsWith("image/")) {
-                    try {
-                        val bytes = Base64.decode(file.base64Data, Base64.DEFAULT)
-                        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                        if (bmp != null) {
-                            image(scaleBitmapIfNeeded(bmp, 1440))
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to decode attached file bitmap", e)
-                    }
-                } else {
-                    text("[Attached Document: ${file.fileName ?: "File"} (${file.mimeType})]")
-                }
+            val endpoint = configuredUrl.replace(Regex("/ask-screen/?$"), "/record-transcription")
+            if (endpoint == configuredUrl) {
+                throw Exception("BACKEND_URL_INVALID: The configured URL must end with /ask-screen.")
             }
-
-            // Attach user prompt and context
-            text(prompt)
-        }
-
-        val response = withTimeout(60_000L) {
-            if (chatHistory.isNotEmpty()) {
-                val historyContents = chatHistory.takeLast(6).map { turn ->
-                    content(if (turn.role == "model") "model" else "user") {
-                        text(turn.text)
+            val token = user.getIdToken(false).await().token
+                ?: throw Exception("Could not verify your account. Please sign in again.")
+            val request = Request.Builder()
+                .url(endpoint)
+                .header("Authorization", "Bearer $token")
+                .post("{}".toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
+                    when {
+                        json.optString("code") == "SUBSCRIPTION_REQUIRED" ->
+                            throw Exception("SUBSCRIPTION_REQUIRED:transcription")
+                        response.code == 401 ->
+                            throw Exception("SIGN_IN_REQUIRED: Please sign in again from the Account tab.")
+                        else -> throw Exception(json.optString("error").ifBlank {
+                            "Transcription usage could not be verified. Please try again."
+                        })
                     }
                 }
-                val chat = model.startChat(history = historyContents)
-                chat.sendMessage(promptContent)
-            } else {
-                model.generateContent(promptContent)
+                val json = JSONObject(body)
+                if (!json.optBoolean("success", false)) {
+                    throw Exception(json.optString("error").ifBlank { "Transcription usage could not be verified." })
+                }
             }
-        }
-
-        val text = response.text
-        if (!text.isNullOrBlank()) {
-            return text
-        } else {
-            throw Exception("Model returned an empty response.")
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not reserve transcription use", e)
+            Result.failure(e)
         }
     }
 
@@ -234,15 +165,23 @@ class AskScreenRepository(private val context: Context) {
         backendUrl: String,
         prompt: String,
         model: String,
+        queryType: QueryType,
         images: List<Bitmap>,
         audioBase64: String?,
         audioMimeType: String?,
         files: List<MediaItem>,
-        chatHistory: List<ChatMessage>
+        chatHistory: List<ChatMessage>,
+        idToken: String?
     ): String {
         val rootJson = JSONObject()
         rootJson.put("prompt", prompt)
         rootJson.put("model", model)
+        rootJson.put("queryType", queryType.name)
+        rootJson.put("feature", when (queryType) {
+            QueryType.AUDIO, QueryType.VOICE, QueryType.SCREEN_AND_AUDIO -> "spoken"
+            QueryType.TRANSCRIPTION -> "transcription"
+            else -> "screen"
+        })
 
         val imagesArray = JSONArray()
         for (img in images) {
@@ -285,6 +224,7 @@ class AskScreenRepository(private val context: Context) {
         val requestBody = rootJson.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
         val request = Request.Builder()
             .url(backendUrl)
+            .header("Authorization", "Bearer ${idToken.orEmpty()}")
             .post(requestBody)
             .build()
 
@@ -294,6 +234,8 @@ class AskScreenRepository(private val context: Context) {
             if (!response.isSuccessful) {
                 val errorJson = try { JSONObject(responseBody) } catch (_: Exception) { JSONObject() }
                 val serverMsg = errorJson.optString("error", "")
+                if (errorJson.optString("code") == "SUBSCRIPTION_REQUIRED") throw Exception("SUBSCRIPTION_REQUIRED:${errorJson.optString("feature")}")
+                if (response.code == 401) throw Exception("SIGN_IN_REQUIRED: Please sign in again from the Account tab.")
                 val errorCode = errorJson.optString("code", "")
                 val requestId = response.header("X-Request-Id").orEmpty()
                 if (response.code == 429 || errorCode == "RATE_LIMITED") {

@@ -52,6 +52,109 @@ function response(statusCode, data, requestId, extraHeaders = {}) {
   return { statusCode, headers, body: JSON.stringify(data) };
 }
 
+
+// Firebase Admin is configured only with a Netlify environment variable.
+// FIREBASE_SERVICE_ACCOUNT_JSON must contain the service-account JSON string.
+let firebaseAdminPromise;
+async function getFirebaseAdmin() {
+  if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) throw new Error('AUTH_NOT_CONFIGURED');
+  if (!firebaseAdminPromise) {
+    firebaseAdminPromise = (async () => {
+      const admin = require('firebase-admin');
+      if (!admin.apps.length) {
+        const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+        admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+      }
+      return admin;
+    })();
+  }
+  return firebaseAdminPromise;
+}
+
+async function verifyUser(event) {
+  const authHeader = getHeader(event.headers, 'authorization');
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    const error = new Error('AUTH_REQUIRED');
+    error.statusCode = 401;
+    throw error;
+  }
+  try {
+    const admin = await getFirebaseAdmin();
+    return await admin.auth().verifyIdToken(match[1]);
+  } catch (error) {
+    if (error.message === 'AUTH_NOT_CONFIGURED') throw error;
+    const denied = new Error('INVALID_AUTH_TOKEN');
+    denied.statusCode = 401;
+    throw denied;
+  }
+}
+
+function featureForRequest(raw) {
+  const value = String(raw.feature || '').toLowerCase();
+  if (['screen', 'spoken', 'transcription'].includes(value)) return value;
+  const type = String(raw.queryType || '').toUpperCase();
+  if (['AUDIO', 'VOICE', 'SCREEN_AND_AUDIO'].includes(type)) return 'spoken';
+  if (['SCREEN', 'REGION'].includes(type)) return 'screen';
+  if (type === 'TRANSCRIPTION') return 'transcription';
+  return 'screen';
+}
+
+const FEATURE_FIELDS = {
+  screen: 'screenAnswersUsed',
+  spoken: 'spokenAnswersUsed',
+  transcription: 'transcriptionsUsed'
+};
+const FREE_FEATURE_LIMIT = 2;
+async function reserveFeatureUse(uid, feature, requestId) {
+  const admin = await getFirebaseAdmin();
+  const db = admin.firestore();
+  const ref = db.collection('askScreenAccounts').doc(uid);
+  const field = FEATURE_FIELDS[feature];
+  return db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(ref);
+    const data = snapshot.exists ? snapshot.data() : {};
+    // Free allowances are lifetime grants for each registered account; never reset monthly.
+    const usage = data.usage || {};
+    const subscription = data.subscription || {};
+    const periodEnd = subscription.currentPeriodEnd;
+    const periodEndMs = periodEnd && typeof periodEnd.toDate === 'function'
+      ? periodEnd.toDate().getTime()
+      : 0;
+    // Never grant paid access without a valid, unexpired subscription end date.
+    const paid = subscription.status === 'active' &&
+      Number.isFinite(periodEndMs) && periodEndMs > Date.now();
+    const used = Number(usage[field] || 0);
+    if (!paid && used >= FREE_FEATURE_LIMIT) {
+      const error = new Error('SUBSCRIPTION_REQUIRED');
+      error.statusCode = 402;
+      error.feature = feature;
+      throw error;
+    }
+    if (!paid) {
+      transaction.set(ref, {
+        usage: { ...usage, [field]: used + 1 },
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+    }
+    return { paid, field };
+  });
+}
+async function releaseFeatureUse(uid, reservation) {
+  if (!reservation || reservation.paid) return;
+  const admin = await getFirebaseAdmin();
+  const db = admin.firestore();
+  const ref = db.collection('askScreenAccounts').doc(uid);
+  await db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(ref);
+    if (!snapshot.exists) return;
+    const usage = snapshot.data().usage || {};
+    transaction.set(ref, {
+      usage: { ...usage, [reservation.field]: Math.max(0, Number(usage[reservation.field] || 0) - 1) },
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  });
+}
 function safeJsonParse(value) {
   try { return value ? JSON.parse(value) : {}; } catch { return null; }
 }
@@ -602,7 +705,25 @@ exports.handler = async function handler(event) {
     }, requestId);
   }
 
-  // Count only valid requests so malformed payloads do not consume the user's quota.
+  let decodedUser;
+  try {
+    decodedUser = await verifyUser(event);
+  } catch (error) {
+    const status = error.statusCode || 503;
+    const code = error.message === 'AUTH_NOT_CONFIGURED' ? 'AUTH_NOT_CONFIGURED' :
+      (status === 401 ? 'AUTH_REQUIRED' : 'AUTH_ERROR');
+    return response(status, {
+      success: false,
+      error: status === 401
+        ? 'Please sign in to use AskScreen AI.'
+        : 'Account verification is temporarily unavailable.',
+      code
+    }, requestId);
+  }
+
+  const feature = featureForRequest(raw);
+
+  // Count only valid, authenticated requests so malformed requests do not use a trial.
   const retryAfterSeconds = getRateLimitRetryAfterSeconds(requestIp(event));
   if (retryAfterSeconds > 0) {
     return response(429, {
@@ -613,10 +734,34 @@ exports.handler = async function handler(event) {
     }, requestId, { 'Retry-After': String(retryAfterSeconds) });
   }
 
+  let reservation;
+  try {
+    reservation = await reserveFeatureUse(decodedUser.uid, feature, requestId);
+  } catch (error) {
+    if (error.message === 'SUBSCRIPTION_REQUIRED') {
+      return response(402, {
+        success: false,
+        error: 'Your two free uses for this feature have been used. Subscribe to continue.',
+        code: 'SUBSCRIPTION_REQUIRED',
+        feature
+      }, requestId);
+    }
+    console.error('[AskScreen Access] Usage reservation failed', { requestId, code: error.message || 'USAGE_ERROR' });
+    return response(503, {
+      success: false,
+      error: 'We could not verify your usage allowance. Please try again.',
+      code: 'USAGE_CHECK_UNAVAILABLE'
+    }, requestId);
+  }
+
   try {
     const result = await routeRequest(payload);
     return response(200, result, requestId);
   } catch (error) {
+    try { await releaseFeatureUse(decodedUser.uid, reservation); }
+    catch (rollbackError) {
+      console.error('[AskScreen Access] Usage rollback failed', { requestId, code: rollbackError.message || 'ROLLBACK_ERROR' });
+    }
     console.error('[AskScreen Router] Request failed', { requestId, code: error.code || 'UPSTREAM_FAILURE' });
 
     if (error.code === 'NO_PROVIDER_CONFIGURED') {
@@ -642,3 +787,8 @@ exports.handler = async function handler(event) {
     }, requestId);
   }
 };
+
+
+// Shared authenticated usage helpers for feature-only endpoints.
+exports.verifyUser = verifyUser;
+exports.reserveFeatureUse = reserveFeatureUse;
