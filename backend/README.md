@@ -29,7 +29,8 @@ After adding or changing variables, trigger a new Netlify deploy.
 1. Confirm the Android app's Firebase project is the same project as the service account.
 2. In Firebase Authentication, enable **Email/Password** sign-in.
 3. Create or confirm the Firestore database in that project. The backend stores per-account usage in the `askScreenAccounts` collection.
-4. Generate a service-account key from Firebase project settings → Service accounts, and store its complete JSON only in Netlify as `FIREBASE_SERVICE_ACCOUNT_JSON`.
+4. In **Firestore Database → Rules**, publish the contents of `backend/firestore.rules`. These rules deny direct app-client reads and writes; the trusted Netlify backend uses the Firebase Admin SDK to access records. Do not replace them with public read/write rules.
+5. Generate a service-account key from Firebase project settings → Service accounts, and store its complete JSON only in Netlify as `FIREBASE_SERVICE_ACCOUNT_JSON`.
 
 The Firebase Admin service account must have permission to verify Firebase ID tokens and read/write Firestore. Treat its private key as a production secret.
 
