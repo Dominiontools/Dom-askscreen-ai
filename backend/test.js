@@ -52,44 +52,14 @@ async function run() {
   assert.equal(tooLarge.statusCode, 413, 'Reject oversized request bodies');
   console.log('PASS Reject oversized request bodies');
 
-
-  // Use a unique IP so this test is isolated from other requests in this process.
-  const quotaIp = '198.51.100.77';
-  for (let i = 0; i < 65; i++) {
-    const invalid = await handler({
-      httpMethod: 'POST',
-      headers: { 'content-type': 'application/json', 'client-ip': quotaIp },
-      body: JSON.stringify({ prompt: '   ' })
-    });
-    assert.equal(invalid.statusCode, 400, 'Invalid requests must not consume quota');
-  }
-  const firstValid = await handler({
+  const unauthenticated = await handler({
     httpMethod: 'POST',
-    headers: { 'content-type': 'application/json', 'client-ip': quotaIp },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ prompt: 'A valid test question' })
   });
-  assert.equal(firstValid.statusCode, 503, 'Valid request should reach provider routing, not be rate-limited');
-  console.log('PASS Invalid requests do not consume request quota');
-
-  for (let i = 1; i < 60; i++) {
-    await handler({
-      httpMethod: 'POST',
-      headers: { 'content-type': 'application/json', 'client-ip': quotaIp },
-      body: JSON.stringify({ prompt: 'Valid quota test ' + i })
-    });
-  }
-  const limited = await handler({
-    httpMethod: 'POST',
-    headers: { 'content-type': 'application/json', 'client-ip': quotaIp },
-    body: JSON.stringify({ prompt: 'One request over the limit' })
-  });
-  assert.equal(limited.statusCode, 429, 'Requests over the configured default limit should be rejected');
-  const retryAfter = Number(limited.headers['Retry-After']);
-  assert.ok(Number.isInteger(retryAfter) && retryAfter >= 1 && retryAfter <= 60, 'Retry-After should reflect the remaining rolling-window wait');
-  assert.equal(JSON.parse(limited.body).code, 'RATE_LIMITED');
-  assert.equal(JSON.parse(limited.body).retryAfterSeconds, retryAfter, 'Body and header should agree on the retry duration');
-  console.log('PASS Rate limit returns accurate rolling-window retry guidance after 60 valid requests');
-
+  assert.equal(unauthenticated.statusCode, 401, 'Valid AI requests must require Firebase sign-in');
+  assert.equal(JSON.parse(unauthenticated.body).code, 'AUTH_REQUIRED');
+  console.log('PASS Valid requests require Firebase authentication');
 
   const health = await healthHandler({ httpMethod: 'GET', headers: {} });
   assert.equal(health.statusCode, 200, 'Health endpoint should respond successfully');
@@ -104,7 +74,7 @@ async function run() {
   assert.equal(healthPost.statusCode, 405, 'Health endpoint should reject POST');
   console.log('PASS Health endpoint rejects unsupported methods');
 
-  console.log('All backend request-validation, quota, and health tests passed.');
+  console.log('All backend validation and authentication-gate tests passed.');
 }
 
 run().catch(error => {
