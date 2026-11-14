@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
 import android.net.Uri
+import android.os.Build
+import android.content.pm.PackageManager
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -304,6 +306,17 @@ fun AdminScreen(onBack: () -> Unit) {
                 } }
             }
             if (tempFile.length() !in 1024L..(200L * 1024L * 1024L)) throw IllegalArgumentException("APK must be between 1 KB and 200 MB.")
+            val archiveFlags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES else @Suppress("DEPRECATION") PackageManager.GET_SIGNATURES
+            val archiveInfo = context.packageManager.getPackageArchiveInfo(tempFile.absolutePath, archiveFlags)
+                ?: throw IllegalArgumentException("The selected file is not a valid Android APK.")
+            if (archiveInfo.packageName != context.packageName) throw IllegalArgumentException("This APK is for a different app. It must use package com.dominion.askscreenai.")
+            val archiveVersionCode = if (Build.VERSION.SDK_INT >= 28) archiveInfo.longVersionCode else archiveInfo.versionCode.toLong()
+            if (archiveVersionCode != versionCode.toLong()) throw IllegalArgumentException("The APK's actual version code ($archiveVersionCode) does not match the version code entered above.")
+            if (archiveInfo.versionName != releaseVersionName.trim()) throw IllegalArgumentException("The APK's actual version name does not match the version name entered above.")
+            val installedInfo = context.packageManager.getPackageInfo(context.packageName, archiveFlags)
+            val archiveSigners = if (Build.VERSION.SDK_INT >= 28) archiveInfo.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet().orEmpty() else @Suppress("DEPRECATION") archiveInfo.signatures?.map { it.toCharsString() }?.toSet().orEmpty()
+            val installedSigners = if (Build.VERSION.SDK_INT >= 28) installedInfo.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet().orEmpty() else @Suppress("DEPRECATION") installedInfo.signatures?.map { it.toCharsString() }?.toSet().orEmpty()
+            if (archiveSigners.isEmpty() || archiveSigners != installedSigners) throw IllegalArgumentException("Signing certificate mismatch. This APK is not signed with the same key as the app installed on this administrator phone.")
             val preparePayload = JSONObject()
                 .put("action", "prepare-upload")
                 .put("versionCode", versionCode)
