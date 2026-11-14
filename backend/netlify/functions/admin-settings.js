@@ -1,6 +1,7 @@
 'use strict';
 
 const { verifyUser } = require('./ask-screen');
+const { DEFAULT_PRODUCTS, DEFAULT_BUNDLE_DISCOUNT_PERCENT, normalizeCatalog, calculateBundle } = require('../../pricing-catalog');
 
 let adminPromise;
 async function getAdmin() {
@@ -21,7 +22,9 @@ async function getAdmin() {
 const DEFAULTS = {
   announcement: '',
   features: { screen: true, spoken: true, transcription: true },
-  freeTrialLimit: 2
+  freeTrialLimit: 2,
+  pricing: DEFAULT_PRODUCTS,
+  bundleDiscountPercent: DEFAULT_BUNDLE_DISCOUNT_PERCENT
 };
 
 function json(statusCode, data) {
@@ -57,7 +60,10 @@ exports.handler = async event => {
             spoken: saved.features?.spoken !== false,
             transcription: saved.features?.transcription !== false
           },
-          freeTrialLimit: Number.isInteger(saved.freeTrialLimit) ? saved.freeTrialLimit : DEFAULTS.freeTrialLimit
+          freeTrialLimit: Number.isInteger(saved.freeTrialLimit) ? saved.freeTrialLimit : DEFAULTS.freeTrialLimit,
+          pricing: normalizeCatalog(Array.isArray(saved.pricing) ? saved.pricing : DEFAULTS.pricing),
+          bundleDiscountPercent: Number.isInteger(saved.bundleDiscountPercent) ? saved.bundleDiscountPercent : DEFAULTS.bundleDiscountPercent,
+          bundles: calculateBundle(Array.isArray(saved.pricing) ? saved.pricing : DEFAULTS.pricing, Number.isInteger(saved.bundleDiscountPercent) ? saved.bundleDiscountPercent : DEFAULTS.bundleDiscountPercent)
         }
       });
     }
@@ -80,6 +86,17 @@ exports.handler = async event => {
     const announcement = typeof body.announcement === 'string' ? body.announcement.trim() : '';
     const features = body.features || {};
     const freeTrialLimit = body.freeTrialLimit;
+    let pricing;
+    let bundleDiscountPercent;
+    try {
+      pricing = body.pricing === undefined ? null : normalizeCatalog(body.pricing);
+      bundleDiscountPercent = body.bundleDiscountPercent === undefined ? null : body.bundleDiscountPercent;
+      if (bundleDiscountPercent !== null && (!Number.isInteger(bundleDiscountPercent) || bundleDiscountPercent < 0 || bundleDiscountPercent > 30)) {
+        return json(400, { error: 'Bundle discount must be a whole number from 0 to 30 percent.' });
+      }
+    } catch (pricingError) {
+      return json(400, { error: pricingError.message || 'Invalid pricing catalogue.' });
+    }
     if (announcement.length > 240) return json(400, { error: 'Announcement must not exceed 240 characters.' });
     if (typeof features.screen !== 'boolean' || typeof features.spoken !== 'boolean' || typeof features.transcription !== 'boolean') {
       return json(400, { error: 'Choose enabled or disabled for every feature.' });
@@ -87,7 +104,7 @@ exports.handler = async event => {
     if (!Number.isInteger(freeTrialLimit) || freeTrialLimit < 0 || freeTrialLimit > 10) {
       return json(400, { error: 'Free-trial limit must be a whole number from 0 to 10.' });
     }
-    const settings = { announcement, features, freeTrialLimit, updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: email };
+    const settings = { announcement, features, freeTrialLimit, ...(pricing ? { pricing } : {}), ...(bundleDiscountPercent !== null ? { bundleDiscountPercent } : {}), updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: email };
     await ref.set(settings, { merge: true });
     await db.collection('askScreenAdminAuditLogs').add({
       action: 'app_settings_updated',
@@ -97,7 +114,9 @@ exports.handler = async event => {
       status: 'saved',
       createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
-    return json(200, { success: true, settings: { announcement, features, freeTrialLimit } });
+    const finalPricing = pricing || normalizeCatalog((await ref.get()).data()?.pricing || DEFAULTS.pricing);
+    const finalDiscount = bundleDiscountPercent !== null ? bundleDiscountPercent : Number.isInteger((await ref.get()).data()?.bundleDiscountPercent) ? (await ref.get()).data().bundleDiscountPercent : DEFAULTS.bundleDiscountPercent;
+    return json(200, { success: true, settings: { announcement, features, freeTrialLimit, pricing: finalPricing, bundleDiscountPercent: finalDiscount, bundles: calculateBundle(finalPricing, finalDiscount) } });
   } catch (error) {
     const status = error.statusCode || (error.message === 'AUTH_NOT_CONFIGURED' ? 503 : 500);
     console.error('[Admin Settings] Request failed:', error.message);
