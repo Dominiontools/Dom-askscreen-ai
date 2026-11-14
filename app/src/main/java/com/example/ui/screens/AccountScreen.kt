@@ -24,6 +24,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import java.util.Locale
 
 @Composable
 fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = {}) {
@@ -38,6 +39,7 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
     var message by remember { mutableStateOf<String?>(null) }
     var createAccount by remember { mutableStateOf(false) }
     var accountStatus by remember { mutableStateOf<JSONObject?>(null) }
+    var pricingSettings by remember { mutableStateOf<JSONObject?>(null) }
     var statusLoading by remember { mutableStateOf(false) }
     var statusError by remember { mutableStateOf<String?>(null) }
     var refreshCounter by remember { mutableIntStateOf(0) }
@@ -68,6 +70,15 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
                     }
                 }
                 accountStatus = result
+                val pricingEndpoint = configured.removeSuffix("/ask-screen") + "/admin-settings"
+                pricingSettings = withContext(Dispatchers.IO) {
+                    val request = Request.Builder().url(pricingEndpoint).get().build()
+                    http.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) throw IllegalStateException("Product prices are temporarily unavailable.")
+                        val publicJson = try { JSONObject(response.body?.string().orEmpty()) } catch (_: Exception) { JSONObject() }
+                        publicJson.optJSONObject("settings")
+                    }
+                }
             } catch (e: Exception) {
                 statusError = e.message ?: "Could not load your account status."
             } finally {
@@ -161,6 +172,36 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
                         OutlinedButton(onClick = { refreshCounter++ }) { Text("Retry account status") }
                     }
                     Text("Usage is linked to this signed-in account.", color = Slate400, fontSize = 11.sp)
+                }
+            }
+            pricingSettings?.let { settings ->
+                Spacer(Modifier.height(14.dp))
+                Card(colors = CardDefaults.cardColors(containerColor = Slate900), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Available AI services and plans", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Text("Choose the specialist tools you need. Specialist services are separate monthly add-ons to DOM AI Core.", color = Slate400, fontSize = 12.sp)
+                        val products = settings.optJSONArray("pricing")
+                        if (products != null) {
+                            for (i in 0 until products.length()) {
+                                val product = products.optJSONObject(i) ?: continue
+                                val cents = product.optInt("monthlyPriceCents")
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(product.optString("name"), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                        Text(product.optString("category"), color = Slate400, fontSize = 10.sp)
+                                    }
+                                    Text("USD " + String.format(Locale.US,"%.2f",cents / 100.0) + "/mo", color = ElectricCyan, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                        val bundles = settings.optJSONObject("bundles") ?: JSONObject()
+                        val aiSuite = bundles.optJSONObject("aiSuite") ?: JSONObject()
+                        val complete = bundles.optJSONObject("completeBusiness") ?: JSONObject()
+                        HorizontalDivider(color = Slate700)
+                        Text("AI Suite with ${settings.optInt("bundleDiscountPercent",10)}% discount: USD " + String.format(Locale.US,"%.2f",aiSuite.optInt("priceCents") / 100.0) + "/month", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text("Complete Business Bundle: USD " + String.format(Locale.US,"%.2f",complete.optInt("priceCents") / 100.0) + "/month", color = Color(0xFF8FE0B0), fontWeight = FontWeight.SemiBold)
+                        Text("Email Management is also available separately. Bundle prices are calculated from the current catalogue.", color = Slate400, fontSize = 11.sp)
+                    }
                 }
             }
             Spacer(Modifier.height(16.dp))
