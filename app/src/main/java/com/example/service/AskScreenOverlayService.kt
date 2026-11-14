@@ -1006,7 +1006,8 @@ Instructions:
             beginListeningSession(QueryType.SCREEN_AND_AUDIO)
             bubbleState.value = BubbleState.LISTENING_AUDIO
             showAnswerWindow()
-            liveCaptions.value = "Reading screen snapshots and listening through the microphone. Headphones or protected apps may block audio. Tap the microphone when finished."
+            liveCaptions.value = "Capturing the opening screen and listening through the microphone. Headphones or protected apps may block audio. Tap the microphone when finished."
+            captureFreshScreenForListening()?.let { listeningSessionFrames.add(it) }
             audioCaptureManager.startContinuousListening(
                 languageTag = prefs.audioLanguageTag,
                 onFatalError = { message ->
