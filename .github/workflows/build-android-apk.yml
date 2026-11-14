@@ -3,7 +3,7 @@ name: Build AskScreen AI APK
 on:
   workflow_dispatch:
   push:
-    branches: [main, master, upgrade/continuous-assistant-and-reliability, upgrade/account-auth-and-usage]
+    branches: [main, master, upgrade/continuous-assistant-and-reliability, upgrade/account-auth-and-usage, feature/admin-monitoring-dashboard]
 
 permissions:
   contents: read
