@@ -426,8 +426,8 @@ fun AdminScreen(onBack: () -> Unit) {
                     val fullRegular = aiRegular + emailCents
                     val aiDiscounted = (aiRegular * (100-discount) + 50) / 100
                     val fullDiscounted = (fullRegular * (100-discount) + 50) / 100
-                    Text("AI Suite: $\${String.format(Locale.US,"%.2f",aiDiscounted/100.0)} / month",color=Color.White,fontWeight=FontWeight.SemiBold)
-                    Text("Complete Business Bundle (including Email Management): $\${String.format(Locale.US,"%.2f",fullDiscounted/100.0)} / month",color=Color(0xFF8FE0B0),fontWeight=FontWeight.SemiBold)
+                    Text("AI Suite: \${String.format(Locale.US,"%.2f",aiDiscounted/100.0)} / month",color=Color.White,fontWeight=FontWeight.SemiBold)
+                    Text("Complete Business Bundle (including Email Management): \${String.format(Locale.US,"%.2f",fullDiscounted/100.0)} / month",color=Color(0xFF8FE0B0),fontWeight=FontWeight.SemiBold)
                     Button(onClick={
                         scope.launch {
                             busy=true; error=null
