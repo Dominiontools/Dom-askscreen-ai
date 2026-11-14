@@ -12,6 +12,8 @@ import com.example.data.local.PreferencesManager
 import com.example.data.model.ChatMessage
 import com.example.data.model.MediaItem
 import com.example.data.model.QueryType
+import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.tasks.await
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.content
@@ -92,48 +94,20 @@ class AskScreenRepository(private val context: Context) {
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             val selectedModel = prefs.geminiModel.ifEmpty { "gemini-3.8-flash" }
+            val user = FirebaseAuth.getInstance().currentUser
+                ?: throw Exception("SIGN_IN_REQUIRED: Open the Account tab and sign in before using AskScreen AI.")
             val backendUrl = prefs.backendUrl.trim()
-
-            val answerText: String
-            val modelUsed: String
-
-            if (backendUrl.isNotEmpty() && backendUrl.startsWith("http")) {
-                // Route through custom serverless backend if user entered one
-                answerText = callCustomBackend(
-                    backendUrl = backendUrl,
-                    prompt = prompt,
-                    model = selectedModel,
-                    images = images,
-                    audioBase64 = audioBase64,
-                    audioMimeType = audioMimeType,
-                    files = files,
-                    chatHistory = chatHistory
-                )
-                modelUsed = selectedModel
-            } else {
-                // Primary Path: Firebase AI Logic (No client API keys needed!)
-                answerText = try {
-                    callFirebaseAiLogic(
-                        modelName = selectedModel,
-                        prompt = prompt,
-                        images = images,
-                        audioBase64 = audioBase64,
-                        files = files,
-                        chatHistory = chatHistory
-                    )
-                } catch (e: TimeoutCancellationException) {
-                    throw e
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    throw Exception(
-                        "No backend link is saved and Firebase AI Logic failed (" + (e.message ?: "unknown error") +
-                            "). Open Settings, paste your Netlify link and tap Save & Test Connection.",
-                        e
-                    )
-                }
-                modelUsed = selectedModel
+            if (backendUrl.isBlank() || !backendUrl.startsWith("https://")) {
+                throw Exception("BACKEND_REQUIRED: Add your existing Netlify AskScreen endpoint in Settings before continuing.")
             }
+            val answerText = callCustomBackend(
+                backendUrl = backendUrl, prompt = prompt, model = selectedModel,
+                queryType = queryType, images = images, audioBase64 = audioBase64,
+                audioMimeType = audioMimeType, files = files, chatHistory = chatHistory,
+                idToken = user.getIdToken(false).await().token
+                    ?: throw Exception("Could not verify your account. Please sign in again.")
+            )
+            val modelUsed = selectedModel
 
             // Save to local database if history is enabled
             if (prefs.isPermanentHistoryEnabled) {
@@ -234,15 +208,23 @@ class AskScreenRepository(private val context: Context) {
         backendUrl: String,
         prompt: String,
         model: String,
+        queryType: QueryType,
         images: List<Bitmap>,
         audioBase64: String?,
         audioMimeType: String?,
         files: List<MediaItem>,
-        chatHistory: List<ChatMessage>
+        chatHistory: List<ChatMessage>,
+        idToken: String?
     ): String {
         val rootJson = JSONObject()
         rootJson.put("prompt", prompt)
         rootJson.put("model", model)
+        rootJson.put("queryType", queryType.name)
+        rootJson.put("feature", when (queryType) {
+            QueryType.AUDIO, QueryType.VOICE, QueryType.SCREEN_AND_AUDIO -> "spoken"
+            QueryType.TRANSCRIPTION -> "transcription"
+            else -> "screen"
+        })
 
         val imagesArray = JSONArray()
         for (img in images) {
@@ -285,6 +267,7 @@ class AskScreenRepository(private val context: Context) {
         val requestBody = rootJson.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
         val request = Request.Builder()
             .url(backendUrl)
+            .header("Authorization", "Bearer ${idToken.orEmpty()}")
             .post(requestBody)
             .build()
 
@@ -294,6 +277,8 @@ class AskScreenRepository(private val context: Context) {
             if (!response.isSuccessful) {
                 val errorJson = try { JSONObject(responseBody) } catch (_: Exception) { JSONObject() }
                 val serverMsg = errorJson.optString("error", "")
+                if (errorJson.optString("code") == "SUBSCRIPTION_REQUIRED") throw Exception("SUBSCRIPTION_REQUIRED:${errorJson.optString("feature")}")
+                if (response.code == 401) throw Exception("SIGN_IN_REQUIRED: Please sign in again from the Account tab.")
                 val errorCode = errorJson.optString("code", "")
                 val requestId = response.header("X-Request-Id").orEmpty()
                 if (response.code == 429 || errorCode == "RATE_LIMITED") {
