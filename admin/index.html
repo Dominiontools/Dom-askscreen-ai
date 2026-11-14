@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#101827">
+<title>DOM Ask AI — Admin</title>
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;color:#e8edf6;background:#0b1220}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 80% 0,#182b48 0,transparent 35%),#0b1220}
+button,input{font:inherit}.wrap{max-width:1180px;margin:auto;padding:28px 20px 60px}
+header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:28px}
+.brand{display:flex;align-items:center;gap:12px}.mark{width:42px;height:42px;border-radius:13px;background:linear-gradient(135deg,#62a7ff,#765cf5);display:grid;place-items:center;font-weight:900;color:white}
+h1{font-size:20px;margin:0} .sub{color:#9eabc0;font-size:13px;margin-top:4px}
+button{border:0;border-radius:10px;padding:11px 15px;background:#527cf6;color:white;font-weight:650;cursor:pointer}
+button.secondary{background:#202d42;color:#dce6f6;border:1px solid #34445e}
+button:disabled{opacity:.55;cursor:wait}
+.panel{background:#121d2e;border:1px solid #263750;border-radius:17px;padding:20px;box-shadow:0 18px 50px #0002}
+.login{max-width:420px;margin:9vh auto}.login h2{margin:0 0 8px}.muted{color:#9eabc0;font-size:14px;line-height:1.55}
+label{display:block;font-size:13px;color:#b8c5d8;margin:17px 0 7px}input{width:100%;padding:13px;border-radius:10px;border:1px solid #34445e;background:#0b1423;color:#fff;outline:none}input:focus{border-color:#7094ff}
+#loginError,.error{color:#ff9b9b;font-size:13px;margin-top:12px;min-height:18px}
+.hidden{display:none!important}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:20px 0}
+.stat{background:#121d2e;border:1px solid #263750;border-radius:15px;padding:17px}.stat span{display:block;color:#9eabc0;font-size:13px}.stat strong{display:block;font-size:28px;margin-top:9px;letter-spacing:-1px}
+.section{margin-top:20px}.section-head{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:12px;flex-wrap:wrap}.section h2{font-size:17px;margin:0}
+.search{max-width:300px}.table-wrap{overflow:auto;border:1px solid #263750;border-radius:13px}
+table{border-collapse:collapse;width:100%;min-width:850px;background:#101a2a}th,td{text-align:left;padding:12px 14px;border-bottom:1px solid #24334a;font-size:13px;white-space:nowrap}th{color:#aab8cc;background:#17243a;font-weight:650}td{color:#e0e8f4}tr:last-child td{border-bottom:0}
+.pill{display:inline-block;border-radius:30px;padding:4px 8px;font-size:11px;background:#27364d;color:#c6d3e7}.pill.active{background:#123e34;color:#8ee4c2}.pill.off{background:#48272d;color:#ffb2b2}
+.empty{padding:22px;text-align:center;color:#9eabc0}.foot{color:#71829b;font-size:12px;margin-top:18px}
+@media(max-width:760px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.wrap{padding:20px 14px 40px}header{align-items:flex-start}.stat strong{font-size:24px}}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <section id="loginPanel" class="panel login">
+    <div class="brand"><div class="mark">D</div><div><h1>DOM Ask AI</h1><div class="sub">Administrator access</div></div></div>
+    <h2 style="margin-top:28px">Sign in to monitor your platform</h2>
+    <p class="muted">Use the administrator Firebase account whose email has been authorized in Netlify.</p>
+    <form id="loginForm">
+      <label for="email">Admin email</label><input id="email" type="email" autocomplete="username" required>
+      <label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required>
+      <button id="loginButton" style="width:100%;margin-top:20px">Sign in securely</button>
+      <div id="loginError"></div>
+    </form>
+  </section>
+
+  <section id="dashboard" class="hidden">
+    <header>
+      <div class="brand"><div class="mark">D</div><div><h1>DOM Ask AI Admin</h1><div class="sub">Platform monitoring dashboard</div></div></div>
+      <div style="display:flex;gap:9px"><button class="secondary" id="refresh">Refresh</button><button class="secondary" id="signOut">Sign out</button></div>
+    </header>
+    <div id="loadError" class="error"></div>
+    <div class="stats">
+      <div class="stat"><span>Registered users</span><strong id="totalUsers">—</strong></div>
+      <div class="stat"><span>Active subscribers</span><strong id="activeSubscribers">—</strong></div>
+      <div class="stat"><span>Users with feature usage</span><strong id="trialUsers">—</strong></div>
+      <div class="stat"><span>Disabled accounts</span><strong id="disabledUsers">—</strong></div>
+    </div>
+
+    <section class="section">
+      <div class="section-head"><h2>Registered users & usage</h2><input id="userSearch" class="search" placeholder="Search by email or name"></div>
+      <div class="table-wrap"><table><thead><tr><th>User</th><th>Joined</th><th>Last sign-in</th><th>Screen uses</th><th>Spoken uses</th><th>Transcriptions</th><th>Subscription</th></tr></thead><tbody id="usersBody"><tr><td colspan="7" class="empty">Loading users…</td></tr></tbody></table></div>
+    </section>
+
+    <section class="section">
+      <div class="section-head"><h2>Payment records</h2><span class="muted">Latest records, when Paystack is connected</span></div>
+      <div class="table-wrap"><table><thead><tr><th>Date</th><th>Email</th><th>Reference</th><th>Amount</th><th>Status</th></tr></thead><tbody id="paymentsBody"><tr><td colspan="5" class="empty">No payment records available yet.</td></tr></tbody></table></div>
+    </section>
+    <div class="foot" id="updatedAt">Data refreshes when you press Refresh. This page does not expose Firebase service-account credentials.</div>
+  </section>
+</main>
+<script>
+const FIREBASE_API_KEY = 'AIzaSyAtiAbDgA524fYhNa77dmiZ7Zr9YnoVVes';
+const API_URL = '/.netlify/functions/admin-dashboard';
+let idToken = '';
+let allUsers = [];
+
+const el = id => document.getElementById(id);
+function fmtDate(value){if(!value)return '—';const date=new Date(value);return Number.isNaN(date.getTime())?'—':date.toLocaleString();}
+function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function showDashboard(){el('loginPanel').classList.add('hidden');el('dashboard').classList.remove('hidden');}
+function showLogin(){el('dashboard').classList.add('hidden');el('loginPanel').classList.remove('hidden');}
+async function signIn(email,password){
+  const response=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key='+encodeURIComponent(FIREBASE_API_KEY),{
+    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password,returnSecureToken:true})
+  });
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.error?.message||'Sign-in failed.');
+  idToken=data.idToken;
+}
+async function loadDashboard(){
+  el('loadError').textContent='';
+  el('refresh').disabled=true;
+  try{
+    const response=await fetch(API_URL,{headers:{Authorization:'Bearer '+idToken}});
+    const data=await response.json();
+    if(response.status===401||response.status===403){idToken='';showLogin();throw new Error(data.error||'Admin access denied.');}
+    if(!response.ok)throw new Error(data.error||'Could not load dashboard.');
+    el('totalUsers').textContent=data.totals.users;
+    el('activeSubscribers').textContent=data.totals.activeSubscribers;
+    el('trialUsers').textContent=data.totals.trialUsers;
+    el('disabledUsers').textContent=data.totals.disabledUsers;
+    allUsers=data.users||[];renderUsers();
+    renderPayments(data.payments||[]);
+    el('updatedAt').textContent='Last updated: '+fmtDate(data.generatedAt);
+  }catch(error){el('loadError').textContent=error.message;}
+  finally{el('refresh').disabled=false;}
+}
+function renderUsers(){
+  const query=el('userSearch').value.trim().toLowerCase();
+  const users=allUsers.filter(user=>(user.email+' '+user.displayName).toLowerCase().includes(query));
+  el('usersBody').innerHTML=users.length?users.map(user=>{
+    const active=user.subscription.status==='active';
+    return '<tr><td><strong>'+escapeHtml(user.displayName||user.email||'Unnamed account')+'</strong><br><span class="muted">'+escapeHtml(user.email)+'</span></td>'+
+      '<td>'+escapeHtml(fmtDate(user.createdAt))+'</td><td>'+escapeHtml(fmtDate(user.lastSignInAt))+'</td>'+
+      '<td>'+user.usage.screen+' / 2</td><td>'+user.usage.spoken+' / 2</td><td>'+user.usage.transcription+' / 2</td>'+
+      '<td><span class="pill '+(active?'active':'off')+'">'+(active?'Active':'Not active')+'</span><br><span class="muted">'+escapeHtml(fmtDate(user.subscription.currentPeriodEnd))+'</span></td></tr>';
+  }).join(''):'<tr><td colspan="7" class="empty">No matching users.</td></tr>';
+}
+function renderPayments(payments){
+  el('paymentsBody').innerHTML=payments.length?payments.map(payment=>'<tr><td>'+escapeHtml(fmtDate(payment.createdAt))+'</td><td>'+escapeHtml(payment.email)+'</td><td>'+escapeHtml(payment.reference||payment.id)+'</td><td>'+escapeHtml(payment.amount??'—')+' '+escapeHtml(payment.currency)+'</td><td><span class="pill">'+escapeHtml(payment.status)+'</span></td></tr>').join(''):'<tr><td colspan="5" class="empty">No payment records yet. Paystack integration will populate this section later.</td></tr>';
+}
+el('loginForm').addEventListener('submit',async event=>{
+  event.preventDefault();el('loginError').textContent='';el('loginButton').disabled=true;
+  try{await signIn(el('email').value.trim(),el('password').value);showDashboard();await loadDashboard();}
+  catch(error){el('loginError').textContent=error.message;}
+  finally{el('loginButton').disabled=false;}
+});
+el('refresh').addEventListener('click',loadDashboard);
+el('userSearch').addEventListener('input',renderUsers);
+el('signOut').addEventListener('click',()=>{idToken='';allUsers=[];el('password').value='';showLogin();});
+</script>
+</body>
+</html>
