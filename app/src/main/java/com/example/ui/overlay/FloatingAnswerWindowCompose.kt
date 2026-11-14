@@ -495,7 +495,7 @@ private fun summaryItems(body: String): List<StructuredAnswerSection> {
     var content = mutableListOf<String>()
     fun flush() {
         val current = title ?: return
-        val value = content.joinToString("\\n").trim()
+        val value = content.joinToString("\n").trim()
         if (value.isNotBlank()) result.add(StructuredAnswerSection(current, value))
         title = null
         content = mutableListOf()
