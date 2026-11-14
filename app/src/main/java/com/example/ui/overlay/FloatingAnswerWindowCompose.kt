@@ -352,9 +352,9 @@ fun FloatingAnswerWindow(
                 }
 
                 items(messages, key = { it.id }) { msg ->
-                    MessageBubble(msg = msg, textScale = textScale, onCopy = {
+                    MessageBubble(msg = msg, textScale = textScale, onCopy = { copiedText ->
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("AskScreen Answer", msg.text))
+                        clipboard.setPrimaryClip(ClipData.newPlainText("AskScreen Answer", copiedText))
                         Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
                     }, onExplain = { onExplainAnswer(msg.text) })
                 }
@@ -462,9 +462,60 @@ fun FloatingAnswerWindow(
     }
 }
 
+private data class StructuredAnswerSection(val title: String, val body: String)
+
+private fun structuredAnswerSections(text: String): List<StructuredAnswerSection> {
+    val lines = text.lines()
+    val header = Regex("^\\s*(Answer for Question\\s+\\d+|Summary)\\s*:??\\s*$", RegexOption.IGNORE_CASE)
+    val sections = mutableListOf<StructuredAnswerSection>()
+    var currentTitle: String? = null
+    var currentBody = mutableListOf<String>()
+    fun flush() {
+        val title = currentTitle ?: return
+        val body = currentBody.joinToString("\\n").trim()
+        if (body.isNotBlank()) sections.add(StructuredAnswerSection(title, body))
+        currentTitle = null
+        currentBody = mutableListOf()
+    }
+    lines.forEach { line ->
+        val match = header.matchEntire(line)
+        if (match != null) {
+            flush()
+            currentTitle = match.groupValues[1].trim()
+        } else if (currentTitle != null) currentBody.add(line)
+    }
+    flush()
+    return sections
+}
+
+private fun summaryItems(body: String): List<StructuredAnswerSection> {
+    val heading = Regex("^\\s*(Question\\s+\\d+)\\s*:\\s*(.*)$", RegexOption.IGNORE_CASE)
+    val result = mutableListOf<StructuredAnswerSection>()
+    var title: String? = null
+    var content = mutableListOf<String>()
+    fun flush() {
+        val current = title ?: return
+        val value = content.joinToString("\\n").trim()
+        if (value.isNotBlank()) result.add(StructuredAnswerSection(current, value))
+        title = null
+        content = mutableListOf()
+    }
+    body.lines().forEach { line ->
+        val match = heading.matchEntire(line)
+        if (match != null) {
+            flush()
+            title = match.groupValues[1]
+            if (match.groupValues[2].isNotBlank()) content.add(match.groupValues[2])
+        } else if (title != null) content.add(line)
+    }
+    flush()
+    return result
+}
+
 @Composable
-fun MessageBubble(msg: ChatMessage, textScale: Float, onCopy: () -> Unit, onExplain: () -> Unit = {}) {
+fun MessageBubble(msg: ChatMessage, textScale: Float, onCopy: (String) -> Unit, onExplain: () -> Unit = {}) {
     val isUser = msg.role == "user"
+    val answerSections = remember(msg.text) { if (!isUser) structuredAnswerSections(msg.text) else emptyList() }
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
@@ -530,12 +581,39 @@ fun MessageBubble(msg: ChatMessage, textScale: Float, onCopy: () -> Unit, onExpl
                     }
                 }
 
-                Text(
-                    text = msg.text,
-                    color = Color.White,
-                    fontSize = (12 * textScale).sp,
-                    lineHeight = (17 * textScale).sp
-                )
+                if (answerSections.isNotEmpty()) {
+                    answerSections.forEach { section ->
+                        Text(section.title, color=Color(0xFF7DD3FC), fontWeight=FontWeight.Bold, fontSize=(13 * textScale).sp)
+                        if (section.title.equals("Summary",true)) {
+                            val summaries = summaryItems(section.body)
+                            if (summaries.isNotEmpty()) {
+                                summaries.forEach { summary ->
+                                    Column(verticalArrangement=Arrangement.spacedBy(3.dp)) {
+                                        Text(summary.title, color=Color.White, fontWeight=FontWeight.SemiBold, fontSize=(12 * textScale).sp)
+                                        Text(summary.body, color=Color.White, fontSize=(12 * textScale).sp, lineHeight=(17 * textScale).sp)
+                                        Text("Copy summary", fontSize=10.sp, color=Color(0xFF38BDF8),
+                                            modifier=Modifier.clickable { onCopy(summary.body) }.padding(vertical=3.dp))
+                                    }
+                                }
+                            } else {
+                                Text(section.body, color=Color.White, fontSize=(12 * textScale).sp, lineHeight=(17 * textScale).sp)
+                                Text("Copy summary", fontSize=10.sp, color=Color(0xFF38BDF8),
+                                    modifier=Modifier.clickable { onCopy(section.body) }.padding(vertical=3.dp))
+                            }
+                        } else {
+                            Text(section.body, color=Color.White, fontSize=(12 * textScale).sp, lineHeight=(17 * textScale).sp)
+                            Text("Copy answer", fontSize=10.sp, color=Color(0xFF38BDF8),
+                                modifier=Modifier.clickable { onCopy(section.body) }.padding(vertical=3.dp))
+                        }
+                    }
+                } else {
+                    Text(
+                        text = msg.text,
+                        color = Color.White,
+                        fontSize = (12 * textScale).sp,
+                        lineHeight = (17 * textScale).sp
+                    )
+                }
 
                 if (!isUser) {
                     Spacer(modifier = Modifier.height(4.dp))
@@ -559,7 +637,7 @@ fun MessageBubble(msg: ChatMessage, textScale: Float, onCopy: () -> Unit, onExpl
                             color = Color(0xFF38BDF8),
                             modifier = Modifier
                                 .clip(RoundedCornerShape(4.dp))
-                                .clickable { onCopy() }
+                                .clickable { onCopy(msg.text) }
                                 .padding(4.dp)
                         )
                     }
