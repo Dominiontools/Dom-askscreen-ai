@@ -1,6 +1,7 @@
 'use strict';
 
 const { verifyUser } = require('./ask-screen');
+const { summarizeProductSubscriptions } = require('../../product-subscriptions');
 
 let adminPromise;
 async function getAdmin() {
@@ -100,7 +101,8 @@ exports.handler = async event => {
         subscription: {
           status: active ? 'active' : (subscription.status === 'active' ? 'expired' : (subscription.status || 'inactive')),
           currentPeriodEnd: expiry
-        }
+        },
+        productSubscriptions: summarizeProductSubscriptions(account.productSubscriptions || {}, now)
       };
     }).sort((a, b) => (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0));
 
@@ -210,7 +212,8 @@ exports.handler = async event => {
         users: rows.length,
         activeSubscribers,
         disabledUsers: rows.filter(user => user.disabled).length,
-        trialUsers: rows.filter(user => user.freeTrial.eligible).length
+        trialUsers: rows.filter(user => user.freeTrial.eligible).length,
+      activeProductSubscriptions: rows.reduce((total, user) => total + user.productSubscriptions.filter(item => item.status === 'active').length, 0)
       },
       users: rows,
       payments,
