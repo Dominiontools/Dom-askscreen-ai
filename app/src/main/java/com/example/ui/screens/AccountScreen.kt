@@ -2,6 +2,8 @@ package com.example.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.AdminPanelSettings
@@ -46,6 +48,7 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
 
     LaunchedEffect(signedInEmail, emailVerified, refreshCounter) {
         accountStatus = null
+        pricingSettings = null
         statusError = null
         val user = auth.currentUser
         if (user != null && signedInEmail != null) {
@@ -88,7 +91,7 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().background(Slate950).padding(20.dp),
+        modifier = Modifier.fillMaxSize().background(Slate950).verticalScroll(rememberScrollState()).padding(20.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Icon(Icons.Default.AccountCircle, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(54.dp))
@@ -210,6 +213,7 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
                 signedInEmail = null
                 emailVerified = false
                 accountStatus = null
+                pricingSettings = null
                 statusError = null
                 message = "You have signed out."
             }) { Text("Sign out") }
