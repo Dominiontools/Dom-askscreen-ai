@@ -314,6 +314,8 @@ fun AdminScreen(onBack: () -> Unit) {
             if (archiveVersionCode != versionCode.toLong()) throw IllegalArgumentException("The APK's actual version code ($archiveVersionCode) does not match the version code entered above.")
             if (archiveInfo.versionName != releaseVersionName.trim()) throw IllegalArgumentException("The APK's actual version name does not match the version name entered above.")
             val installedInfo = context.packageManager.getPackageInfo(context.packageName, archiveFlags)
+            val installedVersionCode = if (Build.VERSION.SDK_INT >= 28) installedInfo.longVersionCode else installedInfo.versionCode.toLong()
+            if (archiveVersionCode <= installedVersionCode) throw IllegalArgumentException("The APK must be newer than the version currently installed on this administrator phone.")
             val archiveSigners = if (Build.VERSION.SDK_INT >= 28) archiveInfo.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet().orEmpty() else archiveInfo.signatures?.map { it.toCharsString() }?.toSet().orEmpty()
             val installedSigners = if (Build.VERSION.SDK_INT >= 28) installedInfo.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet().orEmpty() else installedInfo.signatures?.map { it.toCharsString() }?.toSet().orEmpty()
             if (archiveSigners.isEmpty() || archiveSigners != installedSigners) throw IllegalArgumentException("Signing certificate mismatch. This APK is not signed with the same key as the app installed on this administrator phone.")
