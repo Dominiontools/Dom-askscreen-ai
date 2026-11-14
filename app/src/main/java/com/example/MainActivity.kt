@@ -39,6 +39,7 @@ import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.SupportScreen
 import com.example.ui.screens.UploadScreen
+import com.example.ui.screens.WorkCentreScreen
 import com.example.ui.theme.AskScreenTheme
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.Slate800
@@ -48,6 +49,7 @@ import com.example.ui.theme.Slate950
 enum class NavigationTab(val label: String, val icon: ImageVector) {
     HOME("Hub", Icons.Default.Home),
     UPLOAD("Uploads", Icons.Default.CloudUpload),
+    WORK("Work", Icons.Default.Work),
     HISTORY("History", Icons.Default.History),
     SETTINGS("Settings", Icons.Default.Settings),
     ACCOUNT("Account", Icons.Default.AccountCircle)
@@ -116,6 +118,7 @@ class MainActivity : ComponentActivity() {
                                     onNavigateToSettings = { selectedTab = NavigationTab.SETTINGS }
                                 )
                                 NavigationTab.UPLOAD -> UploadScreen()
+                                NavigationTab.WORK -> WorkCentreScreen()
                                 NavigationTab.HISTORY -> HistoryScreen()
                                 NavigationTab.SETTINGS -> SettingsScreen()
                                 NavigationTab.ACCOUNT -> AccountScreen(
