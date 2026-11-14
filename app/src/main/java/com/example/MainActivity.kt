@@ -23,6 +23,7 @@ import com.example.ui.screens.AdminScreen
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.SupportScreen
 import com.example.ui.screens.UploadScreen
 import com.example.ui.theme.AskScreenTheme
 import com.example.ui.theme.ElectricCyan
@@ -51,9 +52,12 @@ class MainActivity : ComponentActivity() {
             AskScreenTheme {
                 var selectedTab by remember { currentSelectedTab }
                 var showAdminScreen by remember { mutableStateOf(false) }
+                var showSupportScreen by remember { mutableStateOf(false) }
 
                 if (showAdminScreen) {
                     AdminScreen(onBack = { showAdminScreen = false })
+                } else if (showSupportScreen) {
+                    SupportScreen(onBack = { showSupportScreen = false })
                 } else {
                     Scaffold(
                         modifier = Modifier.fillMaxSize(),
@@ -94,7 +98,10 @@ class MainActivity : ComponentActivity() {
                                 NavigationTab.UPLOAD -> UploadScreen()
                                 NavigationTab.HISTORY -> HistoryScreen()
                                 NavigationTab.SETTINGS -> SettingsScreen()
-                                NavigationTab.ACCOUNT -> AccountScreen(onAdminAccess = { showAdminScreen = true })
+                                NavigationTab.ACCOUNT -> AccountScreen(
+                                    onAdminAccess = { showAdminScreen = true },
+                                    onSupportAccess = { showSupportScreen = true }
+                                )
                             }
                         }
                     }
