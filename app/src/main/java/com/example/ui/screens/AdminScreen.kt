@@ -34,7 +34,7 @@ import java.util.Date
 
 private data class AdminUserRow(val name:String,val email:String,val joined:String,val lastSignIn:String,val screen:Int,val spoken:Int,val transcription:Int,val trialEligible:Boolean,val screenRemaining:Int,val spokenRemaining:Int,val transcriptionRemaining:Int,val subscription:String,val expiry:String)
 private data class AdminPaymentRow(val date:String,val email:String,val reference:String,val amount:String,val status:String)
-private data class AdminTicketRow(val date:String,val email:String,val subject:String,val message:String,val status:String)
+private data class AdminTicketRow(val id:String,val date:String,val email:String,val subject:String,val message:String,val status:String,val reply:String)
 
 @Composable
 fun AdminScreen(onBack: () -> Unit) {
@@ -106,7 +106,7 @@ fun AdminScreen(onBack: () -> Unit) {
         supportTickets = buildList {
             if (ticketArray != null) for (i in 0 until ticketArray.length()) {
                 val item = ticketArray.optJSONObject(i) ?: continue
-                add(AdminTicketRow(dateLabel(item.optString("createdAt")),item.optString("email"),item.optString("subject"),item.optString("message"),item.optString("status","open")))
+                add(AdminTicketRow(item.optString("id"),dateLabel(item.optString("createdAt")),item.optString("email"),item.optString("subject"),item.optString("message"),item.optString("status","open"),item.optString("reply"))))
             }
         }
         loaded = true
@@ -119,6 +119,26 @@ fun AdminScreen(onBack: () -> Unit) {
             try { loadData(idToken) } catch (e:Exception) { error = e.message ?: "Could not load admin data." }
             finally { busy = false }
         }
+    }
+
+    suspend fun updateSupportTicket(ticketId:String, reply:String, status:String) {
+        if (idToken.isBlank()) throw IllegalStateException("Sign in to the administrator account again.")
+        val configured = prefs.backendUrl.trim().trimEnd('/')
+        if (!configured.endsWith("/ask-screen")) throw IllegalStateException("Set your Netlify AskScreen endpoint in Settings first.")
+        val endpoint = configured.removeSuffix("/ask-screen") + "/support-admin"
+        val payload = JSONObject().put("ticketId",ticketId).put("reply",reply).put("status",status)
+        withContext(Dispatchers.IO) {
+            val request = Request.Builder().url(endpoint)
+                .header("Authorization","Bearer $idToken")
+                .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+            http.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                val json = try { JSONObject(body) } catch (_:Exception) { JSONObject() }
+                if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "Could not update ticket." })
+            }
+        }
+        loadData(idToken)
     }
 
     Column(Modifier.fillMaxSize().background(Slate950).verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement=Arrangement.spacedBy(14.dp)) {
@@ -202,12 +222,33 @@ fun AdminScreen(onBack: () -> Unit) {
             Text("Customer support requests",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
             if(supportTickets.isEmpty()) Text("No customer support tickets yet.",color=Slate400,fontSize=12.sp)
             supportTickets.forEach { ticket ->
+                var replyDraft by remember(ticket.id) { mutableStateOf(ticket.reply) }
                 Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(12.dp)) {
-                    Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(5.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(7.dp)) {
                         Text(ticket.subject,color=Color.White,fontWeight=FontWeight.SemiBold)
                         Text(ticket.email,color=ElectricCyan,fontSize=11.sp)
                         Text(ticket.message,color=Slate300,fontSize=12.sp)
                         Text("Status: ${ticket.status} • ${ticket.date}",color=AmberWarning,fontSize=11.sp)
+                        if(ticket.reply.isNotBlank()) Text("Previous reply: ${ticket.reply}",color=Slate300,fontSize=12.sp)
+                        OutlinedTextField(value=replyDraft,onValueChange={replyDraft=it.take(8000)},label={Text("Reply to customer")},minLines=2,modifier=Modifier.fillMaxWidth())
+                        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                            Button(onClick={
+                                scope.launch {
+                                    busy=true; error=null
+                                    try { updateSupportTicket(ticket.id,replyDraft,"in_progress") }
+                                    catch(e:Exception) { error=e.message ?: "Could not send reply." }
+                                    finally { busy=false }
+                                }
+                            },enabled=!busy && replyDraft.trim().length>=2,modifier=Modifier.weight(1f)) { Text("Reply") }
+                            OutlinedButton(onClick={
+                                scope.launch {
+                                    busy=true; error=null
+                                    try { updateSupportTicket(ticket.id,"","resolved") }
+                                    catch(e:Exception) { error=e.message ?: "Could not resolve ticket." }
+                                    finally { busy=false }
+                                }
+                            },enabled=!busy && ticket.status!="resolved",modifier=Modifier.weight(1f)) { Text("Resolve") }
+                        }
                     }
                 }
             }
