@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,7 +19,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.example.ui.theme.*
 
 @Composable
-fun AccountScreen(onAdminAccess: () -> Unit = {}) {
+fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = {}) {
     val auth = remember { FirebaseAuth.getInstance() }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -78,6 +79,12 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}) {
         }
         Spacer(Modifier.height(22.dp))
         HorizontalDivider(color = Slate700)
+        Spacer(Modifier.height(14.dp))
+        OutlinedButton(onClick = onSupportAccess, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Default.SupportAgent, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text("Open Support Centre")
+        }
         Spacer(Modifier.height(14.dp))
         Text("Platform owner?", color = Slate300, fontWeight = FontWeight.SemiBold)
         Text("Administrator access is separate and verified securely by the server.", color = Slate400, fontSize = 12.sp)
