@@ -15,11 +15,14 @@ This backend securely handles screen-reading, spoken-answer, and transcription r
 Open **Site configuration → Environment variables** and add:
 
 - `GEMINI_API_KEY` — your server-side Gemini API key.
-- `FIREBASE_SERVICE_ACCOUNT_JSON` — the complete Firebase service-account JSON for the same Firebase project used by the Android app. Paste the full JSON as the variable value.\n- `FREE_TRIAL_START_AT` — the UTC ISO-8601 launch timestamp from which newly created Firebase accounts become eligible for the two-use-per-feature free trial (example format: `2026-11-15T00:00:00.000Z`). Choose the actual public launch time and keep it fixed. If this variable is missing or invalid, free trials are disabled rather than granted to older accounts.
+- `FIREBASE_SERVICE_ACCOUNT_JSON` — the complete Firebase service-account JSON for the same Firebase project used by the Android app. Paste the full JSON as the variable value.
+- `FREE_TRIAL_START_AT` — the UTC ISO-8601 launch timestamp from which newly created Firebase accounts become eligible for the two-use-per-feature free trial (example format: `2026-11-15T00:00:00.000Z`). Choose the actual public launch time and keep it fixed. If this variable is missing or invalid, free trials are disabled rather than granted to older accounts.
 
 Keep both values private. Never put either secret in the Android app, GitHub source files, or a message. Do not commit a service-account JSON file.
 
-- `ADMIN_EMAILS` — comma-separated list of verified Firebase administrator email addresses. Required to enable the in-app Admin Centre.\n\nAfter adding or changing variables, trigger a new Netlify deploy.
+- `ADMIN_EMAILS` — comma-separated list of verified Firebase administrator email addresses. Required to enable the in-app Admin Centre.
+
+After adding or changing variables, trigger a new Netlify deploy.
 
 ## 3. Firebase console setup
 
@@ -52,4 +55,8 @@ The administrator centre is part of the Android app. Open **Account → Open Adm
 
 Add `ADMIN_EMAILS` as one or more authorized Firebase administrator email addresses separated by commas. The server checks the signed Firebase ID token, verified email status, and allowlist on every dashboard request. Do not create public admin registration and do not rely on hiding the screen as security.
 
-The in-app dashboard displays registered users, join/last-sign-in dates, per-feature usage, subscription status, and available payment records. Payment records will populate after the later Paystack integration writes verified transactions to `askScreenPayments`. The dashboard is read-only for now; account suspension, manual subscription changes, and refunds are not enabled. The Android app calls `/.netlify/functions/admin-dashboard` using the backend URL configured in Settings.
+The in-app dashboard displays registered users, join/last-sign-in dates, per-feature usage, subscription status, and available payment records. Payment records will populate after the later Paystack integration writes verified transactions to `askScreenPayments`. The dashboard is read-only for now; account suspension, manual subscription changes, and refunds are not enabled. The Android app calls `/.netlify/functions/admin-dashboard` using the backend URL configured in Settings. Recent customer support requests are also listed for the administrator.
+
+## 7. In-app customer support
+
+Customers can contact support using the WhatsApp, email, and phone shortcuts in the Android app. Signed-in customers with verified email addresses can also submit private support requests from the Support Centre. Requests are stored in the Firestore `askScreenSupportTickets` collection and are scoped to the submitting Firebase UID. Customers can view only their own requests and replies. The Admin Centre displays the latest support requests for review. The ticket reply workflow is not enabled yet; customers can still receive assistance through the published WhatsApp, email, and phone channels.
