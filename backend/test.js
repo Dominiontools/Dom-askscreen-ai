@@ -1,12 +1,24 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { handler } = require('./netlify/functions/ask-screen');
+const { handler, isEligibleForFreeTrial } = require('./netlify/functions/ask-screen');
 const { handler: healthHandler } = require('./netlify/functions/health');
 const { handler: transcriptionHandler } = require('./netlify/functions/record-transcription');
 const { handler: adminHandler } = require('./netlify/functions/admin-dashboard');
 
 async function run() {
+  assert.equal(isEligibleForFreeTrial('2026-11-15T10:00:00.000Z', '2026-11-15T00:00:00.000Z'), true,
+    'Accounts created after the configured trial launch are eligible');
+  assert.equal(isEligibleForFreeTrial('2026-11-14T23:59:59.000Z', '2026-11-15T00:00:00.000Z'), false,
+    'Accounts created before the configured trial launch are not eligible');
+  assert.equal(isEligibleForFreeTrial('2026-11-15T00:00:00.000Z', '2026-11-15T00:00:00.000Z'), true,
+    'Accounts created at the configured trial launch are eligible');
+  assert.equal(isEligibleForFreeTrial('2026-11-15T10:00:00.000Z', undefined), false,
+    'Free trials fail closed when the launch timestamp is not configured');
+  assert.equal(isEligibleForFreeTrial('not-a-date', '2026-11-15T00:00:00.000Z'), false,
+    'Invalid account creation timestamps are not eligible');
+  console.log('PASS Free-trial eligibility is limited to new accounts after configured launch');
+
   const cases = [
     {
       name: 'OPTIONS preflight',
