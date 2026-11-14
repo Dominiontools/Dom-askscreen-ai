@@ -23,6 +23,10 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm install --no-package-lock --no-audit --no-fund
+
       - name: Run backend validation tests
         working-directory: backend
         run: node test.js
