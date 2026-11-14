@@ -44,7 +44,7 @@ exports.handler = async function handler(event) {
         success: false,
         code: 'SUBSCRIPTION_REQUIRED',
         feature: 'transcription',
-        error: 'Your two free transcription uses have been used. Subscribe to continue.'
+        error: 'Your free transcription allowance has been used. Subscribe to continue.'
       });
     }
     console.error('[Transcription Access] Usage reservation failed', {
