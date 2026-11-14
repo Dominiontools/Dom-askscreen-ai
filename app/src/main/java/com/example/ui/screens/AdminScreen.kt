@@ -45,11 +45,15 @@ import org.json.JSONObject
 import java.text.DateFormat
 import java.time.Instant
 import java.util.Date
+import java.util.Locale
+import java.math.BigDecimal
+import java.math.RoundingMode
 
 private data class AdminUserRow(val uid:String,val name:String,val email:String,val joined:String,val lastSignIn:String,val screen:Int,val spoken:Int,val transcription:Int,val trialEligible:Boolean,val screenRemaining:Int,val spokenRemaining:Int,val transcriptionRemaining:Int,val subscription:String,val expiry:String,val disabled:Boolean,val emailVerified:Boolean)
 private data class AdminPaymentRow(val date:String,val email:String,val reference:String,val amount:String,val status:String)
 private data class AdminTicketRow(val id:String,val date:String,val email:String,val subject:String,val message:String,val status:String,val reply:String)
 private data class AdminAuditRow(val action:String,val targetEmail:String,val adminEmail:String,val detail:String,val date:String)
+private data class AdminPriceRow(val id:String,val name:String,val category:String,val monthlyPriceCents:Int)
 private data class AdminActivityRow(val email:String,val feature:String,val outcome:String,val code:String,val provider:String,val requestId:String,val date:String)
 
 @Composable
@@ -76,6 +80,8 @@ fun AdminScreen(onBack: () -> Unit) {
     var spokenEnabled by remember { mutableStateOf(true) }
     var transcriptionEnabled by remember { mutableStateOf(true) }
     var freeTrialLimit by remember { mutableStateOf("2") }
+    var pricingRows by remember { mutableStateOf<List<AdminPriceRow>>(emptyList()) }
+    var bundleDiscountPercent by remember { mutableStateOf("10") }
     var totalUsers by remember { mutableIntStateOf(0) }
     var activeSubscribers by remember { mutableIntStateOf(0) }
     var trialUsers by remember { mutableIntStateOf(0) }
@@ -112,6 +118,16 @@ fun AdminScreen(onBack: () -> Unit) {
         spokenEnabled = features.optBoolean("spoken",true)
         transcriptionEnabled = features.optBoolean("transcription",true)
         freeTrialLimit = settings.optInt("freeTrialLimit",2).toString()
+        bundleDiscountPercent = settings.optInt("bundleDiscountPercent",10).toString()
+        val priceArray = settings.optJSONArray("pricing")
+        if (priceArray != null) {
+            pricingRows = buildList {
+                for (i in 0 until priceArray.length()) {
+                    val item = priceArray.optJSONObject(i) ?: continue
+                    add(AdminPriceRow(item.optString("id"),item.optString("name"),item.optString("category"),item.optInt("monthlyPriceCents")))
+                }
+            }
+        }
     }
 
     suspend fun saveSettings(token:String) {
@@ -121,7 +137,15 @@ fun AdminScreen(onBack: () -> Unit) {
         if (!configured.endsWith("/ask-screen")) throw IllegalStateException("Set your Netlify AskScreen endpoint in Settings first.")
         val endpoint = configured.removeSuffix("/ask-screen") + "/admin-settings"
         val features = JSONObject().put("screen",screenEnabled).put("spoken",spokenEnabled).put("transcription",transcriptionEnabled)
+        val discount = bundleDiscountPercent.toIntOrNull() ?: throw IllegalArgumentException("Bundle discount must be a whole number from 0 to 30.")
+        if (discount !in 0..30) throw IllegalArgumentException("Bundle discount must be a whole number from 0 to 30.")
+        if (pricingRows.isEmpty()) throw IllegalArgumentException("Load the pricing catalogue before saving.")
+        val priceArray = org.json.JSONArray()
+        pricingRows.forEach { row ->
+            priceArray.put(JSONObject().put("id",row.id).put("monthlyPriceCents",row.monthlyPriceCents))
+        }
         val payload = JSONObject().put("announcement",announcement).put("features",features).put("freeTrialLimit",limit)
+            .put("pricing",priceArray).put("bundleDiscountPercent",discount)
         withContext(Dispatchers.IO) {
             val request = Request.Builder().url(endpoint).header("Authorization","Bearer $token")
                 .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
@@ -374,6 +398,36 @@ fun AdminScreen(onBack: () -> Unit) {
                         Switch(checked=transcriptionEnabled,onCheckedChange={transcriptionEnabled=it})
                     }
                     OutlinedTextField(value=freeTrialLimit,onValueChange={freeTrialLimit=it.filter(Char::isDigit).take(2)},label={Text("Free uses per feature (0–10)")},singleLine=true,modifier=Modifier.fillMaxWidth())
+                    HorizontalDivider(color=Slate700)
+                    Text("Subscription & product pricing",color=Color.White,fontSize=16.sp,fontWeight=FontWeight.Bold)
+                    Text("Set each product's monthly price in US dollars. Email Management remains a separate product. Prices are stored in cents for accurate billing.",color=Slate400,fontSize=11.sp)
+                    OutlinedTextField(value=bundleDiscountPercent,onValueChange={bundleDiscountPercent=it.filter(Char::isDigit).take(2)},label={Text("Complete bundle discount (0–30%)")},singleLine=true,modifier=Modifier.fillMaxWidth())
+                    pricingRows.groupBy { it.category }.forEach { (category, rows) ->
+                        Text(category,color=Color(0xFF8CB4FF),fontSize=13.sp,fontWeight=FontWeight.Bold)
+                        rows.forEach { row ->
+                            val priceText = String.format(Locale.US,"%.2f",row.monthlyPriceCents / 100.0)
+                            OutlinedTextField(
+                                value=priceText,
+                                onValueChange={ value ->
+                                    val cents = value.toBigDecimalOrNull()?.takeIf { it >= BigDecimal.ZERO }?.multiply(BigDecimal(100))?.setScale(0,RoundingMode.HALF_UP)?.toInt()
+                                    if (cents != null && cents <= 1000000) pricingRows = pricingRows.map { if (it.id == row.id) it.copy(monthlyPriceCents=cents) else it }
+                                },
+                                label={Text("\${row.name} — USD/month")},
+                                singleLine=true,
+                                modifier=Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                    val coreCents = pricingRows.firstOrNull { it.id == "core" }?.monthlyPriceCents ?: 900
+                    val specialistCents = pricingRows.filter { it.id != "core" && it.id != "email_management" }.sumOf { it.monthlyPriceCents }
+                    val emailCents = pricingRows.firstOrNull { it.id == "email_management" }?.monthlyPriceCents ?: 2000
+                    val discount = bundleDiscountPercent.toIntOrNull()?.coerceIn(0,30) ?: 10
+                    val aiRegular = coreCents + specialistCents
+                    val fullRegular = aiRegular + emailCents
+                    val aiDiscounted = (aiRegular * (100-discount) + 50) / 100
+                    val fullDiscounted = (fullRegular * (100-discount) + 50) / 100
+                    Text("AI Suite: $\${String.format(Locale.US,"%.2f",aiDiscounted/100.0)} / month",color=Color.White,fontWeight=FontWeight.SemiBold)
+                    Text("Complete Business Bundle (including Email Management): $\${String.format(Locale.US,"%.2f",fullDiscounted/100.0)} / month",color=Color(0xFF8FE0B0),fontWeight=FontWeight.SemiBold)
                     Button(onClick={
                         scope.launch {
                             busy=true; error=null
@@ -381,7 +435,7 @@ fun AdminScreen(onBack: () -> Unit) {
                             catch(e:Exception) { error=e.message ?: "Could not save app settings." }
                             finally { busy=false }
                         }
-                    },enabled=!busy && idToken.isNotBlank() && (freeTrialLimit.toIntOrNull() ?: -1) in 0..10,modifier=Modifier.fillMaxWidth()) {
+                    },enabled=!busy && idToken.isNotBlank() && (freeTrialLimit.toIntOrNull() ?: -1) in 0..10 && (bundleDiscountPercent.toIntOrNull() ?: -1) in 0..30 && pricingRows.isNotEmpty(),modifier=Modifier.fillMaxWidth()) {
                         Text("Save app settings")
                     }
                 }
