@@ -845,19 +845,45 @@ class AskScreenOverlayService : Service() {
             bubbleState.value = BubbleState.LISTENING_AUDIO
             showAnswerWindow()
             liveCaptions.value = "Transcribing speech only — no AI answers..."
-            audioCaptureManager.startContinuousListening(prefs.audioLanguageTag) { transcript ->
+            audioCaptureManager.startContinuousListening(
+                languageTag = prefs.audioLanguageTag,
+                onFatalError = { message ->
+                    liveCaptions.value = message
+                    bubbleState.value = BubbleState.ERROR
+                }
+            ) { transcript ->
                 serviceScope.launch {
                     if (transcript.isBlank() || !shouldProcessAudioTranscript(transcript)) return@launch
-                    sessionMessages.value = sessionMessages.value + ChatMessage(
-                        role = "user",
-                        text = "📝 Transcript: $transcript",
-                        queryType = QueryType.AUDIO
-                    )
-                    liveCaptions.value = "Transcript added. Listening for more speech..."
-                    bubbleState.value = if (audioCaptureManager.isContinuousListening) {
-                        BubbleState.LISTENING_AUDIO
-                    } else {
-                        BubbleState.IDLE
+                    if (!audioAnswerMutex.tryLock()) return@launch
+                    try {
+                        val usageResult = repository.recordTranscriptionUse()
+                        usageResult.onSuccess {
+                            sessionMessages.value = sessionMessages.value + ChatMessage(
+                                role = "user",
+                                text = "📝 Transcript: $transcript",
+                                queryType = QueryType.TRANSCRIPTION
+                            )
+                            liveCaptions.value = "Transcript added. Listening for more speech..."
+                            bubbleState.value = if (audioCaptureManager.isContinuousListening) {
+                                BubbleState.LISTENING_AUDIO
+                            } else {
+                                BubbleState.IDLE
+                            }
+                        }.onFailure { error ->
+                            audioCaptureManager.stopListening()
+                            val message = error.message.orEmpty()
+                            liveCaptions.value = when {
+                                message.startsWith("SUBSCRIPTION_REQUIRED") ->
+                                    "Your two free transcription uses are finished. Subscribe to continue."
+                                message.startsWith("SIGN_IN_REQUIRED") ->
+                                    "Please sign in to continue transcription."
+                                else -> "Transcription could not be verified. Please check your connection and try again."
+                            }
+                            bubbleState.value = BubbleState.ERROR
+                            Toast.makeText(this@AskScreenOverlayService, liveCaptions.value, Toast.LENGTH_LONG).show()
+                        }
+                    } finally {
+                        audioAnswerMutex.unlock()
                     }
                 }
             }
