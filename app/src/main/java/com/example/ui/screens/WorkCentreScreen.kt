@@ -36,6 +36,7 @@ fun WorkCentreScreen() {
     val context = LocalContext.current
     val prefs = remember { AskScreenApp.instance.preferencesManager }
     var products by remember { mutableStateOf<List<Triple<String, String, Int>>>(emptyList()) }
+    var emailPriceCents by remember { mutableIntStateOf(2000) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -55,7 +56,8 @@ fun WorkCentreScreen() {
             if (list != null) for (i in 0 until list.length()) {
                 val item = list.optJSONObject(i) ?: continue
                 val id = item.optString("id")
-                if (id != "core" && id != "email_management") mapped.add(Triple(item.optString("name"), id, item.optInt("monthlyPriceCents")))
+                if (id == "email_management") emailPriceCents = item.optInt("monthlyPriceCents", 2000)
+                else if (id != "core") mapped.add(Triple(item.optString("name"), id, item.optInt("monthlyPriceCents")) )
             }
             products = mapped
         } catch (e: Exception) { error = e.message ?: "Could not load Work Centre." }
@@ -76,7 +78,7 @@ fun WorkCentreScreen() {
                 Column(Modifier.weight(1f)) {
                     Text("DOM Email Management", color = Color.White, fontWeight = FontWeight.SemiBold)
                     Text("Open the separate Email Management System", color = Slate400, fontSize = 12.sp)
-                    Text("USD 20.00/month", color = ElectricCyan, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text("USD " + String.format(Locale.US, "%.2f", emailPriceCents / 100.0) + "/month", color = ElectricCyan, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
                 Icon(Icons.Default.OpenInNew, contentDescription = "Open email management", tint = ElectricCyan)
             }
