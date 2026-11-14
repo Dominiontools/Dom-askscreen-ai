@@ -7,6 +7,7 @@ const { handler: transcriptionHandler } = require('./netlify/functions/record-tr
 const { handler: adminHandler } = require('./netlify/functions/admin-dashboard');
 const { handler: adminUsersHandler } = require('./netlify/functions/admin-users');
 const { handler: adminSettingsHandler } = require('./netlify/functions/admin-settings');
+const { handler: appUpdateHandler } = require('./netlify/functions/app-update');
 const { handler: supportHandler } = require('./netlify/functions/support-tickets');
 const { handler: supportAdminHandler } = require('./netlify/functions/support-admin');
 
@@ -181,6 +182,26 @@ async function run() {
   assert.equal(adminSettingsUnauthenticated.statusCode, 503, 'Settings writes must fail closed without Firebase server authentication configuration');
   if (previousFirebaseServiceAccount !== undefined) process.env.FIREBASE_SERVICE_ACCOUNT_JSON = previousFirebaseServiceAccount;
   console.log('PASS Admin settings updates fail closed without authenticated administrator access');
+
+  const appUpdateOptions = await appUpdateHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(appUpdateOptions.statusCode, 204, 'App update endpoint should allow CORS preflight');
+  console.log('PASS App update endpoint OPTIONS preflight');
+
+  const appUpdatePut = await appUpdateHandler({ httpMethod: 'PUT', headers: {} });
+  assert.equal(appUpdatePut.statusCode, 405, 'App update endpoint should reject unsupported methods');
+  console.log('PASS App update endpoint rejects unsupported methods');
+
+  const appUpdateGetUnconfigured = await appUpdateHandler({ httpMethod: 'GET', headers: {} });
+  assert.equal(appUpdateGetUnconfigured.statusCode, 503, 'App update metadata must fail closed when Firebase server configuration is missing');
+  console.log('PASS App update metadata fails safely when Firebase is not configured');
+
+  const appUpdatePostUnconfigured = await appUpdateHandler({
+    httpMethod: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ action: 'prepare-upload', versionCode: 2, versionName: '1.1', sizeBytes: 500000, fileName: 'release.apk' })
+  });
+  assert.equal(appUpdatePostUnconfigured.statusCode, 503, 'APK upload preparation must fail closed without Firebase server configuration');
+  console.log('PASS APK upload preparation fails closed without Firebase server configuration');
 
   const adminUsersOptions = await adminUsersHandler({ httpMethod: 'OPTIONS', headers: {} });
   assert.equal(adminUsersOptions.statusCode, 204, 'Admin users endpoint should allow CORS preflight');
