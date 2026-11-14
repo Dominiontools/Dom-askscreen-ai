@@ -32,7 +32,7 @@ import java.text.DateFormat
 import java.time.Instant
 import java.util.Date
 
-private data class AdminUserRow(val name:String,val email:String,val joined:String,val lastSignIn:String,val screen:Int,val spoken:Int,val transcription:Int,val subscription:String,val expiry:String)
+private data class AdminUserRow(val name:String,val email:String,val joined:String,val lastSignIn:String,val screen:Int,val spoken:Int,val transcription:Int,val trialEligible:Boolean,val screenRemaining:Int,val spokenRemaining:Int,val transcriptionRemaining:Int,val subscription:String,val expiry:String)
 private data class AdminPaymentRow(val date:String,val email:String,val reference:String,val amount:String,val status:String)
 
 @Composable
@@ -81,11 +81,14 @@ fun AdminScreen(onBack: () -> Unit) {
             if (userArray != null) for (i in 0 until userArray.length()) {
                 val item = userArray.optJSONObject(i) ?: continue
                 val usage = item.optJSONObject("usage") ?: JSONObject()
+                val trial = item.optJSONObject("freeTrial") ?: JSONObject()
                 val sub = item.optJSONObject("subscription") ?: JSONObject()
                 add(AdminUserRow(
                     item.optString("displayName").ifBlank { item.optString("email").ifBlank { "Unnamed account" } },
                     item.optString("email"), dateLabel(item.optString("createdAt")), dateLabel(item.optString("lastSignInAt")),
                     usage.optInt("screen"), usage.optInt("spoken"), usage.optInt("transcription"),
+                    trial.optBoolean("eligible"), trial.optInt("screenRemaining"), trial.optInt("spokenRemaining"),
+                    trial.optInt("transcriptionRemaining"),
                     sub.optString("status","inactive"), dateLabel(sub.optString("currentPeriodEnd"))
                 ))
             }
@@ -155,7 +158,7 @@ fun AdminScreen(onBack: () -> Unit) {
                 AdminMetric("Subscribers",activeSubscribers.toString(),Modifier.weight(1f))
             }
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                AdminMetric("Users with usage",trialUsers.toString(),Modifier.weight(1f))
+                AdminMetric("Trial-eligible users",trialUsers.toString(),Modifier.weight(1f))
                 AdminMetric("Disabled accounts",disabledUsers.toString(),Modifier.weight(1f))
             }
             Text("Registered users & free-trial usage",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
@@ -166,7 +169,12 @@ fun AdminScreen(onBack: () -> Unit) {
                         Text(user.name,color=Color.White,fontWeight=FontWeight.SemiBold)
                         Text(user.email,color=ElectricCyan,fontSize=12.sp)
                         Text("Joined: ${user.joined} • Last sign-in: ${user.lastSignIn}",color=Slate400,fontSize=11.sp)
-                        Text("Screen: ${user.screen}/2 • Spoken: ${user.spoken}/2 • Transcription: ${user.transcription}/2",color=Slate300,fontSize=12.sp)
+                        Text("Used — Screen: ${user.screen}/2 • Spoken: ${user.spoken}/2 • Transcription: ${user.transcription}/2",color=Slate300,fontSize=12.sp)
+                        Text(
+                            if (user.trialEligible) "Free trial eligible • Remaining — Screen: ${user.screenRemaining}, Spoken: ${user.spokenRemaining}, Transcription: ${user.transcriptionRemaining}"
+                            else "Not eligible for the new-user free trial",
+                            color=if(user.trialEligible) ElectricCyan else Slate400,fontSize=11.sp
+                        )
                         Text("Subscription: ${user.subscription} • Expires: ${user.expiry}",color=if(user.subscription=="active") EmeraldGreen else AmberWarning,fontSize=12.sp)
                     }
                 }
