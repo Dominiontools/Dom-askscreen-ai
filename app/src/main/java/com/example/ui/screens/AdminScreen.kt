@@ -334,7 +334,7 @@ fun AdminScreen(onBack: () -> Unit) {
                             catch(e:Exception) { error=e.message ?: "Could not save app settings." }
                             finally { busy=false }
                         }
-                    },enabled=!busy && idToken.isNotBlank() && freeTrialLimit.toIntOrNull() in 0..10,modifier=Modifier.fillMaxWidth()) {
+                    },enabled=!busy && idToken.isNotBlank() && (freeTrialLimit.toIntOrNull() ?: -1) in 0..10,modifier=Modifier.fillMaxWidth()) {
                         Text("Save app settings")
                     }
                 }
