@@ -108,7 +108,7 @@ fun AdminScreen(onBack: () -> Unit) {
         supportTickets = buildList {
             if (ticketArray != null) for (i in 0 until ticketArray.length()) {
                 val item = ticketArray.optJSONObject(i) ?: continue
-                add(AdminTicketRow(item.optString("id"),dateLabel(item.optString("createdAt")),item.optString("email"),item.optString("subject"),item.optString("message"),item.optString("status","open"),item.optString("reply"))))
+                add(AdminTicketRow(item.optString("id"),dateLabel(item.optString("createdAt")),item.optString("email"),item.optString("subject"),item.optString("message"),item.optString("status","open"),item.optString("reply")))
             }
         }
         loaded = true
