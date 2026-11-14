@@ -36,6 +36,9 @@ exports.handler = async function handler(event) {
     await reserveFeatureUse(user.uid, 'transcription', requestId);
     return respond(200, { success: true, feature: 'transcription' });
   } catch (error) {
+    if (error.message === 'FEATURE_DISABLED') {
+      return respond(403, { success: false, code: 'FEATURE_DISABLED', feature: 'transcription', error: 'Transcription is temporarily unavailable.' });
+    }
     if (error.message === 'SUBSCRIPTION_REQUIRED') {
       return respond(402, {
         success: false,
