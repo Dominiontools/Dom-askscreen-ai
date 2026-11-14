@@ -38,7 +38,7 @@ The Firebase Admin service account must have permission to verify Firebase ID to
 4. Open **Account** and create an account or sign in.
 5. Test the AI features after the backend has deployed with both required environment variables.
 
-All AI requests on this upgrade branch require a signed-in Firebase account and go through the backend. The backend enforces two free uses per feature in each calendar month. A paid subscription is recognized only when a verified active subscription record with a valid future expiry exists in Firestore.
+All AI requests on this upgrade branch require a signed-in Firebase account and go through the backend. The backend grants each newly registered account two lifetime free uses per feature (screen reading, AI spoken answers, and transcription). Each successful feature request consumes one use. Allowances never reset monthly or when the app is reopened. After a feature's two uses are consumed, an active subscription is required for that feature. A paid subscription is recognized only when a verified active subscription record with a valid future expiry exists in Firestore.
 
 ## 5. Paystack — later phase
 
