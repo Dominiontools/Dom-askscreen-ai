@@ -213,7 +213,7 @@ exports.handler = async event => {
         activeSubscribers,
         disabledUsers: rows.filter(user => user.disabled).length,
         trialUsers: rows.filter(user => user.freeTrial.eligible).length,
-      activeProductSubscriptions: rows.reduce((total, user) => total + user.productSubscriptions.filter(item => item.status === 'active').length, 0)
+        activeProductSubscriptions: rows.reduce((total, user) => total + user.productSubscriptions.filter(item => item.status === 'active').length, 0)
       },
       users: rows,
       payments,
