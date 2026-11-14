@@ -106,9 +106,6 @@ const FEATURE_FIELDS = {
   transcription: 'transcriptionsUsed'
 };
 const FREE_FEATURE_LIMIT = 2;
-function currentUsagePeriod() {
-  return new Date().toISOString().slice(0, 7);
-}
 async function reserveFeatureUse(uid, feature, requestId) {
   const admin = await getFirebaseAdmin();
   const db = admin.firestore();
@@ -117,8 +114,8 @@ async function reserveFeatureUse(uid, feature, requestId) {
   return db.runTransaction(async transaction => {
     const snapshot = await transaction.get(ref);
     const data = snapshot.exists ? snapshot.data() : {};
-    const period = currentUsagePeriod();
-    const usage = data.usagePeriod === period ? (data.usage || {}) : {};
+    // Free allowances are lifetime grants for each registered account; never reset monthly.
+    const usage = data.usage || {};
     const subscription = data.subscription || {};
     const periodEnd = subscription.currentPeriodEnd;
     const periodEndMs = periodEnd && typeof periodEnd.toDate === 'function'
@@ -136,12 +133,11 @@ async function reserveFeatureUse(uid, feature, requestId) {
     }
     if (!paid) {
       transaction.set(ref, {
-        usagePeriod: period,
         usage: { ...usage, [field]: used + 1 },
         updatedAt: admin.firestore.FieldValue.serverTimestamp()
       }, { merge: true });
     }
-    return { paid, field, period };
+    return { paid, field };
   });
 }
 async function releaseFeatureUse(uid, reservation) {
@@ -151,7 +147,7 @@ async function releaseFeatureUse(uid, reservation) {
   const ref = db.collection('askScreenAccounts').doc(uid);
   await db.runTransaction(async transaction => {
     const snapshot = await transaction.get(ref);
-    if (!snapshot.exists || snapshot.data().usagePeriod !== reservation.period) return;
+    if (!snapshot.exists) return;
     const usage = snapshot.data().usage || {};
     transaction.set(ref, {
       usage: { ...usage, [reservation.field]: Math.max(0, Number(usage[reservation.field] || 0) - 1) },
