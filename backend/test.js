@@ -10,6 +10,7 @@ const { handler: adminSettingsHandler } = require('./netlify/functions/admin-set
 const { handler: appUpdateHandler } = require('./netlify/functions/app-update');
 const { handler: supportHandler } = require('./netlify/functions/support-tickets');
 const { handler: supportAdminHandler } = require('./netlify/functions/support-admin');
+const { handler: accountStatusHandler } = require('./netlify/functions/account-status');
 
 async function run() {
   assert.equal(isEligibleForFreeTrial('2026-11-15T10:00:00.000Z', '2026-11-15T00:00:00.000Z'), true,
@@ -217,6 +218,19 @@ async function run() {
   });
   assert.equal(adminUsersUnauthenticated.statusCode, 401, 'Account management must require Firebase authentication');
   console.log('PASS Account management requires Firebase authentication');
+
+
+  const accountStatusOptions = await accountStatusHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(accountStatusOptions.statusCode, 204, 'Account status endpoint should allow CORS preflight');
+  console.log('PASS Account status endpoint OPTIONS preflight');
+
+  const accountStatusPost = await accountStatusHandler({ httpMethod: 'POST', headers: {} });
+  assert.equal(accountStatusPost.statusCode, 405, 'Account status endpoint should reject non-GET requests');
+  console.log('PASS Account status endpoint rejects unsupported methods');
+
+  const accountStatusUnauthenticated = await accountStatusHandler({ httpMethod: 'GET', headers: {} });
+  assert.equal(accountStatusUnauthenticated.statusCode, 401, 'Customer account status must require Firebase authentication');
+  console.log('PASS Customer account status requires Firebase authentication');
 
   console.log('All backend validation and authentication-gate tests passed.');
 }
