@@ -2,9 +2,9 @@ package com.example.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,7 +18,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.example.ui.theme.*
 
 @Composable
-fun AccountScreen() {
+fun AccountScreen(onAdminAccess: () -> Unit = {}) {
     val auth = remember { FirebaseAuth.getInstance() }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -41,9 +41,7 @@ fun AccountScreen() {
             Spacer(Modifier.height(20.dp))
             Text("Your free feature allowances and subscription will be linked to this account.", color = Slate300)
             Spacer(Modifier.height(20.dp))
-            Button(onClick = { auth.signOut(); signedInEmail = null; message = "You have signed out." }) {
-                Text("Sign out")
-            }
+            Button(onClick = { auth.signOut(); signedInEmail = null; message = "You have signed out." }) { Text("Sign out") }
         } else {
             Text("Sign in to keep your free usage and subscription connected to you.", color = Slate300, fontSize = 13.sp)
             Spacer(Modifier.height(18.dp))
@@ -77,6 +75,17 @@ fun AccountScreen() {
         message?.let {
             Spacer(Modifier.height(12.dp))
             Text(it, color = if (it.contains("success", true)) ElectricCyan else Color(0xFFFFB4AB), fontSize = 12.sp)
+        }
+        Spacer(Modifier.height(22.dp))
+        HorizontalDivider(color = Slate700)
+        Spacer(Modifier.height(14.dp))
+        Text("Platform owner?", color = Slate300, fontWeight = FontWeight.SemiBold)
+        Text("Administrator access is separate and verified securely by the server.", color = Slate400, fontSize = 12.sp)
+        Spacer(Modifier.height(10.dp))
+        OutlinedButton(onClick = onAdminAccess, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Default.AdminPanelSettings, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text("Open Admin Centre")
         }
         Spacer(Modifier.height(18.dp))
         Text("Your password is handled by Firebase Authentication. AskScreen does not display or store it.", color = Slate400, fontSize = 11.sp)
