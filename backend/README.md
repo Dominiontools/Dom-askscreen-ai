@@ -60,3 +60,18 @@ The in-app dashboard displays registered users, join/last-sign-in dates, per-fea
 ## 7. In-app customer support
 
 Customers can contact support using the WhatsApp, email, and phone shortcuts in the Android app. Signed-in customers with verified email addresses can also submit private support requests from the Support Centre. Requests are stored in the Firestore `askScreenSupportTickets` collection and are scoped to the submitting Firebase UID. Customers can view only their own requests and replies. The Admin Centre displays the latest support requests. Authorized administrators can send a reply and update the ticket status; customers can see the reply and status in their Support Centre ticket history after refreshing. Support ticket documents should be accessed through these authenticated backend functions, not exposed directly to unauthenticated clients. Customers can also receive assistance through the published WhatsApp, email, and phone channels.
+
+
+## 8. Self-hosted Android APK Update Centre
+
+The Admin Centre includes an **App Update Centre**. It uploads APK files directly to the Firebase project's Cloud Storage bucket using a short-lived, server-signed upload URL; the APK itself does not pass through a Netlify Function. The server records the published release in Firestore and gives customer apps a time-limited download URL.
+
+- Confirm Cloud Storage is enabled for the same Firebase project. The app-update endpoint uses `FIREBASE_STORAGE_BUCKET` when set, or the project's default bucket `gen-lang-client-0417033738.firebasestorage.app`.
+- The Firebase service account in `FIREBASE_SERVICE_ACCOUNT_JSON` needs permission to create signed Cloud Storage URLs and read/write objects in that bucket, in addition to its Firestore access. Never place its private key in the app.
+- In the Admin Centre, select the release APK, enter the APK's actual version name and version code, add release notes, and choose **Upload and publish update**. The admin app checks the APK package name, actual version, and signing certificate against the app installed on that administrator phone before upload.
+- For every release, increase `versionCode` and update `versionName` in `app/build.gradle.kts` before building the signed release APK. The version details entered in the Admin Centre must match the APK exactly.
+- Keep the package name `com.dominion.askscreenai` and the exact same release signing key used for the APK already installed by customers. Do not replace or regenerate the keystore. Android rejects updates with a different package name or signing identity.
+- Customers receive an update prompt when the app checks the published release. They tap **Update**, the app downloads and verifies the APK size and MD5 checksum, and Android displays the system installation approval. Customers may need to allow AskScreen AI to install apps from this source in Android settings.
+- Ordinary Android apps cannot silently install APKs on personal phones. Existing customer app data is preserved by a normal signed in-place update; do not uninstall the app first.
+
+Before the first customer release, test an upgrade from the exact currently distributed APK on a spare Android phone. Confirm the admin phone has the same release signing certificate, Cloud Storage signed upload/download works, the version is higher, the installer accepts the APK, and existing customer sign-in/data remain present. Do not publish an APK as a production update until this test succeeds.
