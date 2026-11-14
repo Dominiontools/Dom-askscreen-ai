@@ -180,7 +180,7 @@ class MainActivity : ComponentActivity() {
                     val release = root.optJSONObject("release") ?: return@withContext null
                     if (release.optString("packageName") != packageName) return@withContext null
                     val info = packageManager.getPackageInfo(packageName, 0)
-                    val current = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else @Suppress("DEPRECATION") info.versionCode.toLong()
+                    val current = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
                     if (release.optLong("versionCode") <= current) return@withContext null
                     val url = release.optString("downloadUrl")
                     if (!url.startsWith("https://")) return@withContext null
