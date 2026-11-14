@@ -114,8 +114,10 @@ exports.handler = async event => {
       status: 'saved',
       createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
-    const finalPricing = pricing || normalizeCatalog((await ref.get()).data()?.pricing || DEFAULTS.pricing);
-    const finalDiscount = bundleDiscountPercent !== null ? bundleDiscountPercent : Number.isInteger((await ref.get()).data()?.bundleDiscountPercent) ? (await ref.get()).data().bundleDiscountPercent : DEFAULTS.bundleDiscountPercent;
+    const updatedSnapshot = await ref.get();
+    const savedSettings = updatedSnapshot.data() || {};
+    const finalPricing = normalizeCatalog(savedSettings.pricing || DEFAULTS.pricing);
+    const finalDiscount = Number.isInteger(savedSettings.bundleDiscountPercent) ? savedSettings.bundleDiscountPercent : DEFAULTS.bundleDiscountPercent;
     return json(200, { success: true, settings: { announcement, features, freeTrialLimit, pricing: finalPricing, bundleDiscountPercent: finalDiscount, bundles: calculateBundle(finalPricing, finalDiscount) } });
   } catch (error) {
     const status = error.statusCode || (error.message === 'AUTH_NOT_CONFIGURED' ? 503 : 500);
