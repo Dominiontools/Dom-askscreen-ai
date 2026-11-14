@@ -110,6 +110,54 @@ class AskScreenRepository(private val context: Context) {
         }
     }
 
+    /** Reserve one lifetime transcription use without invoking an AI provider. */
+    suspend fun recordTranscriptionUse(): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val user = FirebaseAuth.getInstance().currentUser
+                ?: throw Exception("SIGN_IN_REQUIRED: Open the Account tab and sign in before using transcription.")
+            val configuredUrl = prefs.backendUrl.trim()
+            if (configuredUrl.isBlank() || !configuredUrl.startsWith("https://")) {
+                throw Exception("BACKEND_REQUIRED: Add your Netlify AskScreen endpoint in Settings before transcribing.")
+            }
+            val endpoint = configuredUrl.replace(Regex("/ask-screen/?$"), "/record-transcription")
+            if (endpoint == configuredUrl) {
+                throw Exception("BACKEND_URL_INVALID: The configured URL must end with /ask-screen.")
+            }
+            val token = user.getIdToken(false).await().token
+                ?: throw Exception("Could not verify your account. Please sign in again.")
+            val request = Request.Builder()
+                .url(endpoint)
+                .header("Authorization", "Bearer $token")
+                .post("{}".toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
+                    when {
+                        json.optString("code") == "SUBSCRIPTION_REQUIRED" ->
+                            throw Exception("SUBSCRIPTION_REQUIRED:transcription")
+                        response.code == 401 ->
+                            throw Exception("SIGN_IN_REQUIRED: Please sign in again from the Account tab.")
+                        else -> throw Exception(json.optString("error").ifBlank {
+                            "Transcription usage could not be verified. Please try again."
+                        })
+                    }
+                }
+                val json = JSONObject(body)
+                if (!json.optBoolean("success", false)) {
+                    throw Exception(json.optString("error").ifBlank { "Transcription usage could not be verified." })
+                }
+            }
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not reserve transcription use", e)
+            Result.failure(e)
+        }
+    }
+
     /**
      * Fallback for custom Netlify backend if configured.
      */
