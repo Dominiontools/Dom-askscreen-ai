@@ -159,7 +159,7 @@ async function releaseFeatureUse(uid, reservation) {
     }, { merge: true });
   });
 }
-\nfunction safeJsonParse(value) {
+function safeJsonParse(value) {
   try { return value ? JSON.parse(value) : {}; } catch { return null; }
 }
 
