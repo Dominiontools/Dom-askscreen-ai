@@ -83,7 +83,20 @@ exports.handler = async event => {
     }
     if (status) update.status = status;
     await ref.update(update);
-    return json(200, { success: true, ticketId, status: status || (snapshot.data().status || 'open') });
+    const ticket = snapshot.data() || {};
+    await admin.firestore().collection('askScreenAdminAuditLogs').add({
+      action: 'support_ticket_updated',
+      ticketId,
+      targetUid: ticket.uid || '',
+      targetEmail: ticket.email || '',
+      ticketSubject: ticket.subject || '',
+      adminUid: decoded.uid,
+      adminEmail: email,
+      status: status || (ticket.status || 'open'),
+      replySent: Boolean(reply),
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    return json(200, { success: true, ticketId, status: status || (ticket.status || 'open') });
   } catch (error) {
     const code = error.statusCode || (error.message === 'AUTH_NOT_CONFIGURED' ? 503 : 401);
     console.error('[Support Admin] Request failed:', error.message);
