@@ -195,7 +195,7 @@ fun SettingsScreen() {
         SettingsCard(title = "AI Backend", icon = Icons.Default.Cloud) {
             Text("Backend link", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Medium)
             Text(
-                "Paste your Netlify link here. All the AI keys are kept safely on the backend, so nothing else is needed in the app.",
+                "Paste your Netlify ask-screen function URL here, ending in /ask-screen. The app uses this same backend link for account usage and secure admin monitoring.",
                 fontSize = 11.sp,
                 color = Slate400
             )
@@ -207,7 +207,7 @@ fun SettingsScreen() {
                     backendUrl = it
                     prefs.backendUrl = it.trim()
                 },
-                placeholder = { Text("https://your-site.netlify.app/.netlify/functions/gemini", fontSize = 11.sp, color = Slate600) },
+                placeholder = { Text("https://your-site.netlify.app/.netlify/functions/ask-screen", fontSize = 11.sp, color = Slate600) },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(10.dp),
                 colors = OutlinedTextFieldDefaults.colors(
