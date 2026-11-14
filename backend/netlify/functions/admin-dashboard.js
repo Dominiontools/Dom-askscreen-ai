@@ -70,6 +70,10 @@ exports.handler = async event => {
         ? subscription.currentPeriodEnd.toDate().toISOString()
         : null;
       const active = subscription.status === 'active' && expiry && Date.parse(expiry) > now;
+      const trialStartAt = Date.parse(process.env.FREE_TRIAL_START_AT || '');
+      const createdAtMs = Date.parse(user.metadata.creationTime || '');
+      const freeTrialEligible = Number.isFinite(trialStartAt) &&
+        Number.isFinite(createdAtMs) && createdAtMs >= trialStartAt;
       return {
         uid: user.uid,
         email: user.email || '',
@@ -83,8 +87,14 @@ exports.handler = async event => {
           spoken: Number(usage.spokenAnswersUsed || 0),
           transcription: Number(usage.transcriptionsUsed || 0)
         },
+        freeTrial: {
+          eligible: freeTrialEligible,
+          screenRemaining: freeTrialEligible ? Math.max(0, 2 - Number(usage.screenAnswersUsed || 0)) : 0,
+          spokenRemaining: freeTrialEligible ? Math.max(0, 2 - Number(usage.spokenAnswersUsed || 0)) : 0,
+          transcriptionRemaining: freeTrialEligible ? Math.max(0, 2 - Number(usage.transcriptionsUsed || 0)) : 0
+        },
         subscription: {
-          status: active ? 'active' : (subscription.status || 'inactive'),
+          status: active ? 'active' : (subscription.status === 'active' ? 'expired' : (subscription.status || 'inactive')),
           currentPeriodEnd: expiry
         }
       };
@@ -125,9 +135,7 @@ exports.handler = async event => {
         users: rows.length,
         activeSubscribers,
         disabledUsers: rows.filter(user => user.disabled).length,
-        trialUsers: rows.filter(user =>
-          user.usage.screen + user.usage.spoken + user.usage.transcription > 0
-        ).length
+        trialUsers: rows.filter(user => user.freeTrial.eligible).length
       },
       users: rows,
       payments
