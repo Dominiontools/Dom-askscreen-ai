@@ -837,7 +837,8 @@ class AskScreenOverlayService : Service() {
      * are deliberately not displayed as chat messages.
      */
     private fun finishListeningSession() {
-        if (listeningSessionType == null || listeningSessionFinalizing) {
+        if (listeningSessionFinalizing) return
+        if (listeningSessionType == null) {
             audioCaptureManager.stopListening()
             bubbleState.value = BubbleState.IDLE
             return
