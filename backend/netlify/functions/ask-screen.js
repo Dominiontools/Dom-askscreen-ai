@@ -71,6 +71,26 @@ async function getFirebaseAdmin() {
   return firebaseAdminPromise;
 }
 
+async function recordAdminActivity({ uid, email, feature, outcome, code = '', provider = '', model = '', requestId }) {
+  try {
+    const admin = await getFirebaseAdmin();
+    await admin.firestore().collection('askScreenActivityLogs').add({
+      uid: uid || '',
+      email: email || '',
+      feature: feature || '',
+      outcome: outcome || 'unknown',
+      code: code || '',
+      provider: provider || '',
+      model: model || '',
+      requestId: requestId || '',
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+  } catch (error) {
+    // Monitoring must never break a customer's AI request.
+    console.warn('[AskScreen Activity] Could not record activity:', error.message);
+  }
+}
+
 async function verifyUser(event) {
   const authHeader = getHeader(event.headers, 'authorization');
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
@@ -764,6 +784,7 @@ exports.handler = async function handler(event) {
     reservation = await reserveFeatureUse(decodedUser.uid, feature, requestId);
   } catch (error) {
     if (error.message === 'SUBSCRIPTION_REQUIRED') {
+      await recordAdminActivity({ uid: decodedUser.uid, email: decodedUser.email, feature, outcome: 'blocked', code: 'SUBSCRIPTION_REQUIRED', requestId });
       return response(402, {
         success: false,
         error: 'Your two free uses for this feature have been used. Subscribe to continue.',
@@ -771,6 +792,7 @@ exports.handler = async function handler(event) {
         feature
       }, requestId);
     }
+    await recordAdminActivity({ uid: decodedUser.uid, email: decodedUser.email, feature, outcome: 'error', code: error.message || 'USAGE_ERROR', requestId });
     console.error('[AskScreen Access] Usage reservation failed', { requestId, code: error.message || 'USAGE_ERROR' });
     return response(503, {
       success: false,
@@ -781,12 +803,17 @@ exports.handler = async function handler(event) {
 
   try {
     const result = await routeRequest(payload);
+    await recordAdminActivity({
+      uid: decodedUser.uid, email: decodedUser.email, feature, outcome: 'success',
+      provider: result.provider, model: result.model, requestId
+    });
     return response(200, result, requestId);
   } catch (error) {
     try { await releaseFeatureUse(decodedUser.uid, reservation); }
     catch (rollbackError) {
       console.error('[AskScreen Access] Usage rollback failed', { requestId, code: rollbackError.message || 'ROLLBACK_ERROR' });
     }
+    await recordAdminActivity({ uid: decodedUser.uid, email: decodedUser.email, feature, outcome: 'error', code: error.code || 'UPSTREAM_FAILURE', requestId });
     console.error('[AskScreen Router] Request failed', { requestId, code: error.code || 'UPSTREAM_FAILURE' });
 
     if (error.code === 'NO_PROVIDER_CONFIGURED') {
