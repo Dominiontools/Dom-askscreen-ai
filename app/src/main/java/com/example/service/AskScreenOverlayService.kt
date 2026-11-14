@@ -808,7 +808,9 @@ class AskScreenOverlayService : Service() {
     }
 
     private suspend fun collectListeningSegment(transcript: String, type: QueryType) {
-        if (listeningSessionType != type || listeningSessionFinalizing) return
+        // The recognizer may deliver one final result after Stop is pressed; keep accepting
+        // that callback during the short flush window before the session is submitted.
+        if (listeningSessionType != type) return
         if (transcript.isBlank() || !shouldProcessAudioTranscript(transcript)) return
         val previous = listeningSessionSegments.joinToString(" ")
         val merged = mergeListeningTranscript(previous, transcript).take(24000)
