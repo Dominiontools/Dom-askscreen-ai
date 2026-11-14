@@ -38,6 +38,7 @@ import java.util.Date
 private data class AdminUserRow(val uid:String,val name:String,val email:String,val joined:String,val lastSignIn:String,val screen:Int,val spoken:Int,val transcription:Int,val trialEligible:Boolean,val screenRemaining:Int,val spokenRemaining:Int,val transcriptionRemaining:Int,val subscription:String,val expiry:String,val disabled:Boolean,val emailVerified:Boolean)
 private data class AdminPaymentRow(val date:String,val email:String,val reference:String,val amount:String,val status:String)
 private data class AdminTicketRow(val id:String,val date:String,val email:String,val subject:String,val message:String,val status:String,val reply:String)
+private data class AdminAuditRow(val action:String,val targetEmail:String,val adminEmail:String,val date:String)
 
 @Composable
 fun AdminScreen(onBack: () -> Unit) {
@@ -55,6 +56,7 @@ fun AdminScreen(onBack: () -> Unit) {
     var userFilter by remember { mutableStateOf("All") }
     var payments by remember { mutableStateOf<List<AdminPaymentRow>>(emptyList()) }
     var supportTickets by remember { mutableStateOf<List<AdminTicketRow>>(emptyList()) }
+    var auditLogs by remember { mutableStateOf<List<AdminAuditRow>>(emptyList()) }
     var totalUsers by remember { mutableIntStateOf(0) }
     var activeSubscribers by remember { mutableIntStateOf(0) }
     var trialUsers by remember { mutableIntStateOf(0) }
@@ -112,6 +114,18 @@ fun AdminScreen(onBack: () -> Unit) {
             if (ticketArray != null) for (i in 0 until ticketArray.length()) {
                 val item = ticketArray.optJSONObject(i) ?: continue
                 add(AdminTicketRow(item.optString("id"),dateLabel(item.optString("createdAt")),item.optString("email"),item.optString("subject"),item.optString("message"),item.optString("status","open"),item.optString("reply")))
+            }
+        }
+        val auditArray = result.optJSONArray("auditLogs")
+        auditLogs = buildList {
+            if (auditArray != null) for (i in 0 until auditArray.length()) {
+                val item = auditArray.optJSONObject(i) ?: continue
+                add(AdminAuditRow(
+                    item.optString("action","admin_action"),
+                    item.optString("targetEmail").ifBlank { item.optString("targetUid") },
+                    item.optString("adminEmail"),
+                    dateLabel(item.optString("createdAt"))
+                ))
             }
         }
         loaded = true
@@ -270,6 +284,26 @@ fun AdminScreen(onBack: () -> Unit) {
                         Text(payment.email.ifBlank { "Customer payment" },color=Color.White,fontWeight=FontWeight.SemiBold)
                         Text("${payment.amount} • ${payment.status}",color=ElectricCyan,fontSize=12.sp)
                         Text("${payment.reference} • ${payment.date}",color=Slate400,fontSize=11.sp)
+                    }
+                }
+            }
+            Text("Administrator activity log",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
+            Text("Recent account-management actions are recorded here for accountability.",color=Slate400,fontSize=11.sp)
+            if(auditLogs.isEmpty()) Text("No administrator actions recorded yet.",color=Slate400,fontSize=12.sp)
+            auditLogs.forEach { log ->
+                Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(12.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            when(log.action) {
+                                "account_disabled" -> "Account disabled"
+                                "account_enabled" -> "Account re-enabled"
+                                else -> log.action.replace('_',' ').replaceFirstChar { it.uppercase() }
+                            },
+                            color=Color.White,fontWeight=FontWeight.SemiBold
+                        )
+                        Text("Affected account: ${log.targetEmail.ifBlank { "Unknown" }}",color=Slate300,fontSize=12.sp)
+                        Text("Performed by: ${log.adminEmail.ifBlank { "Administrator" }}",color=ElectricCyan,fontSize=11.sp)
+                        Text(log.date,color=Slate400,fontSize=11.sp)
                     }
                 }
             }
