@@ -174,6 +174,20 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
                         Text(statusError ?: "Account status is not available.", color = AmberWarning, fontSize = 12.sp)
                         OutlinedButton(onClick = { refreshCounter++ }) { Text("Retry account status") }
                     }
+                    val productSubscriptions = accountStatus?.optJSONArray("productSubscriptions")
+                    if (productSubscriptions != null && productSubscriptions.length() > 0) {
+                        Spacer(Modifier.height(6.dp))
+                        Text("WORK CENTRE SUBSCRIPTIONS", color = ElectricCyan, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        for (index in 0 until productSubscriptions.length()) {
+                            val product = productSubscriptions.optJSONObject(index) ?: continue
+                            val productName = product.optString("name", product.optString("id"))
+                            val productStatus = product.optString("status", "inactive")
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text(productName, color = Slate300, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                                Text(productStatus.replaceFirstChar { it.uppercase() }, color = if (productStatus == "active") ElectricCyan else Slate400, fontSize = 11.sp)
+                            }
+                        }
+                    }
                     Text("Usage is linked to this signed-in account.", color = Slate400, fontSize = 11.sp)
                 }
             }
