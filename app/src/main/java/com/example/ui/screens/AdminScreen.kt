@@ -38,7 +38,7 @@ import java.util.Date
 private data class AdminUserRow(val uid:String,val name:String,val email:String,val joined:String,val lastSignIn:String,val screen:Int,val spoken:Int,val transcription:Int,val trialEligible:Boolean,val screenRemaining:Int,val spokenRemaining:Int,val transcriptionRemaining:Int,val subscription:String,val expiry:String,val disabled:Boolean,val emailVerified:Boolean)
 private data class AdminPaymentRow(val date:String,val email:String,val reference:String,val amount:String,val status:String)
 private data class AdminTicketRow(val id:String,val date:String,val email:String,val subject:String,val message:String,val status:String,val reply:String)
-private data class AdminAuditRow(val action:String,val targetEmail:String,val adminEmail:String,val date:String)
+private data class AdminAuditRow(val action:String,val targetEmail:String,val adminEmail:String,val detail:String,val date:String)
 
 @Composable
 fun AdminScreen(onBack: () -> Unit) {
@@ -124,6 +124,21 @@ fun AdminScreen(onBack: () -> Unit) {
                     item.optString("action","admin_action"),
                     item.optString("targetEmail").ifBlank { item.optString("targetUid") },
                     item.optString("adminEmail"),
+                    buildString {
+                        if (item.optString("ticketId").isNotBlank()) append("Ticket: ").append(item.optString("ticketId"))
+                        if (item.optString("ticketSubject").isNotBlank()) {
+                            if (isNotEmpty()) append(" • ")
+                            append(item.optString("ticketSubject"))
+                        }
+                        if (item.optString("status").isNotBlank()) {
+                            if (isNotEmpty()) append(" • ")
+                            append("Status: ").append(item.optString("status"))
+                        }
+                        if (item.has("replySent")) {
+                            if (isNotEmpty()) append(" • ")
+                            append(if (item.optBoolean("replySent")) "Reply sent" else "Status updated")
+                        }
+                    },
                     dateLabel(item.optString("createdAt"))
                 ))
             }
@@ -288,7 +303,7 @@ fun AdminScreen(onBack: () -> Unit) {
                 }
             }
             Text("Administrator activity log",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
-            Text("Recent account-management actions are recorded here for accountability.",color=Slate400,fontSize=11.sp)
+            Text("Recent account and customer-support actions are recorded here for accountability.",color=Slate400,fontSize=11.sp)
             if(auditLogs.isEmpty()) Text("No administrator actions recorded yet.",color=Slate400,fontSize=12.sp)
             auditLogs.forEach { log ->
                 Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(12.dp)) {
@@ -302,6 +317,7 @@ fun AdminScreen(onBack: () -> Unit) {
                             color=Color.White,fontWeight=FontWeight.SemiBold
                         )
                         Text("Affected account: ${log.targetEmail.ifBlank { "Unknown" }}",color=Slate300,fontSize=12.sp)
+                        if (log.detail.isNotBlank()) Text(log.detail,color=Slate300,fontSize=11.sp)
                         Text("Performed by: ${log.adminEmail.ifBlank { "Administrator" }}",color=ElectricCyan,fontSize=11.sp)
                         Text(log.date,color=Slate400,fontSize=11.sp)
                     }
