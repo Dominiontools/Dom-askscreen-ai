@@ -412,7 +412,7 @@ fun AdminScreen(onBack: () -> Unit) {
                                     val cents = value.toBigDecimalOrNull()?.takeIf { it >= BigDecimal.ZERO }?.multiply(BigDecimal(100))?.setScale(0,RoundingMode.HALF_UP)?.toInt()
                                     if (cents != null && cents <= 1000000) pricingRows = pricingRows.map { if (it.id == row.id) it.copy(monthlyPriceCents=cents) else it }
                                 },
-                                label={Text("\${row.name} — USD/month")},
+                                label={Text("${row.name} — USD/month")},
                                 singleLine=true,
                                 modifier=Modifier.fillMaxWidth()
                             )
@@ -426,8 +426,8 @@ fun AdminScreen(onBack: () -> Unit) {
                     val fullRegular = aiRegular + emailCents
                     val aiDiscounted = (aiRegular * (100-discount) + 50) / 100
                     val fullDiscounted = (fullRegular * (100-discount) + 50) / 100
-                    Text("AI Suite: \${String.format(Locale.US,"%.2f",aiDiscounted/100.0)} / month",color=Color.White,fontWeight=FontWeight.SemiBold)
-                    Text("Complete Business Bundle (including Email Management): \${String.format(Locale.US,"%.2f",fullDiscounted/100.0)} / month",color=Color(0xFF8FE0B0),fontWeight=FontWeight.SemiBold)
+                    Text("AI Suite: USD ${String.format(Locale.US,"%.2f",aiDiscounted/100.0)} / month",color=Color.White,fontWeight=FontWeight.SemiBold)
+                    Text("Complete Business Bundle (including Email Management): USD ${String.format(Locale.US,"%.2f",fullDiscounted/100.0)} / month",color=Color(0xFF8FE0B0),fontWeight=FontWeight.SemiBold)
                     Button(onClick={
                         scope.launch {
                             busy=true; error=null
