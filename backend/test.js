@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const { handler } = require('./netlify/functions/ask-screen');
 const { handler: healthHandler } = require('./netlify/functions/health');
+const { handler: transcriptionHandler } = require('./netlify/functions/record-transcription');
 
 async function run() {
   const cases = [
@@ -60,6 +61,23 @@ async function run() {
   assert.equal(unauthenticated.statusCode, 401, 'Valid AI requests must require Firebase sign-in');
   assert.equal(JSON.parse(unauthenticated.body).code, 'AUTH_REQUIRED');
   console.log('PASS Valid requests require Firebase authentication');
+
+  const transcriptionOptions = await transcriptionHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(transcriptionOptions.statusCode, 204, 'Transcription endpoint should allow CORS preflight');
+  console.log('PASS Transcription endpoint OPTIONS preflight');
+
+  const transcriptionGet = await transcriptionHandler({ httpMethod: 'GET', headers: {} });
+  assert.equal(transcriptionGet.statusCode, 405, 'Transcription endpoint should reject non-POST requests');
+  console.log('PASS Transcription endpoint rejects non-POST requests');
+
+  const transcriptionUnauthenticated = await transcriptionHandler({
+    httpMethod: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}'
+  });
+  assert.equal(transcriptionUnauthenticated.statusCode, 401, 'Transcription endpoint must require Firebase sign-in');
+  assert.equal(JSON.parse(transcriptionUnauthenticated.body).code, 'AUTH_REQUIRED');
+  console.log('PASS Transcription endpoint requires Firebase authentication');
 
   const health = await healthHandler({ httpMethod: 'GET', headers: {} });
   assert.equal(health.statusCode, 200, 'Health endpoint should respond successfully');
