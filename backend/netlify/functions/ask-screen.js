@@ -803,7 +803,7 @@ exports.handler = async function handler(event) {
       await recordAdminActivity({ uid: decodedUser.uid, email: decodedUser.email, feature, outcome: 'blocked', code: 'SUBSCRIPTION_REQUIRED', requestId });
       return response(402, {
         success: false,
-        error: 'Your two free uses for this feature have been used. Subscribe to continue.',
+        error: 'Your free-use allowance for this feature has been used. Subscribe to continue.',
         code: 'SUBSCRIPTION_REQUIRED',
         feature
       }, requestId);
