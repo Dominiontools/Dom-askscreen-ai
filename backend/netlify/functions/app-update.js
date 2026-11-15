@@ -40,6 +40,8 @@ async function latestRelease(db) {
   const snap = await db.collection('askScreenAppReleases').doc('current').get();
   return snap.exists ? snap.data() : null;
 }
+exports.validReleaseAssetUrl = validReleaseAssetUrl;
+
 exports.handler = async event => {
   if (event.httpMethod === 'OPTIONS') return json(204, {});
   if (!['GET', 'POST'].includes(event.httpMethod)) return json(405, { error: 'Method not allowed.' });
