@@ -48,7 +48,7 @@ exports.handler = async event => {
       catch (lookupError) { if (lookupError.code !== 'auth/user-not-found') throw lookupError; }
       const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
       const now = admin.firestore.FieldValue.serverTimestamp();
-      if (customer) {
+      if (customer && customer.emailVerified) {
         const record = {
           status: 'active', currentPeriodEnd: admin.firestore.Timestamp.fromDate(periodEnd),
           source: 'verified_usdt_payment', paymentId, network: payment.network,
@@ -59,16 +59,16 @@ exports.handler = async event => {
           productSubscriptions: { [product.id]: record }, updatedAt: now
         }, { merge: true });
       }
-      await paymentRef.update({ status: 'approved', uid: customer ? customer.uid : null,
-        customerEmail: customer ? (customer.email || payment.email) : payment.email,
-        claimRequired: !customer, reviewedAt: now, reviewedByUid: decoded.uid,
+      await paymentRef.update({ status: 'approved', uid: customer && customer.emailVerified ? customer.uid : null,
+        customerEmail: customer && customer.emailVerified ? (customer.email || payment.email) : payment.email,
+        claimRequired: !(customer && customer.emailVerified), reviewedAt: now, reviewedByUid: decoded.uid,
         reviewedByEmail: email, reviewNote: note, entitlementExpiresAt: admin.firestore.Timestamp.fromDate(periodEnd) });
       await db.collection('askScreenAdminAuditLogs').add({ action: 'crypto_payment_approved',
-        targetUid: customer ? customer.uid : '', targetEmail: payment.email || '', paymentId,
+        targetUid: customer && customer.emailVerified ? customer.uid : '', targetEmail: payment.email || '', paymentId,
         productId: product.id, productName: product.name, adminUid: decoded.uid,
-        adminEmail: email, status: 'approved', claimRequired: !customer, createdAt: now });
+        adminEmail: email, status: 'approved', claimRequired: !(customer && customer.emailVerified), createdAt: now });
       return json(200, { success: true, paymentId, status: 'approved',
-        uid: customer ? customer.uid : null, claimRequired: !customer, productId: product.id,
+        uid: customer && customer.emailVerified ? customer.uid : null, claimRequired: !(customer && customer.emailVerified), productId: product.id,
         currentPeriodEnd: periodEnd.toISOString() });
     }
     await paymentRef.update({ status: 'rejected', reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
