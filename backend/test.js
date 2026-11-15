@@ -12,6 +12,8 @@ const { handler: appUpdateHandler, validReleaseAssetUrl } = require('./netlify/f
 const { handler: supportHandler } = require('./netlify/functions/support-tickets');
 const { handler: supportAdminHandler } = require('./netlify/functions/support-admin');
 const { handler: accountStatusHandler } = require('./netlify/functions/account-status');
+const { handler: cryptoPaymentsHandler, _test: cryptoPaymentTests } = require('./netlify/functions/crypto-payments');
+const { handler: adminCryptoPaymentsHandler } = require('./netlify/functions/admin-crypto-payments');
 const { DEFAULT_PRODUCTS, normalizeCatalog, calculateBundle } = require('./pricing-catalog');
 const { evaluateProductSubscription, summarizeProductSubscriptions } = require('./product-subscriptions');
 
@@ -298,6 +300,37 @@ async function run() {
   const accountStatusUnauthenticated = await accountStatusHandler({ httpMethod: 'GET', headers: {} });
   assert.equal(accountStatusUnauthenticated.statusCode, 401, 'Customer account status must require Firebase authentication');
   console.log('PASS Customer account status requires Firebase authentication');
+
+  const cryptoOptions = await cryptoPaymentsHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(cryptoOptions.statusCode, 204, 'Crypto payment endpoint should allow CORS preflight');
+  const cryptoGet = await cryptoPaymentsHandler({ httpMethod: 'GET', headers: {} });
+  assert.equal(cryptoGet.statusCode, 200, 'Crypto payment instructions should be publicly readable');
+  const cryptoConfig = JSON.parse(cryptoGet.body);
+  assert.equal(cryptoConfig.networks.find(item => item.id === 'BEP20').address, '0xc0C830d8165E9ff2Da899397128dB9247d64154F');
+  assert.equal(cryptoConfig.networks.find(item => item.id === 'TRC20').address, 'TSmksTL3haP4iSQC49j5mMpF9xw6feoXH');
+  assert.equal(cryptoConfig.paystack.enabled, false, 'Paystack remains disabled until approval and integration');
+  assert.equal(cryptoPaymentTests.validTxHash('BEP20', '0x' + 'a'.repeat(64)), true);
+  assert.equal(cryptoPaymentTests.validTxHash('TRC20', 'a'.repeat(64)), true);
+  assert.equal(cryptoPaymentTests.validTxHash('TRC20', '0x' + 'a'.repeat(64)), false);
+  assert.equal(cryptoPaymentTests.paymentId('BEP20', '0x' + 'A'.repeat(64)), cryptoPaymentTests.paymentId('BEP20', '0x' + 'a'.repeat(64)));
+  const cryptoBadSubmission = await cryptoPaymentsHandler({
+    httpMethod: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email: 'not-an-email', productId: 'video_annotation', network: 'BEP20', transactionHash: '0x' + 'a'.repeat(64), amountUSDT: 35 })
+  });
+  assert.equal(cryptoBadSubmission.statusCode, 400, 'Crypto payment submission must validate email before recording a payment');
+  const cryptoUnknownProduct = await cryptoPaymentsHandler({
+    httpMethod: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email: 'customer@example.com', productId: 'core', network: 'BEP20', transactionHash: '0x' + 'a'.repeat(64), amountUSDT: 9 })
+  });
+  assert.equal(cryptoUnknownProduct.statusCode, 400, 'Crypto Work Centre checkout must not sell DOM AI Core as a specialist module');
+  const adminCryptoOptions = await adminCryptoPaymentsHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(adminCryptoOptions.statusCode, 204);
+  const adminCryptoUnauthenticated = await adminCryptoPaymentsHandler({
+    httpMethod: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ paymentId: 'bep20_test', action: 'approve' })
+  });
+  assert.equal(adminCryptoUnauthenticated.statusCode, 401, 'Crypto payment approval must require authenticated admin verification');
+  console.log('PASS USDT payment networks, duplicate-safe hash IDs, product validation and admin authentication gates');
 
   console.log('All backend validation and authentication-gate tests passed.');
 }
