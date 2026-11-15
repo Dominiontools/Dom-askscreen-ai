@@ -377,6 +377,25 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
             TextButton(onClick = { createAccount = !createAccount; message = null }) {
                 Text(if (createAccount) "Already have an account? Sign in" else "New here? Create an account", color = ElectricCyan)
             }
+            if (!createAccount) {
+                TextButton(
+                    enabled = !busy && email.contains("@"),
+                    onClick = {
+                        busy = true
+                        message = null
+                        auth.sendPasswordResetEmail(email.trim()).addOnCompleteListener { result ->
+                            busy = false
+                            message = if (result.isSuccessful) {
+                                "Password reset email sent. Check your inbox and spam folder."
+                            } else {
+                                result.exception?.localizedMessage ?: "Could not send a password reset email."
+                            }
+                        }
+                    }
+                ) {
+                    Text("Forgot password? Send reset link", color = ElectricCyan)
+                }
+            }
         }
         message?.let {
             Spacer(Modifier.height(12.dp))
