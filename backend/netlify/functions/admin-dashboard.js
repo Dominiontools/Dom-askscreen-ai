@@ -123,9 +123,18 @@ exports.handler = async event => {
           uid: data.uid || '',
           email: data.email || '',
           reference: data.reference || '',
+          transactionHash: data.transactionHash || '',
+          provider: data.provider || '',
+          productId: data.productId || '',
+          productName: data.productName || '',
+          network: data.network || '',
+          destinationAddress: data.destinationAddress || '',
           amount: data.amount ?? null,
           currency: data.currency || 'NGN',
           status: data.status || 'unknown',
+          reviewNote: data.reviewNote || '',
+          reviewedByEmail: data.reviewedByEmail || '',
+          reviewedAt: data.reviewedAt && typeof data.reviewedAt.toDate === 'function' ? data.reviewedAt.toDate().toISOString() : null,
           createdAt: data.createdAt && typeof data.createdAt.toDate === 'function'
             ? data.createdAt.toDate().toISOString()
             : null
