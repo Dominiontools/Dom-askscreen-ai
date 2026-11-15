@@ -37,9 +37,11 @@ The backend's activity log is designed to store technical metadata rather than c
 - Chat history is stored locally on your device only when the history setting is enabled.
 - Account, usage, product-access, support and administrative records are stored in Firestore.
 - Technical activity/error logs are stored in Firestore for service monitoring.
-- Retention periods, backup deletion periods and final AI-provider retention settings must be configured and documented by the operator before launch.
+- When you complete the in-app account deletion flow, the backend deletes your Firebase Authentication account and the associated account, support, usage/activity, payment and user-linked audit records it can identify. Firestore account subcollections are recursively deleted.
+- Local chat history and files stored on your device are not deleted by the server-side account deletion request; clear app data or uninstall the app to remove locally stored app data.
+- Copies already processed by third-party AI providers may be subject to those providers' retention policies. The operator must confirm provider retention and backup deletion periods before launch.
 
-Uninstalling the app may not delete server-side account or support records.
+Uninstalling the app alone does not delete server-side account records.
 
 ## 6. Sharing
 
@@ -49,7 +51,7 @@ Information may be processed by the service providers needed to operate the app 
 
 You can stop screen capture or microphone listening from the app controls/notification, deny Android permissions, disable local history, and stop using the service.
 
-For access, correction, account deletion or privacy requests, contact **Dominiontools56@gmail.com**. The operator must verify the request and explain any records that must be retained by law. The current development build does not yet provide a self-service account deletion button.
+You can request account deletion from **Account → Delete my account and data**. For security, the app asks you to confirm your password and the server requires a recent sign-in. The deletion endpoint removes the Firebase Authentication account and associated customer records it can identify. If deletion fails or you need help with data not covered by the automated process, contact **Dominiontools56@gmail.com**. Requests are subject to lawful retention requirements and third-party provider retention policies.
 
 ## 8. Security
 
