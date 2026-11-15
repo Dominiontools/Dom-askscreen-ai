@@ -8,7 +8,7 @@ const { handler: adminHandler } = require('./netlify/functions/admin-dashboard')
 const { handler: adminUsersHandler } = require('./netlify/functions/admin-users');
 const { handler: adminProductSubscriptionsHandler } = require('./netlify/functions/admin-product-subscriptions');
 const { handler: adminSettingsHandler } = require('./netlify/functions/admin-settings');
-const { handler: appUpdateHandler } = require('./netlify/functions/app-update');
+const { handler: appUpdateHandler, validReleaseAssetUrl } = require('./netlify/functions/app-update');
 const { handler: supportHandler } = require('./netlify/functions/support-tickets');
 const { handler: supportAdminHandler } = require('./netlify/functions/support-admin');
 const { handler: accountStatusHandler } = require('./netlify/functions/account-status');
@@ -41,6 +41,21 @@ async function run() {
   assert.equal(products.find(item => item.id === 'video_annotation').status, 'active');
   assert.equal(products.find(item => item.id === 'core'), undefined, 'Core is not treated as a Work Centre product');
   console.log('PASS Independent product subscription status and expiry checks');
+  assert.equal(validReleaseAssetUrl('https://github.com/Dominiontools/Dom-askscreen-ai/releases/download/v1.2.0/app.apk'), true,
+    'Only APK assets hosted in this repository release path should be accepted');
+  assert.equal(validReleaseAssetUrl('http://github.com/Dominiontools/Dom-askscreen-ai/releases/download/v1.2.0/app.apk'), false,
+    'Release assets must use HTTPS');
+  assert.equal(validReleaseAssetUrl('https://github.com.evil.example/Dominiontools/Dom-askscreen-ai/releases/download/v1.2.0/app.apk'), false,
+    'Lookalike GitHub hosts must be rejected');
+  assert.equal(validReleaseAssetUrl('https://evil.example/Dominiontools/Dom-askscreen-ai/releases/download/v1.2.0/app.apk'), false,
+    'External APK hosts must be rejected');
+  assert.equal(validReleaseAssetUrl('https://github.com/Dominiontools/Other-App/releases/download/v1.2.0/app.apk'), false,
+    'APK assets from another repository must be rejected');
+  assert.equal(validReleaseAssetUrl('https://github.com/Dominiontools/Dom-askscreen-ai/releases/download/v1.2.0/app.apk?redirect=evil'), false,
+    'Release asset URLs with query parameters must be rejected');
+  assert.equal(validReleaseAssetUrl('https://github.com/Dominiontools/Dom-askscreen-ai/releases/download/v1.2.0/app.zip'), false,
+    'Non-APK release assets must be rejected');
+  console.log('PASS App updater accepts only trusted GitHub Release APK URLs');
   assert.equal(isEligibleForFreeTrial('2026-11-15T10:00:00.000Z', '2026-11-15T00:00:00.000Z'), true,
     'Accounts created after the configured trial launch are eligible');
   assert.equal(isEligibleForFreeTrial('2026-11-14T23:59:59.000Z', '2026-11-15T00:00:00.000Z'), false,
