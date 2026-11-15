@@ -45,13 +45,17 @@ The Firebase Admin service account must have permission to verify Firebase ID to
 
 All AI requests on this upgrade branch require a signed-in Firebase account and go through the backend. The backend grants a configurable lifetime free allowance per feature (screen reading, AI spoken answers, and transcription) only to Firebase accounts whose trusted Firebase Authentication creation time is on or after `FREE_TRIAL_START_AT`. The default is two uses per feature; an authorized administrator can change the limit from 0 to 10 in App & Feature Settings. Accounts created before the trial start timestamp do not receive a trial, even if their Firestore usage record is missing or recreated. Each successful feature request consumes one use. Allowances never reset monthly or when the app is reopened. When a feature's allowance is exhausted, an active subscription is required for that feature. A paid subscription is recognized only when a verified active subscription record with a valid future expiry exists in Firestore.
 
-## 5. Paystack — later phase
+## 5. Customer account deletion
+
+The Android Account screen provides **Delete my account and data**. Customers must re-enter their email/password credentials; the backend then requires a Firebase ID token whose `auth_time` is no more than five minutes old. The `/.netlify/functions/delete-account` endpoint deletes the Firebase Authentication user and the associated Firestore account document (including nested subcollections), support tickets, activity logs, payment records and user-linked admin audit records. It never deletes global app configuration. The action is irreversible. Local chat history on the device and data already held by third-party AI providers are outside this server-side deletion operation and must be handled through device controls/provider retention policies. Keep the privacy policy aligned with actual retention and applicable law.
+
+## 6. Paystack — later phase
 
 Paystack is intentionally not required for this deployment. When the Paystack account is approved, we will add server-side checkout initialization, webhook signature verification, and payment verification. Only verified payments will activate subscriptions. Paystack secret keys will be stored in Netlify environment variables, never in the Android app.
 
 Until that integration is complete, do not manually mark a customer as having paid for DOM AI Core or record a manual override as a payment. The separate Admin Centre control for granting or revoking an independent Work Centre module is an access override only; it does not create a payment record or activate the Core subscription.
 
-## 6. In-app administrator centre
+## 7. In-app administrator centre
 
 The administrator centre is part of the Android app. Open **Account → Open Admin Centre**. It uses the same Firebase Authentication project as customer accounts, but the backend grants access only to verified email addresses listed in the Netlify `ADMIN_EMAILS` environment variable.
 
@@ -59,12 +63,12 @@ Add `ADMIN_EMAILS` as one or more authorized Firebase administrator email addres
 
 The in-app dashboard displays registered users, join/last-sign-in dates, per-feature usage, subscription status, available payment records, recent customer support requests, recent app activity/errors, and editable app settings. AI request activity records only technical metadata (account, feature, outcome, error code, provider/model, request ID and timestamp); it does not store customer prompts, screenshots, audio, or uploaded file contents. Payment records will populate after the later Paystack integration writes verified transactions to `askScreenPayments`. Administrators can search and filter registered accounts, inspect email verification and account status, enable or disable a customer account, reply to a support ticket, and mark it open, in progress, or resolved. Account enable/disable actions and support-ticket replies/status changes are written to `askScreenAdminAuditLogs` with the administrator identity, affected account or ticket, action, and server timestamp. The in-app dashboard displays the latest 100 records. Recent AI request activity and technical failures are stored separately in `askScreenActivityLogs`; the dashboard displays the latest 100 records. The Android app calls `/.netlify/functions/account-status` to show each signed-in customer only their own usage and subscription status. It calls `/.netlify/functions/admin-dashboard` to load administrator data, `/.netlify/functions/support-admin` to send replies or update ticket status, `/.netlify/functions/admin-users` to enable or disable accounts, and `/.netlify/functions/admin-settings` to read or update operational settings. The settings endpoint allows public GET access only to customer-safe announcement/feature configuration; all changes require an authorized administrator. Each management endpoint verifies the Firebase ID token, verified email, and `ADMIN_EMAILS` allowlist on the server. The App & Feature Settings section lets authorized admins update a customer announcement, switch screen/spoken/transcription features on or off, and set the free-use limit from 0 to 10; the backend enforces feature switches and limits on every request. These are operational settings, not source-code editing. DOM AI Core subscription changes and refunds are not enabled. A separate **Manage Work Centre access** control allows an authorized administrator to grant or revoke an independent specialist product for a selected customer until a specified future expiry date (maximum two years). Every grant/revoke is written to the admin audit log. This is an access override only: it does not create a payment record, prove that money was received, or activate DOM AI Core.
 
-## 7. In-app customer support
+## 8. In-app customer support
 
 Customers can contact support using the WhatsApp, email, and phone shortcuts in the Android app. Signed-in customers with verified email addresses can also submit private support requests from the Support Centre. Requests are stored in the Firestore `askScreenSupportTickets` collection and are scoped to the submitting Firebase UID. Customers can view only their own requests and replies. The Admin Centre displays the latest support requests. Authorized administrators can send a reply and update the ticket status; customers can see the reply and status in their Support Centre ticket history after refreshing. Support ticket documents should be accessed through these authenticated backend functions, not exposed directly to unauthenticated clients. Customers can also receive assistance through the published WhatsApp, email, and phone channels.
 
 
-## 8. Android APK Update Centre — GitHub Releases
+## 9. Android APK Update Centre — GitHub Releases
 
 The Admin Centre stores release metadata in Firebase Firestore. APK binaries are hosted as assets in GitHub Releases, so no Cloudflare R2 bucket, Firebase Storage bucket, storage API key, or bank card is needed for APK hosting.
 
@@ -87,7 +91,7 @@ The Admin Centre stores release metadata in Firebase Firestore. APK binaries are
 - Android may ask each customer to allow AskScreen AI to install apps from this source and approve the installation. Silent installation is not available to ordinary apps.
 - Test the upgrade on a spare phone using the exact APK currently distributed before publishing an update to customers.
 
-## 10. Subscription product pricing
+## 11. Subscription product pricing
 
 The Admin Centre's **App & feature settings → Subscription & product pricing** section manages the public monthly product catalogue stored in `askScreenAppConfig/public`.
 
