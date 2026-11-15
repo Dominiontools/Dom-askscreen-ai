@@ -68,11 +68,11 @@ Customers must send USDT on the exact selected network. Sending on the wrong net
 
 ### Admin review and entitlement
 
-POST JSON to `/.netlify/functions/admin-crypto-payments` with `paymentId`, `action` (`approve` or `reject`), and optional `note`. The endpoint requires a signed-in, email-verified administrator listed in `ADMIN_EMAILS`. Only pending USDT records can be reviewed. Approval grants only the selected independent Work Centre product for 30 days and writes an audit record; rejection grants no access.
+POST JSON to `/.netlify/functions/admin-crypto-payments` with `paymentId`, `action` (`approve` or `reject`), and optional `note`. The endpoint requires a signed-in, email-verified administrator listed in `ADMIN_EMAILS`. Only pending USDT records can be reviewed. Approval/rejection uses a Firestore transaction so two admins cannot approve the same payment concurrently. Approval grants only the selected independent Work Centre product for 30 days and writes an audit record; rejection grants no access. An approved payment awaiting account creation is claimed atomically after the customer registers and verifies the same email, preventing a partially claimed payment from being lost.
 
 If payment is approved before the customer registers, the payment remains available to claim. After the customer creates an account and verifies the same email address, the authenticated `account-status` endpoint claims the approved entitlement and attaches it to that account. The entitlement is never granted merely because a customer submits payment details.
 
-The admin dashboard API includes the payment provider, service, network, destination, amount, transaction hash, status and review metadata. The Android Admin Centre still needs a dedicated payment-review screen wired to this API before the complete in-app review experience is customer-ready. Support requests remain available through the existing Support Centre while a payment is pending.
+The admin dashboard API includes the payment provider, service, network, destination, amount, transaction hash, status and review metadata. The Android app now hides the Email Management launch action unless the signed-in account has a verified email and an active Email Management entitlement. The Android Admin Centre still needs a dedicated payment-review screen wired to this API before the complete in-app review experience is customer-ready. Support requests remain available through the existing Support Centre while a payment is pending.
 
 ### Paystack
 
