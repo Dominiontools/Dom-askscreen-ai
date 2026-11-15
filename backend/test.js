@@ -71,8 +71,8 @@ async function run() {
     'A client cannot relabel a screen request as spoken to change usage accounting');
   assert.equal(featureForRequest({ queryType: 'AUDIO', feature: 'screen' }), 'spoken',
     'Audio request types are classified as spoken regardless of the client feature label');
-  assert.equal(featureForRequest({ queryType: 'TRANSCRIPTION', feature: 'screen' }), 'transcription',
-    'Transcription request types retain their own usage category');
+  assert.equal(featureForRequest({ queryType: 'TRANSCRIPTION', feature: 'transcription' }), 'screen',
+    'AI requests cannot consume the separate transcript-only allowance by changing their request label');
   assert.equal(featureForRequest({ queryType: 'TEXT', feature: 'spoken' }), 'screen',
     'Unknown and text-only request types fail closed to screen usage');
   console.log('PASS Usage accounting ignores client-supplied feature labels');
