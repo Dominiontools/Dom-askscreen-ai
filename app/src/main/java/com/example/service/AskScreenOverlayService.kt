@@ -199,6 +199,7 @@ class AskScreenOverlayService : Service() {
         ttsManager = TtsManager(this)
         audioCaptureManager.onFatalRecognitionError = { message ->
             serviceScope.launch {
+                disableMicrophoneForegroundType()
                 bubbleState.value = BubbleState.ERROR
                 liveCaptions.value = message
                 sessionMessages.value = sessionMessages.value + ChatMessage(
