@@ -43,9 +43,9 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.text.DateFormat
-import java.time.Instant
-import java.util.Date
 import java.util.Locale
+import java.text.SimpleDateFormat
+import java.util.TimeZone
 import java.math.BigDecimal
 import java.math.RoundingMode
 
@@ -100,9 +100,25 @@ fun AdminScreen(onBack: () -> Unit) {
     var grantExpiry by remember { mutableStateOf("") }
     var showGrantProductMenu by remember { mutableStateOf(false) }
 
-    fun dateLabel(value:String):String = try {
-        if (value.isBlank() || value == "null") "—" else DateFormat.getDateTimeInstance().format(Date.from(Instant.parse(value)))
-    } catch (_:Exception) { "—" }
+    fun dateLabel(value:String):String {
+        if (value.isBlank() || value == "null") return "—"
+        val patterns = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+            "yyyy-MM-dd'T'HH:mm:ssXXX",
+            "EEE, dd MMM yyyy HH:mm:ss zzz"
+        )
+        for (pattern in patterns) {
+            try {
+                val parser = SimpleDateFormat(pattern, Locale.US).apply {
+                    isLenient = false
+                    timeZone = TimeZone.getTimeZone("UTC")
+                }
+                val parsed = parser.parse(value)
+                if (parsed != null) return DateFormat.getDateTimeInstance().format(parsed)
+            } catch (_: Exception) { }
+        }
+        return "—"
+    }
 
     suspend fun loadSettings(token:String) {
         val configured = prefs.backendUrl.trim().trimEnd('/')
