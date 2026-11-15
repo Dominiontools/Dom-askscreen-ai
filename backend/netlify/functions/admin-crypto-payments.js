@@ -46,40 +46,65 @@ exports.handler = async event => {
       let customer = null;
       try { customer = await admin.auth().getUserByEmail(String(payment.email || '')); }
       catch (lookupError) { if (lookupError.code !== 'auth/user-not-found') throw lookupError; }
+      const verifiedCustomer = customer && customer.emailVerified ? customer : null;
       const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      const expiresAt = admin.firestore.Timestamp.fromDate(periodEnd);
       const now = admin.firestore.FieldValue.serverTimestamp();
-      if (customer && customer.emailVerified) {
-        const record = {
-          status: 'active', currentPeriodEnd: admin.firestore.Timestamp.fromDate(periodEnd),
-          source: 'verified_usdt_payment', paymentId, network: payment.network,
-          transactionHash: payment.transactionHash, verifiedByUid: decoded.uid,
-          verifiedByEmail: email, verifiedAt: now, updatedAt: now
-        };
-        await db.collection('askScreenAccounts').doc(customer.uid).set({
-          productSubscriptions: { [product.id]: record }, updatedAt: now
-        }, { merge: true });
-      }
-      await paymentRef.update({ status: 'approved', uid: customer && customer.emailVerified ? customer.uid : null,
-        customerEmail: customer && customer.emailVerified ? (customer.email || payment.email) : payment.email,
-        claimRequired: !(customer && customer.emailVerified), reviewedAt: now, reviewedByUid: decoded.uid,
-        reviewedByEmail: email, reviewNote: note, entitlementExpiresAt: admin.firestore.Timestamp.fromDate(periodEnd) });
-      await db.collection('askScreenAdminAuditLogs').add({ action: 'crypto_payment_approved',
-        targetUid: customer && customer.emailVerified ? customer.uid : '', targetEmail: payment.email || '', paymentId,
-        productId: product.id, productName: product.name, adminUid: decoded.uid,
-        adminEmail: email, status: 'approved', claimRequired: !(customer && customer.emailVerified), createdAt: now });
+      const accountRef = verifiedCustomer ? db.collection('askScreenAccounts').doc(verifiedCustomer.uid) : null;
+      const record = {
+        status: 'active', currentPeriodEnd: expiresAt, source: 'verified_usdt_payment',
+        paymentId, network: payment.network, transactionHash: payment.transactionHash,
+        verifiedByUid: decoded.uid, verifiedByEmail: email, verifiedAt: now, updatedAt: now
+      };
+      await db.runTransaction(async transaction => {
+        const current = await transaction.get(paymentRef);
+        if (!current.exists || current.data().provider !== 'USDT_MANUAL' || current.data().status !== 'pending') {
+          const conflict = new Error('PAYMENT_ALREADY_REVIEWED');
+          conflict.code = 'PAYMENT_ALREADY_REVIEWED';
+          throw conflict;
+        }
+        if (accountRef) {
+          const account = await transaction.get(accountRef);
+          const existing = account.exists ? account.data().productSubscriptions || {} : {};
+          transaction.set(accountRef, {
+            productSubscriptions: { ...existing, [product.id]: record },
+            updatedAt: now
+          }, { merge: true });
+        }
+        transaction.update(paymentRef, {
+          status: 'approved', uid: verifiedCustomer ? verifiedCustomer.uid : null,
+          customerEmail: verifiedCustomer ? (verifiedCustomer.email || payment.email) : payment.email,
+          claimRequired: !verifiedCustomer, reviewedAt: now, reviewedByUid: decoded.uid,
+          reviewedByEmail: email, reviewNote: note, entitlementExpiresAt: expiresAt
+        });
+      });
+      await db.collection('askScreenAdminAuditLogs').add({
+        action: 'crypto_payment_approved', targetUid: verifiedCustomer ? verifiedCustomer.uid : '',
+        targetEmail: payment.email || '', paymentId, productId: product.id, productName: product.name,
+        adminUid: decoded.uid, adminEmail: email, status: 'approved',
+        claimRequired: !verifiedCustomer, createdAt: now
+      });
       return json(200, { success: true, paymentId, status: 'approved',
-        uid: customer && customer.emailVerified ? customer.uid : null, claimRequired: !(customer && customer.emailVerified), productId: product.id,
-        currentPeriodEnd: periodEnd.toISOString() });
+        uid: verifiedCustomer ? verifiedCustomer.uid : null, claimRequired: !verifiedCustomer,
+        productId: product.id, currentPeriodEnd: periodEnd.toISOString() });
     }
-    await paymentRef.update({ status: 'rejected', reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
-      reviewedByUid: decoded.uid, reviewedByEmail: email, reviewNote: note });
+    await db.runTransaction(async transaction => {
+      const current = await transaction.get(paymentRef);
+      if (!current.exists || current.data().provider !== 'USDT_MANUAL' || current.data().status !== 'pending') {
+        const conflict = new Error('PAYMENT_ALREADY_REVIEWED');
+        conflict.code = 'PAYMENT_ALREADY_REVIEWED';
+        throw conflict;
+      }
+      transaction.update(paymentRef, { status: 'rejected', reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
+        reviewedByUid: decoded.uid, reviewedByEmail: email, reviewNote: note });
+    });
     await db.collection('askScreenAdminAuditLogs').add({ action: 'crypto_payment_rejected', paymentId,
       targetEmail: payment.email || '', productId: payment.productId || '', adminUid: decoded.uid, adminEmail: email,
       status: 'rejected', reviewNote: note, createdAt: admin.firestore.FieldValue.serverTimestamp() });
     return json(200, { success: true, paymentId, status: 'rejected' });
   } catch (error) {
-    const status = error.statusCode || (error.message === 'AUTH_NOT_CONFIGURED' ? 503 : 400);
+    const status = error.statusCode || (error.message === 'AUTH_NOT_CONFIGURED' ? 503 : (error.code === 'PAYMENT_ALREADY_REVIEWED' ? 409 : 400));
     console.error('[Admin Crypto Payments] Review failed:', error.message);
-    return json(status, { error: status === 401 ? 'Please sign in again.' : 'Payment review could not be completed.' });
+    return json(status, { error: status === 401 ? 'Please sign in again.' : (status === 409 ? 'This payment has already been reviewed. Refresh the queue.' : 'Payment review could not be completed.') });
   }
 };
