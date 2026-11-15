@@ -49,11 +49,36 @@ All AI requests on this upgrade branch require a signed-in Firebase account and 
 
 The Android Account screen provides **Delete my account and data**. Customers must re-enter their email/password credentials; the backend then requires a Firebase ID token whose `auth_time` is no more than five minutes old. The `/.netlify/functions/delete-account` endpoint deletes the Firebase Authentication user and the associated Firestore account document (including nested subcollections), support tickets, activity logs, payment records and user-linked admin audit records. It never deletes global app configuration. The action is irreversible. Local chat history on the device and data already held by third-party AI providers are outside this server-side deletion operation and must be handled through device controls/provider retention policies. Keep the privacy policy aligned with actual retention and applicable law.
 
-## 6. Paystack — later phase
+## 6. Payments — USDT manual review; Paystack coming soon
 
-Paystack is intentionally not required for this deployment. When the Paystack account is approved, we will add server-side checkout initialization, webhook signature verification, and payment verification. Only verified payments will activate subscriptions. Paystack secret keys will be stored in Netlify environment variables, never in the Android app.
+The backend provides an initial manual USDT payment workflow for independent Work Centre services. Paystack remains disabled and is not a payment option until the account is approved and the full server-side integration is implemented.
 
-Until that integration is complete, do not manually mark a customer as having paid for DOM AI Core or record a manual override as a payment. The separate Admin Centre control for granting or revoking an independent Work Centre module is an access override only; it does not create a payment record or activate the Core subscription.
+### Supported USDT networks
+
+- **BEP20 (BNB Smart Chain):** `0xc0C830d8165E9ff2Da899397128dB9247d64154F`
+- **TRC20 (TRON):** `TSmksTL3haP4iSQC49j5mMpF9xw6feoXH`
+
+The public payment-instructions endpoint is `/.netlify/functions/crypto-payments` (GET). Optional Netlify variables `USDT_BEP20_ADDRESS` and `USDT_TRC20_ADDRESS` can override the public receiving addresses. Never put wallet seed phrases or private keys in the app, Netlify, or GitHub.
+
+### Customer submission
+
+POST JSON to `/.netlify/functions/crypto-payments` with `email`, `productId`, `network` (`BEP20` or `TRC20`), `transactionHash`, and `amountUSDT`. The API validates the email, independent product ID, network-specific transaction-hash format and amount, and prevents a transaction hash from being submitted twice on the same network. A submission is only a pending review record; it does not unlock any product.
+
+Customers must send USDT on the exact selected network. Sending on the wrong network can result in permanent loss. The submitted amount is not automatically converted from the USD catalogue price; the administrator must compare the received amount with the intended product price and any agreed exchange rate before approval. Screenshots are supporting information only and are not proof of payment.
+
+### Admin review and entitlement
+
+POST JSON to `/.netlify/functions/admin-crypto-payments` with `paymentId`, `action` (`approve` or `reject`), and optional `note`. The endpoint requires a signed-in, email-verified administrator listed in `ADMIN_EMAILS`. Only pending USDT records can be reviewed. Approval grants only the selected independent Work Centre product for 30 days and writes an audit record; rejection grants no access.
+
+If payment is approved before the customer registers, the payment remains available to claim. After the customer creates an account and verifies the same email address, the authenticated `account-status` endpoint claims the approved entitlement and attaches it to that account. The entitlement is never granted merely because a customer submits payment details.
+
+The admin dashboard API includes the payment provider, service, network, destination, amount, transaction hash, status and review metadata. The Android Admin Centre still needs a dedicated payment-review screen wired to this API before the complete in-app review experience is customer-ready. Support requests remain available through the existing Support Centre while a payment is pending.
+
+### Paystack
+
+Paystack is shown as `Coming Soon` and disabled. After the account is approved, implement server-side checkout initialization, webhook signature verification, server-side transaction verification, idempotency and entitlement activation. Keep all Paystack secret keys in Netlify environment variables, never in the Android app. Do not accept payments through Paystack until those controls and end-to-end tests are complete.
+
+Manual access grants remain administrative overrides, not payment records. They must not be represented as customer payments or as DOM AI Core subscriptions.
 
 ## 7. In-app administrator centre
 
