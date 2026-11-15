@@ -112,11 +112,10 @@ async function verifyUser(event) {
 }
 
 function featureForRequest(raw) {
-  const value = String(raw.feature || '').toLowerCase();
-  if (['screen', 'spoken', 'transcription'].includes(value)) return value;
+  // Never trust a client-supplied feature label for usage accounting.
+  // Map only the recognized request type; unknown or legacy types fail closed to screen usage.
   const type = String(raw.queryType || '').toUpperCase();
   if (['AUDIO', 'VOICE', 'SCREEN_AND_AUDIO'].includes(type)) return 'spoken';
-  if (['SCREEN', 'REGION'].includes(type)) return 'screen';
   if (type === 'TRANSCRIPTION') return 'transcription';
   return 'screen';
 }
@@ -858,6 +857,7 @@ exports.handler = async function handler(event) {
 
 
 // Shared authenticated usage helpers for feature-only endpoints.
+exports.featureForRequest = featureForRequest;
 exports.verifyUser = verifyUser;
 exports.reserveFeatureUse = reserveFeatureUse;
 exports.isEligibleForFreeTrial = isEligibleForFreeTrial;
