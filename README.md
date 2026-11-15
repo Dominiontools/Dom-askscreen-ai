@@ -48,7 +48,7 @@ Open the project folder in Android Studio and allow Gradle sync. The project tar
 
 DOM Ask AI is being prepared to distribute signed APK updates from its own Update Centre, without requiring Google Play.
 
-- The Admin Centre will provide a release workflow for uploading an APK, entering its version code/name and release notes, and publishing the release metadata.
+- The Admin Centre provides a release workflow for registering an APK, entering its version code/name, release notes and SHA-256 checksum, and publishing the release metadata.
 - Customer installations will check the published release, compare its version code with the installed app, and offer an **Update** action when a newer release is available.
 - Android will still show its system installation approval when required. Ordinary apps cannot silently install an APK on a customer's personal phone.
 - Every update must use the same application ID (`com.dominion.askscreenai`), the same release signing certificate/key as the installed customer app, and a strictly higher `versionCode`. A mismatched signature or package ID will cause Android to reject the update.
@@ -56,6 +56,28 @@ DOM Ask AI is being prepared to distribute signed APK updates from its own Updat
 - Release uploads and metadata must be authorized by the server-side admin allowlist. Never expose service-account credentials or signing keys in the app or repository.
 
 The self-hosted update workflow is not considered ready for customer distribution until APK upload, checksum verification, install approval, and an upgrade test from the currently distributed APK have all passed.
+
+### Building a customer release APK safely
+
+The GitHub Actions workflow always creates a **debug APK for testing only**. Never upload that debug APK to a public GitHub Release or use it to update customer installations. Debug signing is not the production signing identity.
+
+To let GitHub Actions create a signed release APK, add these three repository Actions secrets under **GitHub → Settings → Secrets and variables → Actions**:
+
+- `ANDROID_KEYSTORE_BASE64`: the existing production upload keystore encoded as Base64.
+- `ANDROID_KEYSTORE_PASSWORD`: the keystore password.
+- `ANDROID_KEY_PASSWORD`: the password for the `upload` key alias.
+
+On Windows PowerShell, encode the existing keystore with:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\your-existing-upload-key.jks"))
+```
+
+Copy the output directly into the GitHub secret. Do not paste the keystore, passwords, or Base64 value into chat, source code, issues, or pull-request comments. Do not generate a new key if customers already have an app signed with an existing production key.
+
+When all three secrets are present, Actions also builds and uploads the `askscreen-ai-release-apk` artifact. If they are absent, only the debug test artifact is produced. The Gradle release configuration currently expects the key alias `upload`.
+
+Before using the release artifact, verify its signing certificate against the APK already installed by customers. The CI build passing does not prove that the signing key matches the distributed app. Keep the existing key backed up securely.
 
 The Admin Centre requires the SHA-256 checksum of the exact APK asset. On Windows PowerShell, generate it with:
 
