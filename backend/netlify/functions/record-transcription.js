@@ -36,12 +36,15 @@ exports.handler = async function handler(event) {
     await reserveFeatureUse(user.uid, 'transcription', requestId);
     return respond(200, { success: true, feature: 'transcription' });
   } catch (error) {
+    if (error.message === 'FEATURE_DISABLED') {
+      return respond(403, { success: false, code: 'FEATURE_DISABLED', feature: 'transcription', error: 'Transcription is temporarily unavailable.' });
+    }
     if (error.message === 'SUBSCRIPTION_REQUIRED') {
       return respond(402, {
         success: false,
         code: 'SUBSCRIPTION_REQUIRED',
         feature: 'transcription',
-        error: 'Your two free transcription uses have been used. Subscribe to continue.'
+        error: 'A subscription is required to use this feature. Your free allowance is unavailable or has been used.'
       });
     }
     console.error('[Transcription Access] Usage reservation failed', {

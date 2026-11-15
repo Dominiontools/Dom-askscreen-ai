@@ -1,0 +1,13 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // DOM Ask AI accesses account, usage, payment, support-ticket and audit data
+    // only through authenticated Netlify functions using the Firebase Admin SDK.
+    // The Admin SDK bypasses these client security rules. Deny direct client access
+    // so customers cannot read or alter another user's records or admin audit data.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

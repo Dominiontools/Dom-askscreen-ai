@@ -6,21 +6,22 @@ import com.example.data.local.PreferencesManager
 import com.example.data.model.QueryType
 import com.example.data.model.WindowSizePreset
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+// Robolectric's SDK 36 runtime is not available in the current test setup.
+// SDK 35 exercises these resource and preference tests without requiring API 36.
+@Config(sdk = [35])
 class ExampleRobolectricTest {
 
     @Test
     fun `read string from context`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val appName = context.getString(R.string.app_name)
-        assertEquals("AskScreen AI", appName)
+        assertEquals("Dominion Ask AI", appName)
     }
 
     @Test

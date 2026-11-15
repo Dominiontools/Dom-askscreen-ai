@@ -177,11 +177,6 @@ class AskScreenRepository(private val context: Context) {
         rootJson.put("prompt", prompt)
         rootJson.put("model", model)
         rootJson.put("queryType", queryType.name)
-        rootJson.put("feature", when (queryType) {
-            QueryType.AUDIO, QueryType.VOICE, QueryType.SCREEN_AND_AUDIO -> "spoken"
-            QueryType.TRANSCRIPTION -> "transcription"
-            else -> "screen"
-        })
 
         val imagesArray = JSONArray()
         for (img in images) {
