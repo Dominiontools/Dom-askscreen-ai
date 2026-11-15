@@ -2,6 +2,7 @@
 
 const { verifyUser } = require('./ask-screen');
 const { summarizeProductSubscriptions } = require('../../product-subscriptions');
+const { DEFAULT_PRODUCTS } = require('../../pricing-catalog');
 
 let adminPromise;
 async function getAdmin() {
@@ -40,6 +41,35 @@ exports.handler = async event => {
       db.collection('askScreenAppConfig').doc('public').get()
     ]);
     const account = accountSnapshot.exists ? accountSnapshot.data() : {};
+    // A customer may pay and receive admin approval before creating an account.
+    // Claim approved entitlements only after signing in with the same verified email.
+    if (authUser.emailVerified && authUser.email) {
+      const claimSnapshot = await db.collection('askScreenPayments')
+        .where('email', '==', String(authUser.email).trim().toLowerCase())
+        .where('status', '==', 'approved')
+        .where('claimRequired', '==', true).limit(25).get();
+      if (!claimSnapshot.empty) {
+        const claimed = {};
+        for (const paymentDoc of claimSnapshot.docs) {
+          const payment = paymentDoc.data();
+          const product = DEFAULT_PRODUCTS.find(item => item.id === payment.productId && item.independent === true);
+          if (!product || !payment.entitlementExpiresAt || typeof payment.entitlementExpiresAt.toDate !== 'function') continue;
+          const expiry = payment.entitlementExpiresAt.toDate();
+          if (expiry.getTime() <= Date.now()) continue;
+          claimed[product.id] = {
+            status: 'active', currentPeriodEnd: payment.entitlementExpiresAt,
+            source: 'verified_usdt_payment', paymentId: paymentDoc.id,
+            network: payment.network || '', transactionHash: payment.transactionHash || '',
+            verifiedByEmail: payment.reviewedByEmail || '', updatedAt: admin.firestore.FieldValue.serverTimestamp()
+          };
+          await paymentDoc.ref.update({ uid: decoded.uid, claimRequired: false, claimedAt: admin.firestore.FieldValue.serverTimestamp() });
+        }
+        if (Object.keys(claimed).length) {
+          await db.collection('askScreenAccounts').doc(decoded.uid).set({ productSubscriptions: claimed, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+          Object.assign(account.productSubscriptions || (account.productSubscriptions = {}), claimed);
+        }
+      }
+    }
     const usage = account.usage || {};
     const subscription = account.subscription || {};
     const productSubscriptions = summarizeProductSubscriptions(account.productSubscriptions || {});
