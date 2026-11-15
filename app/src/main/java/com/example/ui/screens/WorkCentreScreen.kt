@@ -12,6 +12,8 @@ import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.WorkOutline
 import androidx.compose.material3.*
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,9 +26,12 @@ import com.example.AskScreenApp
 import com.example.ui.theme.*
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Request
 import org.json.JSONObject
 import java.text.DateFormat
@@ -36,6 +41,8 @@ import java.util.Locale
 import java.util.TimeZone
 
 private const val EMAIL_MANAGEMENT_URL = "https://fancy-swan-734af6.netlify.app"
+
+private data class WalletNetwork(val id:String,val name:String,val address:String)
 
 private data class WorkCentreProduct(
     val name: String,
@@ -73,6 +80,16 @@ fun WorkCentreScreen() {
     val prefs = remember { AskScreenApp.instance.preferencesManager }
     val auth = remember { FirebaseAuth.getInstance() }
     val http = remember { OkHttpClient() }
+    val clipboard = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
+    var wallets by remember { mutableStateOf<List<WalletNetwork>>(emptyList()) }
+    var checkoutProduct by remember { mutableStateOf<WorkCentreProduct?>(null) }
+    var paymentEmail by remember { mutableStateOf(auth.currentUser?.email.orEmpty()) }
+    var paymentNetwork by remember { mutableStateOf("BEP20") }
+    var paymentHash by remember { mutableStateOf("") }
+    var paymentAmount by remember { mutableStateOf("") }
+    var paymentBusy by remember { mutableStateOf(false) }
+    var paymentMessage by remember { mutableStateOf<String?>(null) }
     var products by remember { mutableStateOf<List<WorkCentreProduct>>(emptyList()) }
     var emailProduct by remember { mutableStateOf(WorkCentreProduct("DOM Email Management", "email_management", 2000)) }
     var loading by remember { mutableStateOf(true) }
@@ -95,6 +112,19 @@ fun WorkCentreScreen() {
                     JSONObject(response.body?.string().orEmpty()).optJSONObject("settings") ?: JSONObject()
                 }
             }
+            val paymentInstructions = withContext(Dispatchers.IO) {
+                http.newCall(Request.Builder().url("$base/crypto-payments").get().build()).execute().use { response ->
+                    if (!response.isSuccessful) throw IllegalStateException("USDT payment instructions could not be loaded.")
+                    JSONObject(response.body?.string().orEmpty())
+                }
+            }
+            val networkArray = paymentInstructions.optJSONArray("networks")
+            val loadedWallets = mutableListOf<WalletNetwork>()
+            if (networkArray != null) for (index in 0 until networkArray.length()) {
+                val item = networkArray.optJSONObject(index) ?: continue
+                loadedWallets.add(WalletNetwork(item.optString("id"), item.optString("name"), item.optString("address")))
+            }
+            wallets = loadedWallets
             val subscriptionById = mutableMapOf<String, Pair<String, String?>>()
             val user = auth.currentUser
             if (user != null) {
@@ -148,6 +178,31 @@ fun WorkCentreScreen() {
         }
     }
 
+    suspend fun submitCryptoPayment() {
+        val product = checkoutProduct ?: return
+        if (!paymentEmail.contains("@") || paymentEmail.length > 254) throw IllegalArgumentException("Enter a valid email address.")
+        if (paymentAmount.toBigDecimalOrNull() == null || paymentAmount.toBigDecimal() <= java.math.BigDecimal.ZERO) throw IllegalArgumentException("Enter the USDT amount you sent.")
+        if (paymentHash.isBlank()) throw IllegalArgumentException("Enter the transaction hash from your wallet.")
+        val configured = prefs.backendUrl.trim().trimEnd('/')
+        if (!configured.endsWith("/ask-screen")) throw IllegalStateException("Set the AskScreen backend URL in Settings first.")
+        val endpoint = configured.removeSuffix("/ask-screen") + "/crypto-payments"
+        val payload = JSONObject().put("email",paymentEmail.trim()).put("productId",product.id)
+            .put("network",paymentNetwork).put("transactionHash",paymentHash.trim()).put("amountUSDT",paymentAmount.trim())
+        withContext(Dispatchers.IO) {
+            val request = Request.Builder().url(endpoint)
+                .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
+            http.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                val json = try { JSONObject(body) } catch (_:Exception) { JSONObject() }
+                if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "Payment details could not be submitted." })
+                paymentMessage = json.optString("message","Payment details submitted for manual review.")
+            }
+        }
+        checkoutProduct = null
+        paymentHash = ""
+        paymentAmount = ""
+    }
+
     Column(
         modifier = Modifier.fillMaxSize().background(Slate950).verticalScroll(rememberScrollState()).padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -182,6 +237,7 @@ fun WorkCentreScreen() {
                     Text("Open the separate Email Management System", color = Slate400, fontSize = 12.sp)
                     Text("USD " + String.format(Locale.US, "%.2f", emailProduct.priceCents / 100.0) + "/month", color = ElectricCyan, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     Text(workAccessLabel(emailProduct), color = if (emailProduct.status == "active") ElectricCyan else Slate400, fontSize = 11.sp)
+                    Button(onClick = { paymentEmail = auth.currentUser?.email.orEmpty(); paymentMessage = null; checkoutProduct = emailProduct }, enabled = !loading && wallets.isNotEmpty()) { Text("Pay with USDT") }
                 }
                 Icon(Icons.Default.OpenInNew, contentDescription = "Open email management", tint = ElectricCyan)
             }
@@ -207,6 +263,7 @@ fun WorkCentreScreen() {
                             color = if (product.status == "active") ElectricCyan else Slate400,
                             fontSize = 11.sp
                         )
+                        Button(onClick = { paymentEmail = auth.currentUser?.email.orEmpty(); paymentMessage = null; checkoutProduct = product }, enabled = !loading && wallets.isNotEmpty()) { Text("Pay with USDT") }
                     }
                     Text(
                         "USD " + String.format(Locale.US, "%.2f", product.priceCents / 100.0) + "/mo",
@@ -215,9 +272,52 @@ fun WorkCentreScreen() {
                 }
             }
         }
+        paymentMessage?.let { Text(it, color = ElectricCyan, fontSize = 12.sp) }
         Text(
-            "Prices are displayed for planning only. Paystack checkout and automatic subscription activation are not available yet. An active access record is an administrator-managed entitlement only; it does not mean that the specialist workspace is already built or available inside this app. The specialist modules are still being developed.",
+            "USDT payments are manually reviewed. Submitting details or a screenshot does not activate access. Only an administrator's blockchain verification and approval unlocks the selected product. Send USDT on the exact network selected.",
+            color = AmberWarning, fontSize = 11.sp
+        )
+        Text(
+            "Prices are displayed for planning only. Paystack checkout is Coming Soon. An active access record is an administrator-managed entitlement only; it does not mean that the specialist workspace is already built or available inside this app. The specialist modules are still being developed.",
             color = Slate400, fontSize = 11.sp
+        )
+    }
+    checkoutProduct?.let { product ->
+        val wallet = wallets.firstOrNull { it.id == paymentNetwork }
+        AlertDialog(
+            onDismissRequest = { if (!paymentBusy) checkoutProduct = null },
+            title = { Text("USDT payment • ${product.name}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Text("Monthly catalogue price: USD ${String.format(Locale.US, "%.2f", product.priceCents / 100.0)}. Confirm the USDT amount with the current exchange rate before sending.", fontSize = 12.sp)
+                    Text("Payment email (use the same email when registering)", fontSize = 11.sp)
+                    OutlinedTextField(value = paymentEmail, onValueChange = { paymentEmail = it.take(254) }, singleLine = true, label = { Text("Email address") })
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(selected = paymentNetwork == "BEP20", onClick = { paymentNetwork = "BEP20" }, label = { Text("BEP20") })
+                        FilterChip(selected = paymentNetwork == "TRC20", onClick = { paymentNetwork = "TRC20" }, label = { Text("TRC20") })
+                    }
+                    Text(wallet?.name ?: "Loading network…", color = ElectricCyan, fontSize = 12.sp)
+                    Text(wallet?.address ?: "Wallet address unavailable", fontSize = 10.sp)
+                    TextButton(onClick = { wallet?.let { clipboard.setText(AnnotatedString(it.address)) } }, enabled = wallet != null) { Text("Copy receiving address") }
+                    OutlinedTextField(value = paymentAmount, onValueChange = { paymentAmount = it.filter { ch -> ch.isDigit() || ch == '.' }.take(20) }, singleLine = true, label = { Text("USDT amount sent") })
+                    OutlinedTextField(value = paymentHash, onValueChange = { paymentHash = it.filterNot(Char::isWhitespace).take(140) }, singleLine = true, label = { Text("Transaction hash") })
+                    Text("Do not send on the wrong network. Access stays locked until the admin verifies the transaction. Never submit a wallet recovery phrase or private key.", color = AmberWarning, fontSize = 11.sp)
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    scope.launch {
+                        paymentBusy = true
+                        paymentMessage = null
+                        try { submitCryptoPayment() }
+                        catch (e: Exception) { paymentMessage = e.message ?: "Payment details could not be submitted." }
+                        finally { paymentBusy = false }
+                    }
+                }, enabled = !paymentBusy && paymentEmail.contains("@") && paymentAmount.toBigDecimalOrNull() != null && paymentHash.isNotBlank() && wallet != null) {
+                    Text(if (paymentBusy) "Submitting…" else "Submit payment details")
+                }
+            },
+            dismissButton = { TextButton(onClick = { if (!paymentBusy) checkoutProduct = null }) { Text("Cancel") } }
         )
     }
 }
