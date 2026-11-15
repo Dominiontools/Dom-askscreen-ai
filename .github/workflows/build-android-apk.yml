@@ -59,6 +59,17 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
+      - name: Run Android unit and Robolectric tests
+        shell: bash
+        run: |
+          set -o pipefail
+          if [ -f ./gradlew ]; then
+            chmod +x ./gradlew
+            ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest 2>&1 | tee unit-tests.log
+          else
+            gradle --no-daemon --stacktrace :app:testDebugUnitTest 2>&1 | tee unit-tests.log
+          fi
+
       - name: Ensure debug keystore exists
         shell: bash
         run: |
