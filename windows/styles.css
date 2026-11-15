@@ -3,3 +3,5 @@
 
 /* Keep desktop controls and settings accessible on normal laptop screens. */
 .settings{flex-wrap:wrap;align-items:center;scroll-margin-top:18px}.settings label{min-width:180px}.settings .bubble-toggle{flex:0 1 auto!important}.window-actions #settingsQuick{background:#34415b;border-color:#657694;font-weight:600}
+
+.media-upload{display:inline-flex;align-items:center;gap:6px;border:1px solid #333e55;background:#20283a;color:#eaf0ff;border-radius:9px;padding:9px 11px;cursor:pointer;font-size:12px}.media-upload:hover{background:#303b54}.media-upload input{display:none}.message-content{white-space:pre-wrap}.copy-answer{display:block;margin:9px 0 0 auto;padding:6px 10px;font-size:11px;background:#303b54;border-color:#536481}
