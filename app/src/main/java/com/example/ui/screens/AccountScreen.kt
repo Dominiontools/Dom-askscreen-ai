@@ -18,12 +18,17 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.EmailAuthProvider
 import com.example.AskScreenApp
 import com.example.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.rememberCoroutineScope
 import okhttp3.OkHttpClient
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Request
 import org.json.JSONObject
 import java.util.Locale
@@ -45,6 +50,9 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
     var statusLoading by remember { mutableStateOf(false) }
     var statusError by remember { mutableStateOf<String?>(null) }
     var refreshCounter by remember { mutableIntStateOf(0) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var deletePassword by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(signedInEmail, emailVerified, refreshCounter) {
         accountStatus = null
@@ -232,6 +240,104 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
                 statusError = null
                 message = "You have signed out."
             }) { Text("Sign out") }
+            Spacer(Modifier.height(10.dp))
+            OutlinedButton(
+                enabled = !busy,
+                onClick = { deletePassword = ""; showDeleteDialog = true },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF8A80))
+            ) { Text("Delete my account and data") }
+            Text(
+                "This permanently deletes your Firebase account and associated customer records. This cannot be undone.",
+                color = Slate400, fontSize = 11.sp
+            )
+            if (showDeleteDialog) {
+                AlertDialog(
+                    onDismissRequest = { if (!busy) showDeleteDialog = false },
+                    title = { Text("Permanently delete account?") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("To protect your account, confirm your password. Your customer account, usage records and support history will be deleted.")
+                            OutlinedTextField(
+                                value = deletePassword,
+                                onValueChange = { deletePassword = it },
+                                label = { Text("Confirm your password") },
+                                visualTransformation = PasswordVisualTransformation(),
+                                singleLine = true,
+                                enabled = !busy
+                            )
+                            Text("This action cannot be reversed.", color = Color(0xFFFF8A80), fontSize = 12.sp)
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(
+                            enabled = !busy && deletePassword.isNotBlank(),
+                            onClick = {
+                                val user = auth.currentUser
+                                if (user == null || user.email.isNullOrBlank()) {
+                                    message = "Please sign in again before deleting your account."
+                                    showDeleteDialog = false
+                                } else {
+                                    busy = true
+                                    message = null
+                                    val credential = EmailAuthProvider.getCredential(user.email!!, deletePassword)
+                                    user.reauthenticate(credential).addOnCompleteListener { reauth ->
+                                        if (!reauth.isSuccessful) {
+                                            busy = false
+                                            message = reauth.exception?.localizedMessage ?: "Password verification failed."
+                                        } else {
+                                            scope.launch {
+                                                try {
+                                                    val token = user.getIdToken(true).await().token
+                                                        ?: throw IllegalStateException("Could not refresh your secure sign-in.")
+                                                    val configured = prefs.backendUrl.trim().trimEnd('/')
+                                                    if (!configured.endsWith("/ask-screen")) {
+                                                        throw IllegalStateException("Set your backend URL in Settings before deleting your account.")
+                                                    }
+                                                    val endpoint = configured.removeSuffix("/ask-screen") + "/delete-account"
+                                                    val request = Request.Builder()
+                                                        .url(endpoint)
+                                                        .header("Authorization", "Bearer $token")
+                                                        .post("{}".toRequestBody("application/json; charset=utf-8".toMediaType()))
+                                                        .build()
+                                                    val result = withContext(Dispatchers.IO) {
+                                                        http.newCall(request).execute().use { response ->
+                                                            val body = response.body?.string().orEmpty()
+                                                            val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
+                                                            if (!response.isSuccessful) throw IllegalStateException(
+                                                                json.optString("error").ifBlank { "Account deletion could not be completed." }
+                                                            )
+                                                            json
+                                                        }
+                                                    }
+                                                    auth.signOut()
+                                                    signedInEmail = null
+                                                    emailVerified = false
+                                                    accountStatus = null
+                                                    pricingSettings = null
+                                                    statusError = null
+                                                    showDeleteDialog = false
+                                                    deletePassword = ""
+                                                    message = result.optString("message", "Your account has been deleted.")
+                                                } catch (e: Exception) {
+                                                    message = e.message ?: "Account deletion failed. Please contact support."
+                                                } finally {
+                                                    busy = false
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        ) { Text(if (busy) "Deleting..." else "Delete permanently", color = Color(0xFFFF8A80)) }
+                    },
+                    dismissButton = {
+                        TextButton(enabled = !busy, onClick = { showDeleteDialog = false; deletePassword = "" }) {
+                            Text("Cancel")
+                        }
+                    }
+                )
+            }
         } else {
             Text("Sign in to keep your free usage and subscription connected to you.", color = Slate300, fontSize = 13.sp)
             Spacer(Modifier.height(18.dp))
