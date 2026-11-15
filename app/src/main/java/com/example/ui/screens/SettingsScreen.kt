@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.widget.Toast
 import android.content.Intent
+import android.net.Uri
 import android.provider.Settings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -351,6 +352,45 @@ fun SettingsScreen() {
                 fontSize = 11.sp,
                 color = Slate300,
                 lineHeight = 17.sp
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                "Screen images, recognized speech and files you submit may be processed by the configured AI provider. Review the full policy before using sensitive content.",
+                fontSize = 11.sp,
+                color = Slate400,
+                lineHeight = 16.sp
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        runCatching {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Dominiontools/Dom-askscreen-ai/blob/feature/admin-monitoring-dashboard/docs/PRIVACY_POLICY.md")))
+                        }.onFailure {
+                            Toast.makeText(context, "Could not open the Privacy Policy.", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("Privacy Policy", fontSize = 11.sp) }
+                OutlinedButton(
+                    onClick = {
+                        runCatching {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Dominiontools/Dom-askscreen-ai/blob/feature/admin-monitoring-dashboard/docs/TERMS_OF_SERVICE.md")))
+                        }.onFailure {
+                            Toast.makeText(context, "Could not open the Terms of Service.", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("Terms of Service", fontSize = 11.sp) }
+            }
+            Text(
+                "Privacy requests and account deletion requests: Dominiontools56@gmail.com. Self-service account deletion is not yet available in this development build.",
+                fontSize = 10.sp,
+                color = Slate400,
+                lineHeight = 15.sp
             )
 
             Spacer(modifier = Modifier.height(10.dp))
