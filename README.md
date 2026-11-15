@@ -83,7 +83,9 @@ Never put service-account JSON, AI provider keys, keystore files, passwords, or 
 
 ## Payments and commercial services
 
-Paystack checkout, verified webhook handling, and automatic paid subscription activation are not implemented yet. Product prices shown in the app are catalogue prices, not proof of payment. Manual Work Centre grants are audited access overrides, not payment transactions.
+The development branch now includes a manual USDT payment flow for Work Centre products using BEP20 and TRC20, including a customer submission form and an administrator payment-review queue. Payment submissions do not unlock access: an authorised administrator must verify the transaction on the selected blockchain and approve it. Approved products are independent, time-limited entitlements. The Android and backend implementation still requires successful CI and real-device/end-to-end verification before commercial launch.
+
+Paystack remains disabled/Coming Soon until the account is approved and server-side checkout initialization, webhook signature verification, transaction verification, idempotency and entitlement activation are implemented. Product prices are catalogue prices and must not be treated as proof of payment. The specialist Work Centre entries remain catalogue listings until each workspace is implemented and ready. Manual Work Centre grants are audited access overrides, not payment transactions.
 
 ## Privacy and terms
 
