@@ -50,7 +50,7 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 
 private data class AdminUserRow(val uid:String,val name:String,val email:String,val joined:String,val lastSignIn:String,val screen:Int,val spoken:Int,val transcription:Int,val trialEligible:Boolean,val screenRemaining:Int,val spokenRemaining:Int,val transcriptionRemaining:Int,val subscription:String,val expiry:String,val productAccess:String,val disabled:Boolean,val emailVerified:Boolean)
-private data class AdminPaymentRow(val date:String,val email:String,val reference:String,val amount:String,val status:String)
+private data class AdminPaymentRow(val id:String,val provider:String,val productName:String,val network:String,val transactionHash:String,val destinationAddress:String,val date:String,val email:String,val reference:String,val amount:String,val status:String)
 private data class AdminTicketRow(val id:String,val date:String,val email:String,val subject:String,val message:String,val status:String,val reply:String)
 private data class AdminAuditRow(val action:String,val targetEmail:String,val adminEmail:String,val detail:String,val date:String)
 private data class AdminPriceRow(val id:String,val name:String,val category:String,val monthlyPriceCents:Int,val priceText:String)
@@ -230,7 +230,7 @@ fun AdminScreen(onBack: () -> Unit) {
         payments = buildList {
             if (paymentArray != null) for (i in 0 until paymentArray.length()) {
                 val item = paymentArray.optJSONObject(i) ?: continue
-                add(AdminPaymentRow(dateLabel(item.optString("createdAt")),item.optString("email"),item.optString("reference").ifBlank { item.optString("id") },item.optString("amount","—")+" "+item.optString("currency","NGN"),item.optString("status","unknown")))
+                add(AdminPaymentRow(item.optString("id"),item.optString("provider"),item.optString("productName"),item.optString("network"),item.optString("transactionHash"),item.optString("destinationAddress"),dateLabel(item.optString("createdAt")),item.optString("email"),item.optString("reference").ifBlank { item.optString("id") },item.optString("amount","—")+" "+item.optString("currency","NGN"),item.optString("status","unknown")))
             }
         }
         val ticketArray = result.optJSONArray("supportTickets")
@@ -351,6 +351,24 @@ fun AdminScreen(onBack: () -> Unit) {
                 val body = response.body?.string().orEmpty()
                 val json = try { JSONObject(body) } catch (_:Exception) { JSONObject() }
                 if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "Could not update product access." })
+            }
+        }
+        loadData(idToken)
+    }
+
+    suspend fun reviewCryptoPayment(paymentId:String, action:String) {
+        if (idToken.isBlank()) throw IllegalStateException("Sign in to the administrator account again.")
+        val configured = prefs.backendUrl.trim().trimEnd('/')
+        if (!configured.endsWith("/ask-screen")) throw IllegalStateException("Set your Netlify AskScreen endpoint in Settings first.")
+        val endpoint = configured.removeSuffix("/ask-screen") + "/admin-crypto-payments"
+        val payload = JSONObject().put("paymentId",paymentId).put("action",action)
+        withContext(Dispatchers.IO) {
+            val request = Request.Builder().url(endpoint).header("Authorization","Bearer $idToken")
+                .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
+            http.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                val json = try { JSONObject(body) } catch (_:Exception) { JSONObject() }
+                if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "Could not review this payment." })
             }
         }
         loadData(idToken)
@@ -573,14 +591,38 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
             }
-            Text("Payment history",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
-            if(payments.isEmpty()) Text("No payment records yet. This section will populate after Paystack integration is connected.",color=Slate400,fontSize=12.sp)
+            Text("Payment review queue",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
+            Text("Verify every USDT transaction directly on the selected blockchain before approving. A screenshot alone is not proof of payment.",color=AmberWarning,fontSize=11.sp)
+            if(payments.isEmpty()) Text("No payment records have been submitted yet.",color=Slate400,fontSize=12.sp)
             payments.forEach { payment ->
                 Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(12.dp)) {
-                    Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
-                        Text(payment.email.ifBlank { "Customer payment" },color=Color.White,fontWeight=FontWeight.SemiBold)
-                        Text("${payment.amount} • ${payment.status}",color=ElectricCyan,fontSize=12.sp)
+                    Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(5.dp)) {
+                        Text(payment.productName.ifBlank { "Customer payment" },color=Color.White,fontWeight=FontWeight.SemiBold)
+                        Text(payment.email,color=ElectricCyan,fontSize=12.sp)
+                        Text("${payment.amount} • ${payment.network.ifBlank { payment.provider }} • ${payment.status.uppercase()}",color=ElectricCyan,fontSize=12.sp)
+                        if(payment.transactionHash.isNotBlank()) Text("Transaction: ${payment.transactionHash}",color=Slate300,fontSize=10.sp)
+                        if(payment.destinationAddress.isNotBlank()) Text("Destination: ${payment.destinationAddress}",color=Slate400,fontSize=10.sp)
                         Text("${payment.reference} • ${payment.date}",color=Slate400,fontSize=11.sp)
+                        if(payment.provider=="USDT_MANUAL" && payment.status=="pending") {
+                            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                                Button(onClick={
+                                    scope.launch {
+                                        busy=true; error=null
+                                        try { reviewCryptoPayment(payment.id,"approve") }
+                                        catch(e:Exception) { error=e.message ?: "Could not approve payment." }
+                                        finally { busy=false }
+                                    }
+                                },enabled=!busy && payment.id.isNotBlank(),modifier=Modifier.weight(1f)) { Text("Approve & activate") }
+                                OutlinedButton(onClick={
+                                    scope.launch {
+                                        busy=true; error=null
+                                        try { reviewCryptoPayment(payment.id,"reject") }
+                                        catch(e:Exception) { error=e.message ?: "Could not reject payment." }
+                                        finally { busy=false }
+                                    }
+                                },enabled=!busy && payment.id.isNotBlank(),modifier=Modifier.weight(1f)) { Text("Reject") }
+                            }
+                        }
                     }
                 }
             }
