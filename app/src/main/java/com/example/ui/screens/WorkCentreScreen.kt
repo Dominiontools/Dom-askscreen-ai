@@ -154,7 +154,7 @@ fun WorkCentreScreen() {
     ) {
         Text("DOM WORK CENTRE", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Text(
-            "Choose an independent work service. You do not need the $9 DOM AI Core plan to subscribe to a Work Centre service. Work subscriptions do not unlock the main chat or screen-reading features.",
+            "Explore the independent Work Centre service catalogue. Each service is separate from the $9 DOM AI Core plan. Prices are shown for planning; checkout is not yet enabled.",
             color = Slate300, fontSize = 13.sp
         )
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -201,7 +201,7 @@ fun WorkCentreScreen() {
                     Icon(Icons.Default.WorkOutline, contentDescription = null, tint = ElectricCyan)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(product.name, color = Color.White, fontWeight = FontWeight.Medium, fontSize = 13.sp)
-                        Text("Independent monthly service", color = Slate400, fontSize = 11.sp)
+                        Text("Catalogue listing · workspace availability varies", color = Slate400, fontSize = 11.sp)
                         Text(
                             workAccessLabel(product),
                             color = if (product.status == "active") ElectricCyan else Slate400,
@@ -216,7 +216,7 @@ fun WorkCentreScreen() {
             }
         }
         Text(
-            "Prices are displayed for planning. Online checkout and automatic subscription activation will be enabled after Paystack approval. An access label shows the account record; it does not mean every specialist tool is already available inside this app.",
+            "Prices are displayed for planning only. Paystack checkout and automatic subscription activation are not available yet. An active access record is an administrator-managed entitlement only; it does not mean that the specialist workspace is already built or available inside this app. The specialist modules are still being developed.",
             color = Slate400, fontSize = 11.sp
         )
     }
