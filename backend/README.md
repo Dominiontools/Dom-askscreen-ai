@@ -29,7 +29,7 @@ After adding or changing variables, trigger a new Netlify deploy.
 1. Confirm the Android app's Firebase project is the same project as the service account.
 2. In Firebase Authentication, enable **Email/Password** sign-in.
 3. Create or confirm the Firestore database in that project. The backend stores per-account usage in the `askScreenAccounts` collection.
-4. In **Firestore Database → Rules**, publish the contents of `backend/firestore.rules`. These rules deny direct app-client reads and writes; the trusted Netlify backend uses the Firebase Admin SDK to access records. Do not replace them with public read/write rules.
+4. The repository now pins the Firebase CLI default project to the same project ID used by `app/google-services.json`. From the repository root, run `cd backend` and then `npx firebase-tools deploy --only firestore:rules` (or install Firebase CLI and run `firebase deploy --only firestore:rules`). Confirm the target project shown by the CLI before approving deployment. These rules deny direct app-client reads and writes; the trusted Netlify backend uses the Firebase Admin SDK to access records. Do not replace them with public read/write rules.
 5. Generate a service-account key from Firebase project settings → Service accounts, and store its complete JSON only in Netlify as `FIREBASE_SERVICE_ACCOUNT_JSON`.
 
 The Firebase Admin service account must have permission to verify Firebase ID tokens and read/write Firestore. Treat its private key as a production secret.
@@ -91,7 +91,7 @@ The Admin Centre stores release metadata in Firebase Firestore. APK binaries are
 - Android may ask each customer to allow AskScreen AI to install apps from this source and approve the installation. Silent installation is not available to ordinary apps.
 - Test the upgrade on a spare phone using the exact APK currently distributed before publishing an update to customers.
 
-## 11. Subscription product pricing
+## 10. Subscription product pricing
 
 The Admin Centre's **App & feature settings → Subscription & product pricing** section manages the public monthly product catalogue stored in `askScreenAppConfig/public`.
 
