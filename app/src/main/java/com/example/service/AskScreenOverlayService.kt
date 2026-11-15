@@ -5,10 +5,13 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.graphics.Rect
@@ -26,6 +29,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import com.example.MainActivity
 import com.example.R
 import com.example.data.local.PreferencesManager
@@ -134,6 +139,53 @@ class AskScreenOverlayService : Service() {
 
     private var screenWidth = 1080
     private var screenHeight = 2400
+    private var activeCaptureForegroundTypes = 0
+
+    /**
+     * Keep the floating assistant alive under its declared special-use type.
+     * Add microphone and media-projection types only after the user has granted
+     * the corresponding permission. Android 14+ enforces each type's prerequisites.
+     */
+    private fun updateForegroundServiceTypes(captureTypes: Int = activeCaptureForegroundTypes) {
+        activeCaptureForegroundTypes = captureTypes
+        val notification = buildNotification("Ready to assist your screen")
+        when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> {
+                val types = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or captureTypes
+                ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, types)
+            }
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
+                ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, captureTypes)
+            }
+            else -> startForeground(NOTIFICATION_ID, notification)
+        }
+    }
+
+    private fun enableMicrophoneForegroundType(): Boolean {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "Allow microphone access before starting audio listening.", Toast.LENGTH_LONG).show()
+            return false
+        }
+        val microphoneType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        } else 0
+        updateForegroundServiceTypes(activeCaptureForegroundTypes or microphoneType)
+        return true
+    }
+
+    private fun enableMediaProjectionForegroundType() {
+        val projectionType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        } else 0
+        updateForegroundServiceTypes(activeCaptureForegroundTypes or projectionType)
+    }
+
+    private fun disableMicrophoneForegroundType() {
+        val microphoneType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        } else 0
+        updateForegroundServiceTypes(activeCaptureForegroundTypes and microphoneType.inv())
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -159,7 +211,7 @@ class AskScreenOverlayService : Service() {
 
         updateMetrics()
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification("Ready to assist your screen"))
+        updateForegroundServiceTypes(0)
 
         createFloatingBubble()
         currentPreset.value = prefs.windowPreset
@@ -840,11 +892,13 @@ class AskScreenOverlayService : Service() {
         if (listeningSessionFinalizing) return
         if (listeningSessionType == null) {
             audioCaptureManager.stopListening()
+            disableMicrophoneForegroundType()
             bubbleState.value = BubbleState.IDLE
             return
         }
         listeningSessionFinalizing = true
         audioCaptureManager.stopContinuousListeningAndFlush()
+        disableMicrophoneForegroundType()
         liveCaptions.value = "Finishing the recording..."
         bubbleState.value = BubbleState.PROCESSING_AI
         serviceScope.launch {
@@ -923,6 +977,7 @@ Instructions:
     }
 
     fun startListenAudioAction() {
+        if (!enableMicrophoneForegroundType()) return
         serviceScope.launch {
             beginListeningSession(QueryType.AUDIO)
             bubbleState.value = BubbleState.LISTENING_AUDIO
@@ -946,6 +1001,7 @@ Instructions:
      * and other languages depends on the installed Android recognition provider.
      */
     fun startTranscribeAudioAction() {
+        if (!enableMicrophoneForegroundType()) return
         serviceScope.launch {
             bubbleState.value = BubbleState.LISTENING_AUDIO
             showAnswerWindow()
@@ -976,6 +1032,7 @@ Instructions:
                             }
                         }.onFailure { error ->
                             audioCaptureManager.stopListening()
+                            disableMicrophoneForegroundType()
                             val message = error.message.orEmpty()
                             liveCaptions.value = when {
                                 message.startsWith("SUBSCRIPTION_REQUIRED") ->
@@ -996,6 +1053,7 @@ Instructions:
     }
 
     fun startReadAndListenAction() {
+        if (!enableMicrophoneForegroundType()) return
         if (!screenCaptureManager.hasMediaProjection()) {
             val intent = ScreenCaptureActivity.createIntent(this, ScreenCaptureActivity.ACTION_START_BOTH)
             startActivity(intent)
@@ -1070,10 +1128,12 @@ Instructions:
     }
 
     fun startVoiceInput() {
+        if (!enableMicrophoneForegroundType()) return
         bubbleState.value = BubbleState.LISTENING_AUDIO
         liveCaptions.value = "Listening to your voice..."
         audioCaptureManager.startListening(prefs.audioLanguageTag) { speech ->
             liveCaptions.value = ""
+            disableMicrophoneForegroundType()
             bubbleState.value = BubbleState.IDLE
             if (speech.isNotBlank()) {
                 sendFollowUpQuestion(speech, QueryType.VOICE)
@@ -1172,6 +1232,7 @@ Instructions:
     }
 
     fun handleMediaProjectionGranted(resultCode: Int, data: Intent, targetAction: String) {
+        enableMediaProjectionForegroundType()
         val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val projection = projectionManager.getMediaProjection(resultCode, data)
         if (projection != null) {
