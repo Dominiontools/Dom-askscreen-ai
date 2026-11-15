@@ -209,7 +209,7 @@ fun WorkCentreScreen() {
     ) {
         Text("DOM WORK CENTRE", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Text(
-            "Explore the independent Work Centre service catalogue. Each service is separate from the $9 DOM AI Core plan. Prices are shown for planning; checkout is not yet enabled.",
+            "Choose an independent Work Centre service. Each has its own monthly price and USDT checkout. Paystack is Coming Soon.",
             color = Slate300, fontSize = 13.sp
         )
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -222,9 +222,7 @@ fun WorkCentreScreen() {
 
         Card(
             colors = CardDefaults.cardColors(containerColor = Slate900),
-            modifier = Modifier.fillMaxWidth().clickable {
-                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(EMAIL_MANAGEMENT_URL))) }
-            }
+            modifier = Modifier.fillMaxWidth()
         ) {
             Row(
                 Modifier.fillMaxWidth().padding(16.dp),
@@ -237,7 +235,19 @@ fun WorkCentreScreen() {
                     Text("Open the separate Email Management System", color = Slate400, fontSize = 12.sp)
                     Text("USD " + String.format(Locale.US, "%.2f", emailProduct.priceCents / 100.0) + "/month", color = ElectricCyan, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     Text(workAccessLabel(emailProduct), color = if (emailProduct.status == "active") ElectricCyan else Slate400, fontSize = 11.sp)
-                    Button(onClick = { paymentEmail = auth.currentUser?.email.orEmpty(); paymentMessage = null; checkoutProduct = emailProduct }, enabled = !loading && wallets.isNotEmpty()) { Text("Pay with USDT") }
+                    if (emailProduct.status == "active" && auth.currentUser?.isEmailVerified == true) {
+                        Button(onClick = {
+                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(EMAIL_MANAGEMENT_URL))) }
+                                .onFailure { paymentMessage = "Email Management could not be opened on this device." }
+                        }) { Text("Open Email Management") }
+                    } else {
+                        Button(onClick = {
+                            paymentEmail = auth.currentUser?.email.orEmpty()
+                            paymentMessage = null
+                            checkoutProduct = emailProduct
+                        }, enabled = !loading && wallets.isNotEmpty()) { Text("Pay with USDT") }
+                        if (auth.currentUser == null) Text("After payment approval, register with this email and verify it to claim access.", color = Slate400, fontSize = 10.sp)
+                    }
                 }
                 Icon(Icons.Default.OpenInNew, contentDescription = "Open email management", tint = ElectricCyan)
             }
