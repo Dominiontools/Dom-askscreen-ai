@@ -173,5 +173,8 @@ jobs:
           path: |
             app/build/reports/**
             build/reports/**
+            build.log
+            unit-tests.log
+            release-build.log
           if-no-files-found: ignore
           retention-days: 7
