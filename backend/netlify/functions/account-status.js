@@ -51,23 +51,46 @@ exports.handler = async event => {
         return data.status === 'approved' && data.claimRequired === true;
       });
       if (claimablePayments.length) {
+        const accountRef = db.collection('askScreenAccounts').doc(decoded.uid);
         const claimed = {};
-        for (const paymentDoc of claimablePayments) {
-          const payment = paymentDoc.data();
-          const product = DEFAULT_PRODUCTS.find(item => item.id === payment.productId && item.independent === true);
-          if (!product || !payment.entitlementExpiresAt || typeof payment.entitlementExpiresAt.toDate !== 'function') continue;
-          const expiry = payment.entitlementExpiresAt.toDate();
-          if (expiry.getTime() <= Date.now()) continue;
-          claimed[product.id] = {
-            status: 'active', currentPeriodEnd: payment.entitlementExpiresAt,
-            source: 'verified_usdt_payment', paymentId: paymentDoc.id,
-            network: payment.network || '', transactionHash: payment.transactionHash || '',
-            verifiedByEmail: payment.reviewedByEmail || '', updatedAt: admin.firestore.FieldValue.serverTimestamp()
-          };
-          await paymentDoc.ref.update({ uid: decoded.uid, claimRequired: false, claimedAt: admin.firestore.FieldValue.serverTimestamp() });
-        }
+        await db.runTransaction(async transaction => {
+          const accountFresh = await transaction.get(accountRef);
+          const currentSubscriptions = accountFresh.exists ? accountFresh.data().productSubscriptions || {} : {};
+          const freshPayments = [];
+          for (const paymentDoc of claimablePayments) freshPayments.push([paymentDoc, await transaction.get(paymentDoc.ref)]);
+          const now = admin.firestore.FieldValue.serverTimestamp();
+          for (const [paymentDoc, freshSnapshot] of freshPayments) {
+            if (!freshSnapshot.exists) continue;
+            const payment = freshSnapshot.data();
+            if (payment.status !== 'approved' || payment.claimRequired !== true) continue;
+            const product = DEFAULT_PRODUCTS.find(item => item.id === payment.productId && item.independent === true);
+            if (!product || !payment.entitlementExpiresAt || typeof payment.entitlementExpiresAt.toDate !== 'function') continue;
+            const expiry = payment.entitlementExpiresAt.toDate();
+            if (expiry.getTime() <= Date.now()) continue;
+            const existing = currentSubscriptions[product.id];
+            const existingExpiry = existing && existing.currentPeriodEnd && typeof existing.currentPeriodEnd.toDate === 'function'
+              ? existing.currentPeriodEnd.toDate().getTime() : 0;
+            if (existingExpiry > expiry.getTime()) continue;
+            claimed[product.id] = {
+              status: 'active', currentPeriodEnd: payment.entitlementExpiresAt,
+              source: 'verified_usdt_payment', paymentId: paymentDoc.id,
+              network: payment.network || '', transactionHash: payment.transactionHash || '',
+              verifiedByEmail: payment.reviewedByEmail || '', updatedAt: now
+            };
+          }
+          if (Object.keys(claimed).length) {
+            transaction.set(accountRef, {
+              productSubscriptions: { ...currentSubscriptions, ...claimed }, updatedAt: now
+            }, { merge: true });
+            for (const [paymentDoc, freshSnapshot] of freshPayments) {
+              if (freshSnapshot.exists && freshSnapshot.data().status === 'approved' && freshSnapshot.data().claimRequired === true &&
+                  Object.values(claimed).some(item => item.paymentId === paymentDoc.id)) {
+                transaction.update(paymentDoc.ref, { uid: decoded.uid, claimRequired: false, claimedAt: now });
+              }
+            }
+          }
+        });
         if (Object.keys(claimed).length) {
-          await db.collection('askScreenAccounts').doc(decoded.uid).set({ productSubscriptions: claimed, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
           Object.assign(account.productSubscriptions || (account.productSubscriptions = {}), claimed);
         }
       }
