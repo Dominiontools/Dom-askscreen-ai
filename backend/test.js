@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { handler, isEligibleForFreeTrial } = require('./netlify/functions/ask-screen');
+const { handler, isEligibleForFreeTrial, featureForRequest } = require('./netlify/functions/ask-screen');
 const { handler: healthHandler } = require('./netlify/functions/health');
 const { handler: transcriptionHandler } = require('./netlify/functions/record-transcription');
 const { handler: adminHandler } = require('./netlify/functions/admin-dashboard');
@@ -52,6 +52,15 @@ async function run() {
   assert.equal(isEligibleForFreeTrial('not-a-date', '2026-11-15T00:00:00.000Z'), false,
     'Invalid account creation timestamps are not eligible');
   console.log('PASS Free-trial eligibility is limited to new accounts after configured launch');
+  assert.equal(featureForRequest({ queryType: 'SCREEN', feature: 'spoken' }), 'screen',
+    'A client cannot relabel a screen request as spoken to change usage accounting');
+  assert.equal(featureForRequest({ queryType: 'AUDIO', feature: 'screen' }), 'spoken',
+    'Audio request types are classified as spoken regardless of the client feature label');
+  assert.equal(featureForRequest({ queryType: 'TRANSCRIPTION', feature: 'screen' }), 'transcription',
+    'Transcription request types retain their own usage category');
+  assert.equal(featureForRequest({ queryType: 'TEXT', feature: 'spoken' }), 'screen',
+    'Unknown and text-only request types fail closed to screen usage');
+  console.log('PASS Usage accounting ignores client-supplied feature labels');
 
   const cases = [
     {
