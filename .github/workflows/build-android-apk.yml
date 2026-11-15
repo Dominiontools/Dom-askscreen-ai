@@ -87,13 +87,67 @@ jobs:
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload APK artifact
+      - name: Upload debug APK for testing only
         uses: actions/upload-artifact@v5
         with:
           name: askscreen-ai-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Prepare release signing key
+        id: release_signing
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: \${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: \${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: \${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_PASSWORD" ]; then
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/dom-ask-ai-upload.jks"
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Release signing secrets are not configured; only the debug test APK will be produced."
+          fi
+
+      - name: Build signed release APK
+        if: steps.release_signing.outputs.available == 'true'
+        shell: bash
+        env:
+          KEYSTORE_PATH: \${{ runner.temp }}/dom-ask-ai-upload.jks
+          STORE_PASSWORD: \${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: \${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -o pipefail
+          if [ -f ./gradlew ]; then
+            chmod +x ./gradlew
+            ./gradlew --no-daemon --stacktrace :app:assembleRelease 2>&1 | tee release-build.log
+          else
+            gradle --no-daemon --stacktrace :app:assembleRelease 2>&1 | tee release-build.log
+          fi
+
+      - name: Upload signed release APK
+        if: steps.release_signing.outputs.available == 'true'
+        uses: actions/upload-artifact@v5
+        with:
+          name: askscreen-ai-release-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Explain release signing setup
+        if: steps.release_signing.outputs.available != 'true'
+        shell: bash
+        run: |
+          {
+            echo '### Release APK not built'
+            echo 'Only the debug APK is available for testing. To build a customer release APK, configure these repository Actions secrets:'
+            echo '- ANDROID_KEYSTORE_BASE64'
+            echo '- ANDROID_KEYSTORE_PASSWORD'
+            echo '- ANDROID_KEY_PASSWORD'
+            echo 'Use the existing customer upload keystore and alias upload. Never generate a replacement key for an installed production app.'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload build reports on failure
         if: failure()
