@@ -41,30 +41,35 @@ exports.handler = async event => {
     const payment = paymentSnap.data();
     if (payment.provider !== 'USDT_MANUAL' || payment.status !== 'pending') return json(409, { error: 'Only pending USDT payments can be reviewed.' });
     if (action === 'approve') {
-      const customer = await admin.auth().getUserByEmail(String(payment.email || ''));
       const product = DEFAULT_PRODUCTS.find(item => item.id === payment.productId && item.independent === true);
       if (!product) return json(400, { error: 'The payment does not reference a valid independent service.' });
-      const now = Date.now();
-      const periodEnd = new Date(now + 30 * 24 * 60 * 60 * 1000);
-      const record = {
-        status: 'active',
-        currentPeriodEnd: admin.firestore.Timestamp.fromDate(periodEnd),
-        source: 'verified_usdt_payment',
-        paymentId,
-        network: payment.network,
-        transactionHash: payment.transactionHash,
-        verifiedByUid: decoded.uid,
-        verifiedByEmail: email,
-        verifiedAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-      };
-      await db.collection('askScreenAccounts').doc(customer.uid).set({ productSubscriptions: { [product.id]: record }, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-      await paymentRef.update({ status: 'approved', uid: customer.uid, customerEmail: customer.email || payment.email,
-        reviewedAt: admin.firestore.FieldValue.serverTimestamp(), reviewedByUid: decoded.uid, reviewedByEmail: email, reviewNote: note, entitlementExpiresAt: admin.firestore.Timestamp.fromDate(periodEnd) });
-      await db.collection('askScreenAdminAuditLogs').add({ action: 'crypto_payment_approved', targetUid: customer.uid,
-        targetEmail: customer.email || payment.email, paymentId, productId: product.id, productName: product.name,
-        adminUid: decoded.uid, adminEmail: email, status: 'approved', createdAt: admin.firestore.FieldValue.serverTimestamp() });
-      return json(200, { success: true, paymentId, status: 'approved', uid: customer.uid, productId: product.id, currentPeriodEnd: periodEnd.toISOString() });
+      let customer = null;
+      try { customer = await admin.auth().getUserByEmail(String(payment.email || '')); }
+      catch (lookupError) { if (lookupError.code !== 'auth/user-not-found') throw lookupError; }
+      const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      const now = admin.firestore.FieldValue.serverTimestamp();
+      if (customer) {
+        const record = {
+          status: 'active', currentPeriodEnd: admin.firestore.Timestamp.fromDate(periodEnd),
+          source: 'verified_usdt_payment', paymentId, network: payment.network,
+          transactionHash: payment.transactionHash, verifiedByUid: decoded.uid,
+          verifiedByEmail: email, verifiedAt: now, updatedAt: now
+        };
+        await db.collection('askScreenAccounts').doc(customer.uid).set({
+          productSubscriptions: { [product.id]: record }, updatedAt: now
+        }, { merge: true });
+      }
+      await paymentRef.update({ status: 'approved', uid: customer ? customer.uid : null,
+        customerEmail: customer ? (customer.email || payment.email) : payment.email,
+        claimRequired: !customer, reviewedAt: now, reviewedByUid: decoded.uid,
+        reviewedByEmail: email, reviewNote: note, entitlementExpiresAt: admin.firestore.Timestamp.fromDate(periodEnd) });
+      await db.collection('askScreenAdminAuditLogs').add({ action: 'crypto_payment_approved',
+        targetUid: customer ? customer.uid : '', targetEmail: payment.email || '', paymentId,
+        productId: product.id, productName: product.name, adminUid: decoded.uid,
+        adminEmail: email, status: 'approved', claimRequired: !customer, createdAt: now });
+      return json(200, { success: true, paymentId, status: 'approved',
+        uid: customer ? customer.uid : null, claimRequired: !customer, productId: product.id,
+        currentPeriodEnd: periodEnd.toISOString() });
     }
     await paymentRef.update({ status: 'rejected', reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
       reviewedByUid: decoded.uid, reviewedByEmail: email, reviewNote: note });
