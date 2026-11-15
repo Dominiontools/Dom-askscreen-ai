@@ -75,7 +75,7 @@ On Windows PowerShell, encode the existing keystore with:
 
 Copy the output directly into the GitHub secret. Do not paste the keystore, passwords, or Base64 value into chat, source code, issues, or pull-request comments. Do not generate a new key if customers already have an app signed with an existing production key.
 
-When all three secrets are present, Actions also builds and uploads the `askscreen-ai-release-apk` artifact. If they are absent, only the debug test artifact is produced. The Gradle release configuration currently expects the key alias `upload`.
+When all three secrets are present, Actions builds and uploads the `askscreen-ai-release-apk` artifact only for a manual workflow run or a push to `main`, `master`, or `upgrade/account-auth-and-usage`. Pull-request builds and feature-branch pushes never receive the production signing secrets. If secrets are absent, only the debug test artifact is produced. The Gradle release configuration currently expects the key alias `upload`.
 
 Before using the release artifact, verify its signing certificate against the APK already installed by customers. The CI build passing does not prove that the signing key matches the distributed app. Keep the existing key backed up securely.
 
