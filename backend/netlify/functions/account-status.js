@@ -45,12 +45,14 @@ exports.handler = async event => {
     // Claim approved entitlements only after signing in with the same verified email.
     if (authUser.emailVerified && authUser.email) {
       const claimSnapshot = await db.collection('askScreenPayments')
-        .where('email', '==', String(authUser.email).trim().toLowerCase())
-        .where('status', '==', 'approved')
-        .where('claimRequired', '==', true).limit(25).get();
-      if (!claimSnapshot.empty) {
+        .where('email', '==', String(authUser.email).trim().toLowerCase()).limit(50).get();
+      const claimablePayments = claimSnapshot.docs.filter(doc => {
+        const data = doc.data();
+        return data.status === 'approved' && data.claimRequired === true;
+      });
+      if (claimablePayments.length) {
         const claimed = {};
-        for (const paymentDoc of claimSnapshot.docs) {
+        for (const paymentDoc of claimablePayments) {
           const payment = paymentDoc.data();
           const product = DEFAULT_PRODUCTS.find(item => item.id === payment.productId && item.independent === true);
           if (!product || !payment.entitlementExpiresAt || typeof payment.entitlementExpiresAt.toDate !== 'function') continue;
