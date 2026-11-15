@@ -96,6 +96,7 @@ jobs:
           retention-days: 14
 
       - name: Prepare release signing key
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/upgrade/account-auth-and-usage'
         id: release_signing
         shell: bash
         env:
