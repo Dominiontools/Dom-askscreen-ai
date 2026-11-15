@@ -113,10 +113,10 @@ async function verifyUser(event) {
 
 function featureForRequest(raw) {
   // Never trust a client-supplied feature label for usage accounting.
-  // Map only the recognized request type; unknown or legacy types fail closed to screen usage.
+  // Transcript-only usage is recorded by the separate authenticated endpoint.
+  // The AI endpoint therefore cannot spend the transcription allowance by relabelling an AI request.
   const type = String(raw.queryType || '').toUpperCase();
   if (['AUDIO', 'VOICE', 'SCREEN_AND_AUDIO'].includes(type)) return 'spoken';
-  if (type === 'TRANSCRIPTION') return 'transcription';
   return 'screen';
 }
 
