@@ -71,7 +71,7 @@ exports.handler = async event => {
     // Remove customer-owned records from each user-scoped collection.
     // Global app configuration is intentionally never touched.
     const removals = await Promise.all([
-      deleteMatching(db, 'askScreenAccounts', '__name__', uid),
+      db.collection('askScreenAccounts').doc(uid).delete().then(() => 1),
       deleteMatching(db, 'askScreenSupportTickets', 'uid', uid),
       deleteMatching(db, 'askScreenActivityLogs', 'uid', uid),
       deleteMatching(db, 'askScreenPayments', 'uid', uid),
