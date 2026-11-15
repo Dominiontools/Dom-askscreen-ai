@@ -6,7 +6,7 @@ This backend securely handles screen-reading, spoken-answer, and transcription r
 
 1. Open Netlify and import this GitHub repository.
 2. Set the **Base directory** to `backend`.
-3. Netlify will use `backend/netlify.toml` and install the dependencies from `backend/package.json`.
+3. Netlify will use `backend/netlify.toml` and install the dependencies from `backend/package.json`. The static publish directory is restricted to `backend/public`; backend source files and environment templates are not published as the site root.
 4. The function URL will be:
    `https://YOUR-SITE.netlify.app/.netlify/functions/ask-screen`
 
