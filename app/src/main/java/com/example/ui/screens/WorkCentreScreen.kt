@@ -29,10 +29,11 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
+import java.text.DateFormat
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 private const val EMAIL_MANAGEMENT_URL = "https://fancy-swan-734af6.netlify.app"
 
@@ -48,8 +49,11 @@ private fun workAccessLabel(product: WorkCentreProduct): String {
     if (product.status == "active") {
         val expiry = product.currentPeriodEnd?.let { value ->
             try {
-                DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.getDefault())
-                    .withZone(ZoneId.systemDefault()).format(Instant.parse(value))
+                val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US).apply {
+                    isLenient = false
+                    timeZone = TimeZone.getTimeZone("UTC")
+                }
+                parser.parse(value)?.let { DateFormat.getDateInstance().format(it) }
             } catch (_: Exception) { null }
         }
         return if (expiry != null) "Access active until $expiry" else "Access active"
