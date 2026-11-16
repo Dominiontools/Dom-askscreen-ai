@@ -4,7 +4,7 @@ const { verifyUser, routeRequest } = require('./ask-screen');
 const { DEFAULT_PRODUCTS } = require('../../pricing-catalog');
 const { timestampMillis } = require('../../product-subscriptions');
 
-const PRODUCTS = new Map(DEFAULT_PRODUCTS.filter(p => p.independent).map(p => [p.id, p]));
+const PRODUCTS = new Map(DEFAULT_PRODUCTS.filter(p => p.independent && p.id !== 'email_management').map(p => [p.id, p]));
 const MAX_INPUT = 24000;
 
 function json(statusCode, data) {
@@ -69,8 +69,9 @@ exports.handler = async event => {
     const jobs = db.collection('askScreenWorkspaces').doc(user.uid).collection('serviceJobs');
 
     if (event.httpMethod === 'GET') {
-      const snapshot = await jobs.where('productId', '==', productId).orderBy('createdAt', 'desc').limit(50).get();
-      return json(200, { jobs: snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) });
+      const snapshot = await jobs.orderBy('createdAt', 'desc').limit(100).get();
+      const recent = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(job => job.productId === productId).slice(0, 50);
+      return json(200, { jobs: recent });
     }
 
     if (!event.body || Buffer.byteLength(event.body, 'utf8') > MAX_INPUT + 4000) {
