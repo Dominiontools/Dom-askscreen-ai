@@ -1,6 +1,6 @@
 'use strict';
 
-const { verifyUser } = require('./ask-screen');
+const { verifyAdminSession } = require('./admin-auth');
 const { DEFAULT_PRODUCTS, DEFAULT_BUNDLE_DISCOUNT_PERCENT, normalizeCatalog, calculateBundle } = require('../../pricing-catalog');
 
 let adminPromise;
@@ -34,7 +34,7 @@ function json(statusCode, data) {
       'Content-Type': 'application/json; charset=utf-8',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+      'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Admin-Access-Code',
       'Cache-Control': 'no-store'
     },
     body: JSON.stringify(data)
@@ -68,7 +68,7 @@ exports.handler = async event => {
       });
     }
 
-    const decoded = await verifyUser(event);
+    const decoded = verifyAdminSession(event);
     const email = String(decoded.email || '').trim().toLowerCase();
     const allowed = (process.env.ADMIN_EMAILS || '').split(',').map(v => v.trim().toLowerCase()).filter(Boolean);
     if (decoded.email_verified !== true || !email || !allowed.includes(email)) {

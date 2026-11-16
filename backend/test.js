@@ -17,7 +17,38 @@ const { handler: adminCryptoPaymentsHandler } = require('./netlify/functions/adm
 const { DEFAULT_PRODUCTS, normalizeCatalog, calculateBundle } = require('./pricing-catalog');
 const { evaluateProductSubscription, summarizeProductSubscriptions } = require('./product-subscriptions');
 
+const { isAdminAccessCodeValid, createAdminSession, verifyAdminSession } = require('./netlify/functions/admin-auth');
+
 async function run() {
+  const previousAdminCode = process.env.ADMIN_ACCESS_CODE;
+  process.env.ADMIN_ACCESS_CODE = 'a-unique-test-code-123456';
+  assert.equal(isAdminAccessCodeValid({ headers: { 'x-admin-access-code': 'a-unique-test-code-123456' } }), true,
+    'The configured administrator access code is accepted');
+  assert.equal(isAdminAccessCodeValid({ headers: { 'x-admin-access-code': 'incorrect-code' } }), false,
+    'An incorrect administrator access code is rejected');
+  delete process.env.ADMIN_ACCESS_CODE;
+  assert.equal(isAdminAccessCodeValid({ headers: { 'x-admin-access-code': 'a-unique-test-code-123456' } }), false,
+    'Admin access fails closed when the server code is not configured');
+  if (previousAdminCode === undefined) delete process.env.ADMIN_ACCESS_CODE;
+  else process.env.ADMIN_ACCESS_CODE = previousAdminCode;
+  console.log('PASS Server-side administrator access code validation');
+  process.env.ADMIN_ACCESS_CODE = 'a-unique-test-code-123456';
+  const previousAdminEmailsForSession = process.env.ADMIN_EMAILS;
+  process.env.ADMIN_EMAILS = 'owner@example.com';
+  const sessionToken = createAdminSession({ uid: 'firebase-admin-uid', email: 'owner@example.com' });
+  const session = verifyAdminSession({ headers: { authorization: 'Bearer ' + sessionToken } });
+  assert.equal(session.uid, 'firebase-admin-uid');
+  assert.equal(session.email, 'owner@example.com');
+  assert.throws(() => verifyAdminSession({ headers: {} }), error => error.statusCode === 401);
+  process.env.ADMIN_ACCESS_CODE = 'another-unique-code-123456';
+  assert.throws(() => verifyAdminSession({ headers: { authorization: 'Bearer ' + sessionToken } }), error => error.statusCode === 401);
+  process.env.ADMIN_ACCESS_CODE = 'a-unique-test-code-123456';
+  if (previousAdminEmailsForSession === undefined) delete process.env.ADMIN_EMAILS;
+  else process.env.ADMIN_EMAILS = previousAdminEmailsForSession;
+  if (previousAdminCode === undefined) delete process.env.ADMIN_ACCESS_CODE;
+  else process.env.ADMIN_ACCESS_CODE = previousAdminCode;
+  console.log('PASS Signed administrator sessions and revocation');
+
   const defaultPricing = normalizeCatalog(DEFAULT_PRODUCTS);
   assert.equal(defaultPricing.length, 22, 'The catalogue must include core, specialist products and separate email management');
   assert.equal(defaultPricing.find(item => item.id === 'core').independent, undefined, 'DOM AI Core remains its own core subscription');
@@ -213,7 +244,7 @@ async function run() {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ ticketId: 'test-ticket', reply: 'We are checking this.', status: 'in_progress' })
   });
-  assert.equal(supportAdminUnauthenticated.statusCode, 401, 'Support admin updates must require Firebase authentication');
+  assert.equal(supportAdminUnauthenticated.statusCode, 503, 'Support admin updates fail closed when the admin session secret is not configured');
   console.log('PASS Support admin updates require Firebase authentication');
 
   const adminSettingsOptions = await adminSettingsHandler({ httpMethod: 'OPTIONS', headers: {} });
@@ -234,7 +265,7 @@ async function run() {
     httpMethod: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ announcement: '', features: { screen: true, spoken: true, transcription: true }, freeTrialLimit: 2 })
   });
-  assert.equal(adminSettingsUnauthenticated.statusCode, 401, 'Settings writes must require a signed-in Firebase administrator');
+  assert.equal(adminSettingsUnauthenticated.statusCode, 503, 'Settings writes fail closed when the admin session secret is not configured');
   if (previousFirebaseServiceAccount !== undefined) process.env.FIREBASE_SERVICE_ACCOUNT_JSON = previousFirebaseServiceAccount;
   console.log('PASS Admin settings updates require authenticated administrator access');
 
@@ -270,7 +301,7 @@ async function run() {
     httpMethod: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ uid: 'customer-uid', productId: 'video_annotation', action: 'grant', currentPeriodEnd: '2027-01-01T00:00:00.000Z' })
   });
-  assert.equal(adminProductUnauthenticated.statusCode, 401, 'Product access grants must require verified administrator authentication');
+  assert.equal(adminProductUnauthenticated.statusCode, 503, 'Product access grants fail closed when the admin session secret is not configured');
   console.log('PASS Product access grants require administrator authentication');
 
   const adminUsersOptions = await adminUsersHandler({ httpMethod: 'OPTIONS', headers: {} });
@@ -285,7 +316,7 @@ async function run() {
     httpMethod: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ uid: 'customer-uid', disabled: true })
   });
-  assert.equal(adminUsersUnauthenticated.statusCode, 401, 'Account management must require Firebase authentication');
+  assert.equal(adminUsersUnauthenticated.statusCode, 503, 'Account management fails closed when the admin session secret is not configured');
   console.log('PASS Account management requires Firebase authentication');
 
 
@@ -329,7 +360,7 @@ async function run() {
     httpMethod: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ paymentId: 'bep20_test', action: 'approve' })
   });
-  assert.equal(adminCryptoUnauthenticated.statusCode, 401, 'Crypto payment approval must require authenticated admin verification');
+  assert.equal(adminCryptoUnauthenticated.statusCode, 503, 'Crypto payment approval fails closed when the admin session secret is not configured');
   console.log('PASS USDT payment networks, duplicate-safe hash IDs, product validation and admin authentication gates');
 
   console.log('All backend validation and authentication-gate tests passed.');
