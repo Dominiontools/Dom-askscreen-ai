@@ -114,6 +114,7 @@ fun WorkCentreScreen() {
     var paymentBusy by remember { mutableStateOf(false) }
     var paymentMessage by remember { mutableStateOf<String?>(null) }
     var products by remember { mutableStateOf<List<WorkCentreProduct>>(emptyList()) }
+    var liveCatalogueLoaded by remember { mutableStateOf(false) }
     var emailProduct by remember { mutableStateOf(WorkCentreProduct("DOM Email Management", "email_management", 2000)) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -194,7 +195,10 @@ fun WorkCentreScreen() {
                 else if (id != "core") mapped.add(product)
             }
             products = mapped
+            liveCatalogueLoaded = true
         } catch (e: Exception) {
+            liveCatalogueLoaded = false
+            wallets = emptyList()
             products = FALLBACK_WORK_PRODUCTS
             error = e.message ?: "Live service settings are unavailable. Showing the service catalogue."
         } finally {
@@ -269,7 +273,7 @@ fun WorkCentreScreen() {
                             paymentEmail = auth.currentUser?.email.orEmpty()
                             paymentMessage = null
                             checkoutProduct = emailProduct
-                        }, enabled = !loading && wallets.isNotEmpty()) { Text("Pay with USDT") }
+                        }, enabled = !loading && liveCatalogueLoaded && wallets.isNotEmpty()) { Text("Pay with USDT") }
                         if (auth.currentUser == null) Text("After payment approval, register with this email and verify it to claim access.", color = Slate400, fontSize = 10.sp)
                     }
                 }
@@ -297,7 +301,7 @@ fun WorkCentreScreen() {
                             color = if (product.status == "active") ElectricCyan else Slate400,
                             fontSize = 11.sp
                         )
-                        Button(onClick = { paymentEmail = auth.currentUser?.email.orEmpty(); paymentMessage = null; checkoutProduct = product }, enabled = !loading && wallets.isNotEmpty()) { Text("Pay with USDT") }
+                        Button(onClick = { paymentEmail = auth.currentUser?.email.orEmpty(); paymentMessage = null; checkoutProduct = product }, enabled = !loading && liveCatalogueLoaded && wallets.isNotEmpty()) { Text("Pay with USDT") }
                     }
                     Text(
                         "USD " + String.format(Locale.US, "%.2f", product.priceCents / 100.0) + "/mo",
