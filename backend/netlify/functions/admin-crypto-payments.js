@@ -4,7 +4,7 @@ const { verifyUser } = require('./ask-screen');
 const { DEFAULT_PRODUCTS } = require('../../pricing-catalog');
 function json(statusCode, data) {
   return { statusCode, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Admin-Access-Code',
     'Cache-Control': 'no-store' }, body: JSON.stringify(data) };
 }
 let adminPromise;
@@ -27,6 +27,7 @@ exports.handler = async event => {
     const email = String(decoded.email || '').trim().toLowerCase();
     const allowlist = (process.env.ADMIN_EMAILS || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
     if (decoded.email_verified !== true || !email || !allowlist.includes(email)) return json(403, { error: 'Only a verified administrator can review payments.' });
+    if (!require('./admin-auth').isAdminAccessCodeValid(event)) return json(403, { error: 'Administrator access code is incorrect.' });
     let body;
     try { body = JSON.parse(event.body); } catch (_) { return json(400, { error: 'Invalid JSON.' }); }
     const paymentId = typeof body.paymentId === 'string' ? body.paymentId.trim() : '';
