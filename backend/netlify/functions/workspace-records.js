@@ -1,6 +1,7 @@
 'use strict';
 
 const { verifyUser } = require('./ask-screen');
+const { timestampMillis } = require('../../product-subscriptions');
 
 let adminPromise;
 async function getAdmin() {
@@ -53,9 +54,9 @@ async function hasEntitlement(db, uid, productId) {
   const snapshot = await db.collection('askScreenAccounts').doc(uid).get();
   const subscriptions = snapshot.exists ? snapshot.data().productSubscriptions || {} : {};
   const item = subscriptions[productId];
-  if (!item || item.status !== 'active' || !item.currentPeriodEnd ||
-      typeof item.currentPeriodEnd.toDate !== 'function') return false;
-  return item.currentPeriodEnd.toDate().getTime() > Date.now();
+  return Boolean(item && item.status === 'active' &&
+    Number.isFinite(timestampMillis(item.currentPeriodEnd)) &&
+    timestampMillis(item.currentPeriodEnd) > Date.now());
 }
 
 exports.handler = async event => {
@@ -112,4 +113,4 @@ exports.handler = async event => {
   }
 };
 
-exports._test = { cleanRecord, WORKSPACES };
+exports._test = { cleanRecord, WORKSPACES, hasEntitlement };
