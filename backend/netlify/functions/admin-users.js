@@ -1,6 +1,6 @@
 'use strict';
 
-const { verifyUser } = require('./ask-screen');
+const { verifyAdminSession } = require('./admin-auth');
 
 let adminPromise;
 async function getAdmin() {
@@ -40,13 +40,12 @@ exports.handler = async event => {
   if (!event.body || Buffer.byteLength(event.body, 'utf8') > 4000) return json(413, { error: 'Request is too large.' });
 
   try {
-    const decoded = await verifyUser(event);
+    const decoded = verifyAdminSession(event);
     const email = String(decoded.email || '').trim().toLowerCase();
     const allowed = (process.env.ADMIN_EMAILS || '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
     if (decoded.email_verified !== true || !email || !allowed.includes(email)) {
       return json(403, { error: 'This account is not authorized to manage users.' });
     }
-    if (!require('./admin-auth').isAdminAccessCodeValid(event)) return json(403, { error: 'Administrator access code is incorrect.' });
 
     let body;
     try { body = JSON.parse(event.body); } catch (_) { return json(400, { error: 'Invalid JSON.' }); }
