@@ -171,7 +171,7 @@ fun AdminScreen(onBack: () -> Unit) {
         val payload = JSONObject().put("announcement",announcement).put("features",features).put("freeTrialLimit",limit)
             .put("pricing",priceArray).put("bundleDiscountPercent",discount)
         withContext(Dispatchers.IO) {
-            val request = Request.Builder().url(endpoint).header("Authorization","Bearer $token")
+            val request = Request.Builder().url(endpoint).header("Authorization","Bearer $token").header("X-Admin-Access-Code", adminAccessCode)
                 .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
             http.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
@@ -187,7 +187,7 @@ fun AdminScreen(onBack: () -> Unit) {
         if (!configured.endsWith("/ask-screen")) throw IllegalStateException("Set your Netlify AskScreen endpoint in Settings first. Its URL must end with /ask-screen.")
         val endpoint = configured.removeSuffix("/ask-screen") + "/admin-dashboard"
         val result = withContext(Dispatchers.IO) {
-            val request = Request.Builder().url(endpoint).header("Authorization","Bearer $token").get().build()
+            val request = Request.Builder().url(endpoint).header("Authorization","Bearer $token").header("X-Admin-Access-Code", adminAccessCode).get().build()
             http.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 val json = try { JSONObject(body) } catch (_:Exception) { JSONObject() }
@@ -304,7 +304,7 @@ fun AdminScreen(onBack: () -> Unit) {
         val payload = JSONObject().put("uid",uid).put("disabled",disabled)
         withContext(Dispatchers.IO) {
             val request = Request.Builder().url(endpoint)
-                .header("Authorization","Bearer $idToken")
+                .header("Authorization","Bearer $idToken").header("X-Admin-Access-Code", adminAccessCode)
                 .header("X-Admin-Access-Code", adminAccessCode)
                 .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
@@ -325,7 +325,7 @@ fun AdminScreen(onBack: () -> Unit) {
         val payload = JSONObject().put("ticketId",ticketId).put("reply",reply).put("status",status)
         withContext(Dispatchers.IO) {
             val request = Request.Builder().url(endpoint)
-                .header("Authorization","Bearer $idToken")
+                .header("Authorization","Bearer $idToken").header("X-Admin-Access-Code", adminAccessCode)
                 .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
             http.newCall(request).execute().use { response ->
@@ -346,7 +346,7 @@ fun AdminScreen(onBack: () -> Unit) {
         if (action == "grant") payload.put("currentPeriodEnd",expiry)
         withContext(Dispatchers.IO) {
             val request = Request.Builder().url(endpoint)
-                .header("Authorization","Bearer $idToken")
+                .header("Authorization","Bearer $idToken").header("X-Admin-Access-Code", adminAccessCode)
                 .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
             http.newCall(request).execute().use { response ->
@@ -365,7 +365,7 @@ fun AdminScreen(onBack: () -> Unit) {
         val endpoint = configured.removeSuffix("/ask-screen") + "/admin-crypto-payments"
         val payload = JSONObject().put("paymentId",paymentId).put("action",action)
         withContext(Dispatchers.IO) {
-            val request = Request.Builder().url(endpoint).header("Authorization","Bearer $idToken")
+            val request = Request.Builder().url(endpoint).header("Authorization","Bearer $idToken").header("X-Admin-Access-Code", adminAccessCode)
                 .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
             http.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
