@@ -16,8 +16,21 @@ const { handler: cryptoPaymentsHandler, _test: cryptoPaymentTests } = require('.
 const { handler: adminCryptoPaymentsHandler } = require('./netlify/functions/admin-crypto-payments');
 const { DEFAULT_PRODUCTS, normalizeCatalog, calculateBundle } = require('./pricing-catalog');
 const { evaluateProductSubscription, summarizeProductSubscriptions } = require('./product-subscriptions');
+const { handler: workServiceHandler, _test: workServiceTests } = require('./netlify/functions/work-service');
 
 async function run() {
+  assert.equal(workServiceTests.PRODUCTS.has('email_management'), false, 'Email Management must remain a separate linked application');
+  assert.equal(workServiceTests.PRODUCTS.has('core'), false, 'Core subscription must not unlock a specialist workspace');
+  assert.ok(workServiceTests.SERVICE_GUIDES.marketing_social.includes('Publishing'), 'Social service must not claim external publishing without a connection');
+  assert.ok(workServiceTests.buildInstruction(DEFAULT_PRODUCTS.find(p => p.id === 'crm'), 'organize leads', '').includes('Complete the requested work'));
+  const workOptions = await workServiceHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(workOptions.statusCode, 204);
+  const workWrongMethod = await workServiceHandler({ httpMethod: 'PUT', headers: {} });
+  assert.equal(workWrongMethod.statusCode, 405);
+  const workUnauthenticated = await workServiceHandler({ httpMethod: 'GET', headers: {}, queryStringParameters: { productId: 'crm' } });
+  assert.equal(workUnauthenticated.statusCode, 401, 'Work Centre service execution must require a verified user');
+  console.log('PASS Work Centre service execution validation and authentication gates');
+
   const defaultPricing = normalizeCatalog(DEFAULT_PRODUCTS);
   assert.equal(defaultPricing.length, 22, 'The catalogue must include core, specialist products and separate email management');
   assert.equal(defaultPricing.find(item => item.id === 'core').independent, undefined, 'DOM AI Core remains its own core subscription');

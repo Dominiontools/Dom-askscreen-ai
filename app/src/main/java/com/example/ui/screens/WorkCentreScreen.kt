@@ -119,6 +119,7 @@ fun WorkCentreScreen() {
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var accessError by remember { mutableStateOf<String?>(null) }
+    var openedWorkspace by remember { mutableStateOf<WorkCentreProduct?>(null) }
 
     LaunchedEffect(auth.currentUser?.uid, prefs.backendUrl) {
         loading = true
@@ -261,6 +262,7 @@ fun WorkCentreScreen() {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text("DOM Email Management", color = Color.White, fontWeight = FontWeight.SemiBold)
                     Text("Open the separate Email Management System", color = Slate400, fontSize = 12.sp)
+                    TextButton(onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(EMAIL_MANAGEMENT_URL))) }.onFailure { paymentMessage = "Email Management website could not be opened." } }) { Text("Visit Email Management website") }
                     Text("USD " + String.format(Locale.US, "%.2f", emailProduct.priceCents / 100.0) + "/month", color = ElectricCyan, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     Text(workAccessLabel(emailProduct), color = if (emailProduct.status == "active") ElectricCyan else Slate400, fontSize = 11.sp)
                     if (emailProduct.status == "active" && auth.currentUser?.isEmailVerified == true) {
@@ -295,13 +297,18 @@ fun WorkCentreScreen() {
                     Icon(Icons.Default.WorkOutline, contentDescription = null, tint = ElectricCyan)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(product.name, color = Color.White, fontWeight = FontWeight.Medium, fontSize = 13.sp)
-                        Text("Catalogue listing · workspace availability varies", color = Slate400, fontSize = 11.sp)
+                        Text(if (product.status == "active") "Your service workspace is ready to open" else "Subscribe to unlock this service workspace", color = Slate400, fontSize = 11.sp)
                         Text(
                             workAccessLabel(product),
                             color = if (product.status == "active") ElectricCyan else Slate400,
                             fontSize = 11.sp
                         )
-                        Button(onClick = { paymentEmail = auth.currentUser?.email.orEmpty(); paymentMessage = null; checkoutProduct = product }, enabled = !loading && liveCatalogueLoaded && wallets.isNotEmpty()) { Text("Pay with USDT") }
+                        Button(onClick = {
+                            if (product.status == "active" && auth.currentUser?.isEmailVerified == true) openedWorkspace = product
+                            else { paymentEmail = auth.currentUser?.email.orEmpty(); paymentMessage = null; checkoutProduct = product }
+                        }, enabled = !loading && liveCatalogueLoaded && (product.status == "active" && auth.currentUser?.isEmailVerified == true || wallets.isNotEmpty())) {
+                            Text(if (product.status == "active" && auth.currentUser?.isEmailVerified == true) "Open workspace" else "Pay with USDT")
+                        }
                     }
                     Text(
                         "USD " + String.format(Locale.US, "%.2f", product.priceCents / 100.0) + "/mo",
@@ -316,9 +323,12 @@ fun WorkCentreScreen() {
             color = AmberWarning, fontSize = 11.sp
         )
         Text(
-            "Prices are displayed for planning only. Paystack checkout is Coming Soon. An active access record is an administrator-managed entitlement only; it does not mean that the specialist workspace is already built or available inside this app. The specialist modules are still being developed.",
+            "Workspaces currently support AI-assisted text tasks with saved results. Image, audio and video uploads, external account connections and actions such as publishing or sending still require their dedicated integrations.",
             color = Slate400, fontSize = 11.sp
         )
+    }
+    openedWorkspace?.let { product ->
+        WorkServiceWorkspaceDialog(productId = product.id, productName = product.name, onDismiss = { openedWorkspace = null })
     }
     checkoutProduct?.let { product ->
         val wallet = wallets.firstOrNull { it.id == paymentNetwork }
