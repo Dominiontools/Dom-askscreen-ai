@@ -45,6 +45,8 @@ async function run() {
   process.env.ADMIN_ACCESS_CODE = 'a-unique-test-code-123456';
   if (previousAdminEmailsForSession === undefined) delete process.env.ADMIN_EMAILS;
   else process.env.ADMIN_EMAILS = previousAdminEmailsForSession;
+  if (previousAdminCode === undefined) delete process.env.ADMIN_ACCESS_CODE;
+  else process.env.ADMIN_ACCESS_CODE = previousAdminCode;
   console.log('PASS Signed administrator sessions and revocation');
 
   const defaultPricing = normalizeCatalog(DEFAULT_PRODUCTS);
