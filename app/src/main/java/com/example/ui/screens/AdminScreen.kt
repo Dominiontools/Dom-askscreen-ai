@@ -65,6 +65,7 @@ fun AdminScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     var email by remember { mutableStateOf(auth.currentUser?.email.orEmpty()) }
     var password by remember { mutableStateOf("") }
+    var adminAccessCode by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var idToken by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -125,7 +126,7 @@ fun AdminScreen(onBack: () -> Unit) {
         if (!configured.endsWith("/ask-screen")) throw IllegalStateException("Set your Netlify AskScreen endpoint in Settings first.")
         val endpoint = configured.removeSuffix("/ask-screen") + "/admin-settings"
         val result = withContext(Dispatchers.IO) {
-            val request = Request.Builder().url(endpoint).header("Authorization","Bearer $token").get().build()
+            val request = Request.Builder().url(endpoint).header("Authorization","Bearer $token").header("X-Admin-Access-Code", adminAccessCode).get().build()
             http.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 val json = try { JSONObject(body) } catch (_:Exception) { JSONObject() }
@@ -304,6 +305,7 @@ fun AdminScreen(onBack: () -> Unit) {
         withContext(Dispatchers.IO) {
             val request = Request.Builder().url(endpoint)
                 .header("Authorization","Bearer $idToken")
+                .header("X-Admin-Access-Code", adminAccessCode)
                 .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
             http.newCall(request).execute().use { response ->
@@ -394,7 +396,7 @@ fun AdminScreen(onBack: () -> Unit) {
             .put("versionName", releaseVersionName.trim()).put("releaseNotes", releaseNotes.trim())
             .put("downloadUrl", downloadUrl).put("sizeBytes", sizeBytes).put("sha256", checksum)
         withContext(Dispatchers.IO) {
-            val request = Request.Builder().url(endpoint).header("Authorization", "Bearer $idToken")
+            val request = Request.Builder().url(endpoint).header("Authorization", "Bearer $idToken").header("X-Admin-Access-Code", adminAccessCode)
                 .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
             http.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
@@ -420,7 +422,8 @@ fun AdminScreen(onBack: () -> Unit) {
                     Text("Admin sign-in",color=Color.White,fontSize=18.sp,fontWeight=FontWeight.Bold)
                     Text("Only the verified Firebase account authorized by the owner can enter this area.",color=Slate300,fontSize=13.sp)
                     OutlinedTextField(value=email,onValueChange={email=it.trim()},label={Text("Admin email")},singleLine=true,modifier=Modifier.fillMaxWidth())
-                    OutlinedTextField(value=password,onValueChange={password=it},label={Text("Password")},visualTransformation=PasswordVisualTransformation(),singleLine=true,modifier=Modifier.fillMaxWidth())
+                    OutlinedTextField(value=password,onValueChange={password=it},label={Text("Firebase password")},visualTransformation=PasswordVisualTransformation(),singleLine=true,modifier=Modifier.fillMaxWidth())
+                    OutlinedTextField(value=adminAccessCode,onValueChange={adminAccessCode=it.take(128)},label={Text("Administrator access code")},visualTransformation=PasswordVisualTransformation(),singleLine=true,modifier=Modifier.fillMaxWidth())
                     Button(onClick={
                         scope.launch {
                             busy=true; error=null
@@ -436,7 +439,7 @@ fun AdminScreen(onBack: () -> Unit) {
                                 if(auth.currentUser!=null) auth.signOut()
                             } finally { busy=false }
                         }
-                    },enabled=!busy && email.contains("@") && password.length>=6,modifier=Modifier.fillMaxWidth()) {
+                    },enabled=!busy && email.contains("@") && password.length>=6 && adminAccessCode.length>=16,modifier=Modifier.fillMaxWidth()) {
                         if(busy) CircularProgressIndicator(Modifier.size(18.dp),color=Color.White,strokeWidth=2.dp) else Text("Sign in to Admin Centre")
                     }
                 }
@@ -444,7 +447,7 @@ fun AdminScreen(onBack: () -> Unit) {
         } else {
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 Button(onClick={refresh()},enabled=!busy,modifier=Modifier.weight(1f)) { Icon(Icons.Default.Refresh,contentDescription=null); Spacer(Modifier.width(6.dp)); Text("Refresh data") }
-                OutlinedButton(onClick={auth.signOut();idToken="";loaded=false;users=emptyList();payments=emptyList();error=null}) { Text("Sign out") }
+                OutlinedButton(onClick={auth.signOut();idToken="";adminAccessCode="";loaded=false;users=emptyList();payments=emptyList();error=null}) { Text("Sign out") }
             }
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 AdminMetric("Registered users",totalUsers.toString(),Modifier.weight(1f))
