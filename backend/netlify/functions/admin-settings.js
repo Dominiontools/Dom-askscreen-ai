@@ -34,7 +34,7 @@ function json(statusCode, data) {
       'Content-Type': 'application/json; charset=utf-8',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+      'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Admin-Access-Code',
       'Cache-Control': 'no-store'
     },
     body: JSON.stringify(data)
@@ -74,6 +74,7 @@ exports.handler = async event => {
     if (decoded.email_verified !== true || !email || !allowed.includes(email)) {
       return json(403, { error: 'This account is not authorized to change app settings.' });
     }
+    if (!require('./admin-auth').isAdminAccessCodeValid(event)) return json(403, { error: 'Administrator access code is incorrect.' });
 
     const admin = await getAdmin();
     const db = admin.firestore();
