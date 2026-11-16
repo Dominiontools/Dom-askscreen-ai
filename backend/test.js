@@ -13,11 +13,29 @@ const { handler: supportHandler } = require('./netlify/functions/support-tickets
 const { handler: supportAdminHandler } = require('./netlify/functions/support-admin');
 const { handler: accountStatusHandler } = require('./netlify/functions/account-status');
 const { handler: cryptoPaymentsHandler, _test: cryptoPaymentTests } = require('./netlify/functions/crypto-payments');
+const { handler: workServiceHandler, _test: workServiceTests } = require('./netlify/functions/work-service');
+const { handler: workspaceRecordsHandler } = require('./netlify/functions/workspace-records');
 const { handler: adminCryptoPaymentsHandler } = require('./netlify/functions/admin-crypto-payments');
 const { DEFAULT_PRODUCTS, normalizeCatalog, calculateBundle } = require('./pricing-catalog');
 const { evaluateProductSubscription, summarizeProductSubscriptions } = require('./product-subscriptions');
 
 async function run() {
+  assert.equal(workServiceTests.PRODUCTS.has('video_annotation'), true, 'Video annotation is available as a subscribed work service');
+  assert.equal(workServiceTests.PRODUCTS.has('email_management'), false, 'Email Management remains a separate application');
+  assert.equal(workServiceTests.PRODUCTS.has('core'), false, 'Core subscription cannot unlock a specialist work service');
+  assert.equal(workServiceTests.buildInstruction(DEFAULT_PRODUCTS.find(p => p.id === 'crm'), 'Prepare a customer follow-up', 'Customer: Ada').includes('Perform the requested work'), true);
+  console.log('PASS Work service catalogue and task instruction rules');
+
+  const workOptions = await workServiceHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(workOptions.statusCode, 204, 'Work service endpoint supports preflight');
+  const workInvalidMethod = await workServiceHandler({ httpMethod: 'PUT', headers: {} });
+  assert.equal(workInvalidMethod.statusCode, 405, 'Work service endpoint rejects unsupported methods');
+  const workUnauthenticated = await workServiceHandler({ httpMethod: 'GET', headers: {}, queryStringParameters: { productId: 'crm' } });
+  assert.equal(workUnauthenticated.statusCode, 401, 'Work service history requires authentication');
+  const recordsUnauthenticated = await workspaceRecordsHandler({ httpMethod: 'GET', headers: {}, queryStringParameters: { workspace: 'crm' } });
+  assert.equal(recordsUnauthenticated.statusCode, 401, 'CRM records require authentication');
+  console.log('PASS Work service and CRM workspace authentication gates');
+
   const defaultPricing = normalizeCatalog(DEFAULT_PRODUCTS);
   assert.equal(defaultPricing.length, 22, 'The catalogue must include core, specialist products and separate email management');
   assert.equal(defaultPricing.find(item => item.id === 'core').independent, undefined, 'DOM AI Core remains its own core subscription');
