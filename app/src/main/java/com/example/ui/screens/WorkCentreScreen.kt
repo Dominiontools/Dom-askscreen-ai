@@ -42,6 +42,29 @@ import java.util.TimeZone
 
 private const val EMAIL_MANAGEMENT_URL = "https://fancy-swan-734af6.netlify.app"
 
+private val FALLBACK_WORK_PRODUCTS = listOf(
+    WorkCentreProduct("General Data Annotation AI", "data_annotation", 2900),
+    WorkCentreProduct("Image Annotation AI", "image_annotation", 2000),
+    WorkCentreProduct("Video Annotation AI", "video_annotation", 3500),
+    WorkCentreProduct("Audio Annotation AI", "audio_annotation", 2000),
+    WorkCentreProduct("Text Annotation AI", "text_annotation", 1800),
+    WorkCentreProduct("AI Training & Evaluation", "ai_training", 3000),
+    WorkCentreProduct("Virtual Assistant AI", "virtual_assistant", 3900),
+    WorkCentreProduct("Lead Generation AI", "lead_generation", 2900),
+    WorkCentreProduct("Customer Support AI", "customer_support", 2900),
+    WorkCentreProduct("Inventory Management AI", "inventory", 2500),
+    WorkCentreProduct("Purchasing & Procurement AI", "procurement", 2500),
+    WorkCentreProduct("Calendar & Scheduling AI", "calendar", 1500),
+    WorkCentreProduct("Spreadsheet & Document AI", "documents_spreadsheets", 2000),
+    WorkCentreProduct("Customer & CRM Management AI", "crm", 2900),
+    WorkCentreProduct("Project & Task Management AI", "project_tasks", 2000),
+    WorkCentreProduct("Business Administration AI", "business_admin", 2500),
+    WorkCentreProduct("Marketing & Social Media AI", "marketing_social", 2900),
+    WorkCentreProduct("Research Assistant AI", "research", 2000),
+    WorkCentreProduct("Translation & Transcription AI", "translation_transcription", 2000),
+    WorkCentreProduct("Technical Assistant AI", "technical_assistant", 3900)
+)
+
 private data class WalletNetwork(val id:String,val name:String,val address:String)
 
 private data class WorkCentreProduct(
@@ -172,7 +195,8 @@ fun WorkCentreScreen() {
             }
             products = mapped
         } catch (e: Exception) {
-            error = e.message ?: "Could not load Work Centre."
+            products = FALLBACK_WORK_PRODUCTS
+            error = e.message ?: "Live service settings are unavailable. Showing the service catalogue."
         } finally {
             loading = false
         }
