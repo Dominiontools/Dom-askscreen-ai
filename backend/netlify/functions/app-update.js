@@ -1,5 +1,5 @@
 'use strict';
-const { verifyUser } = require('./ask-screen');
+const { verifyAdminSession } = require('./admin-auth');
 let adminPromise;
 async function getAdmin() {
   if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) throw new Error('AUTH_NOT_CONFIGURED');
@@ -59,10 +59,10 @@ exports.handler = async event => {
         publishedAt: release.publishedAt?.toDate ? release.publishedAt.toDate().toISOString() : null
       } });
     }
-    const decoded = await verifyUser(event);
+    const decoded = verifyAdminSession(event);
     const email = adminEmail(decoded);
     if (!email) return json(403, { error: 'This verified account is not authorized to publish app updates.' });
-    if (!require('./admin-auth').isAdminAccessCodeValid(event)) return json(403, { error: 'Administrator access code is incorrect.' });
+
     const type = String(event.headers?.['content-type'] || event.headers?.['Content-Type'] || '').toLowerCase();
     if (!type.includes('application/json')) return json(415, { error: 'Content-Type must be application/json.' });
     if (!event.body || Buffer.byteLength(event.body, 'utf8') > 12000) return json(413, { error: 'Update request is too large.' });
