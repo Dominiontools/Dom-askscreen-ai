@@ -1,6 +1,6 @@
 'use strict';
 
-const { verifyUser } = require('./ask-screen');
+const { verifyAdminSession } = require('./admin-auth');
 const { DEFAULT_PRODUCTS, DEFAULT_BUNDLE_DISCOUNT_PERCENT, normalizeCatalog, calculateBundle } = require('../../pricing-catalog');
 
 let adminPromise;
@@ -68,13 +68,12 @@ exports.handler = async event => {
       });
     }
 
-    const decoded = await verifyUser(event);
+    const decoded = verifyAdminSession(event);
     const email = String(decoded.email || '').trim().toLowerCase();
     const allowed = (process.env.ADMIN_EMAILS || '').split(',').map(v => v.trim().toLowerCase()).filter(Boolean);
     if (decoded.email_verified !== true || !email || !allowed.includes(email)) {
       return json(403, { error: 'This account is not authorized to change app settings.' });
     }
-    if (!require('./admin-auth').isAdminAccessCodeValid(event)) return json(403, { error: 'Administrator access code is incorrect.' });
 
     const admin = await getAdmin();
     const db = admin.firestore();
