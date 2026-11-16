@@ -416,7 +416,7 @@ fun AdminScreen(onBack: () -> Unit) {
             Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(18.dp)) {
                 Column(Modifier.fillMaxWidth().padding(18.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
                     Text("Admin sign-in",color=Color.White,fontSize=18.sp,fontWeight=FontWeight.Bold)
-                    Text("Only the verified Firebase account authorized by the owner can enter this area.",color=Slate300,fontSize=13.sp)
+                    Text("Enter the administrator email approved by the owner and the separate access code. No Firebase password is required.",color=Slate300,fontSize=13.sp)
                     OutlinedTextField(value=email,onValueChange={email=it.trim()},label={Text("Admin email")},singleLine=true,modifier=Modifier.fillMaxWidth())
                     OutlinedTextField(value=adminAccessCode,onValueChange={adminAccessCode=it.take(128)},label={Text("Administrator access code")},visualTransformation=PasswordVisualTransformation(),singleLine=true,modifier=Modifier.fillMaxWidth())
                     Button(onClick={
