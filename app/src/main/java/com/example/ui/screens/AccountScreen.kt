@@ -36,6 +36,10 @@ import java.util.Locale
 
 private fun readableFirebaseAuthError(exception: Exception?): String {
     val code = (exception as? FirebaseAuthException)?.errorCode.orEmpty()
+    val details = exception?.localizedMessage.orEmpty()
+    if (details.contains("CONFIGURATION_NOT_FOUND", ignoreCase = true)) {
+        return "Firebase Authentication is not fully configured for this app. Open the Firebase project connected to Dominion Ask AI, select Authentication, click Get started if shown, then enable Email/Password under Sign-in method and save."
+    }
     return when (code) {
         "ERROR_NETWORK_REQUEST_FAILED" -> "Firebase could not reach its sign-in server. Check your internet connection, switch between Wi-Fi and mobile data, then try again."
         "ERROR_OPERATION_NOT_ALLOWED" -> "Email and password sign-in is not enabled in the Firebase project. The administrator must enable Email/Password in Firebase Authentication."
