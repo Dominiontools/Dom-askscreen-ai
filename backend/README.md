@@ -138,3 +138,11 @@ Default catalogue arithmetic:
 - Complete business bundle before discount: $545/month; after 10% discount: $490.50/month.
 
 These are catalogue prices, not payment activation. Paystack checkout and verified payment webhooks remain a separate future implementation; do not grant paid access merely because a customer views the catalogue. The manual Work Centre access override described above is separate from payment processing and must never be represented as a completed payment.
+
+## 7. Work Centre task workspaces
+
+The authenticated `/.netlify/functions/work-service` endpoint provides task execution for an active independent Work Centre subscription. The Android Work Centre opens a task workspace, sends the task and supporting text, and displays and saves the completed output in the customer's Firestore job history.
+
+Each service uses its own work instructions (for example, CRM lead organization, social content drafting, inventory calculations, translation, and annotation guidance). This first workspace version processes text input only. It does not yet accept image/audio/video uploads and it does not connect to social networks, send email, publish posts, create external calendar events, or update third-party CRM/project systems. Those actions require dedicated integrations and user authorization; the app must never report them as completed until the connected service confirms success.
+
+DOM Email Management remains a separate web application at `https://fancy-swan-734af6.netlify.app`. The Android Work Centre includes a direct website link. Its separate website must be deployed and configured independently.
