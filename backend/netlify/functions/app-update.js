@@ -18,7 +18,7 @@ function json(statusCode, data) {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+    'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Admin-Access-Code',
     'Cache-Control': 'no-store'
   }, body: JSON.stringify(data) };
 }
@@ -62,6 +62,7 @@ exports.handler = async event => {
     const decoded = await verifyUser(event);
     const email = adminEmail(decoded);
     if (!email) return json(403, { error: 'This verified account is not authorized to publish app updates.' });
+    if (!require('./admin-auth').isAdminAccessCodeValid(event)) return json(403, { error: 'Administrator access code is incorrect.' });
     const type = String(event.headers?.['content-type'] || event.headers?.['Content-Type'] || '').toLowerCase();
     if (!type.includes('application/json')) return json(415, { error: 'Content-Type must be application/json.' });
     if (!event.body || Buffer.byteLength(event.body, 'utf8') > 12000) return json(413, { error: 'Update request is too large.' });
