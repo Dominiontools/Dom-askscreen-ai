@@ -17,7 +17,22 @@ const { handler: adminCryptoPaymentsHandler } = require('./netlify/functions/adm
 const { DEFAULT_PRODUCTS, normalizeCatalog, calculateBundle } = require('./pricing-catalog');
 const { evaluateProductSubscription, summarizeProductSubscriptions } = require('./product-subscriptions');
 
+const { isAdminAccessCodeValid } = require('./netlify/functions/admin-auth');
+
 async function run() {
+  const previousAdminCode = process.env.ADMIN_ACCESS_CODE;
+  process.env.ADMIN_ACCESS_CODE = 'a-unique-test-code-123456';
+  assert.equal(isAdminAccessCodeValid({ headers: { 'x-admin-access-code': 'a-unique-test-code-123456' } }), true,
+    'The configured administrator access code is accepted');
+  assert.equal(isAdminAccessCodeValid({ headers: { 'x-admin-access-code': 'incorrect-code' } }), false,
+    'An incorrect administrator access code is rejected');
+  delete process.env.ADMIN_ACCESS_CODE;
+  assert.equal(isAdminAccessCodeValid({ headers: { 'x-admin-access-code': 'a-unique-test-code-123456' } }), false,
+    'Admin access fails closed when the server code is not configured');
+  if (previousAdminCode === undefined) delete process.env.ADMIN_ACCESS_CODE;
+  else process.env.ADMIN_ACCESS_CODE = previousAdminCode;
+  console.log('PASS Server-side administrator access code validation');
+
   const defaultPricing = normalizeCatalog(DEFAULT_PRODUCTS);
   assert.equal(defaultPricing.length, 22, 'The catalogue must include core, specialist products and separate email management');
   assert.equal(defaultPricing.find(item => item.id === 'core').independent, undefined, 'DOM AI Core remains its own core subscription');
