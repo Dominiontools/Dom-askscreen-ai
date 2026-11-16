@@ -1,6 +1,6 @@
 'use strict';
 
-const { verifyUser } = require('./ask-screen');
+const { verifyAdminSession } = require('./admin-auth');
 const { summarizeProductSubscriptions } = require('../../product-subscriptions');
 
 let adminPromise;
@@ -44,12 +44,11 @@ exports.handler = async event => {
   });
 
   try {
-    const decoded = await verifyUser(event);
+    const decoded = verifyAdminSession(event);
     const email = String(decoded.email || '').toLowerCase();
     if (!email || !allowed.includes(email) || decoded.email_verified !== true) {
       return json(403, { error: 'This account is not authorized to access the admin dashboard.' });
     }
-    if (!require('./admin-auth').isAdminAccessCodeValid(event)) return json(403, { error: 'Administrator access code is incorrect.' });
 
     const admin = await getAdmin();
     const db = admin.firestore();
