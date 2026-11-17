@@ -9,6 +9,25 @@
       "client_info": {
         "mobilesdk_app_id": "1:1045276663812:android:64b2b92bd22d1594415551",
         "android_client_info": {
+          "package_name": "com.aistudio.askscreenai.vtwxpk"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAtiAbDgA524fYhNa77dmiZ7Zr9YnoVVes"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1045276663812:android:51bd732119b2b7d0415551",
+        "android_client_info": {
           "package_name": "com.dominion.askscreenai"
         }
       },
