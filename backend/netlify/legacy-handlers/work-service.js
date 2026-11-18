@@ -6,6 +6,9 @@ const { timestampMillis } = require('../../product-subscriptions');
 
 const PRODUCTS = new Map(DEFAULT_PRODUCTS.filter(p => p.independent && p.id !== 'email_management').map(p => [p.id, p]));
 const MAX_INPUT = 24000;
+const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
+const MAX_ATTACHMENTS = 3;
+const ALLOWED_MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/webm', 'audio/aac', 'audio/flac', 'application/pdf', 'text/plain']);
 
 const SERVICE_GUIDES = {
   data_annotation: 'Act as a professional data annotator. Produce clear labels, categories, entities, quality checks and an uncertainty list. Follow the customer instructions exactly.',
@@ -65,7 +68,39 @@ async function requireEntitlement(db, uid, productId) {
   }
 }
 
-function buildInstruction(product, task, context) {
+
+function normalizeWorkAttachments(parsed) {
+  const rawImages = parsed.images == null ? [] : parsed.images;
+  const rawFiles = parsed.files == null ? [] : parsed.files;
+  const rawAudio = parsed.audio == null ? null : parsed.audio;
+  if (!Array.isArray(rawImages) || !Array.isArray(rawFiles)) throw new Error('INVALID_ATTACHMENTS');
+  if (rawImages.length + rawFiles.length + (rawAudio ? 1 : 0) > MAX_ATTACHMENTS) throw new Error('TOO_MANY_ATTACHMENTS');
+  let totalBytes = 0;
+  function normalize(item, expected) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('INVALID_ATTACHMENT');
+    const mimeType = String(item.mimeType || '').toLowerCase().split(';')[0].trim();
+    const data = item.data;
+    if (!ALLOWED_MEDIA_TYPES.has(mimeType)) throw new Error('UNSUPPORTED_ATTACHMENT_TYPE');
+    if (typeof data !== 'string' || !data.length || data.length % 4 !== 0 ||
+        !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data)) throw new Error('INVALID_ATTACHMENT_DATA');
+    const bytes = Buffer.from(data, 'base64');
+    if (!bytes.length || bytes.toString('base64') !== data) throw new Error('INVALID_ATTACHMENT_DATA');
+    if (expected === 'image' && !mimeType.startsWith('image/')) throw new Error('INVALID_IMAGE_TYPE');
+    if (expected === 'audio' && !mimeType.startsWith('audio/')) throw new Error('INVALID_AUDIO_TYPE');
+    if (expected === 'file' && !['application/pdf', 'text/plain'].includes(mimeType)) throw new Error('INVALID_FILE_TYPE');
+    totalBytes += bytes.length;
+    if (totalBytes > MAX_UPLOAD_BYTES) throw new Error('ATTACHMENTS_TOO_LARGE');
+    return { mimeType, data, sizeBytes: bytes.length };
+  }
+  return {
+    images: rawImages.map(item => normalize(item, 'image')),
+    files: rawFiles.map(item => normalize(item, 'file')),
+    audio: rawAudio ? normalize(rawAudio, 'audio') : null,
+    totalBytes
+  };
+}
+
+function buildInstruction(product, task, context, attachments = []) {
   const guide = SERVICE_GUIDES[product.id] || 'Perform the requested specialist work accurately.';
   return [
     'You are the working assistant inside ' + product.name + '.',
@@ -75,7 +110,8 @@ function buildInstruction(product, task, context) {
     'When an external connection is needed, provide the finished draft or structured output and state exactly which connection or approval is still required.',
     'Return a usable result with headings, tables or structured lists where appropriate.',
     'CUSTOMER REQUEST:\n' + task,
-    context ? 'CUSTOMER MATERIAL:\n' + context : ''
+    context ? 'CUSTOMER MATERIAL:\n' + context : '',
+    attachments.length ? 'The customer supplied ' + attachments.join(', ') + '. Inspect the actual attachment content and base every observation on it. Do not invent unreadable details.' : ''
   ].filter(Boolean).join('\n\n');
 }
 
@@ -103,22 +139,43 @@ exports.handler = async event => {
       return json(200, { jobs: recent });
     }
 
-    if (!event.body || Buffer.byteLength(event.body, 'utf8') > MAX_INPUT + 4000) {
-      return json(413, { error: 'The task is too large. Reduce the text and try again.' });
+    if (!event.body || Buffer.byteLength(event.body, 'utf8') > 3 * 1024 * 1024) {
+      return json(413, { error: 'The request or uploaded files are too large. Each workspace request supports up to 2 MB of attachments.' });
     }
     const task = typeof parsed.task === 'string' ? parsed.task.trim() : '';
     const context = typeof parsed.context === 'string' ? parsed.context.trim() : '';
     if (!task) return json(400, { error: 'Describe the work you want completed.' });
     if (task.length > 8000 || context.length > MAX_INPUT) return json(413, { error: 'Task or supplied material is too long.' });
+    let attachments;
+    try { attachments = normalizeWorkAttachments(parsed); }
+    catch (error) {
+      const messages = {
+        INVALID_ATTACHMENTS: 'Attachments must be supplied in the correct format.',
+        TOO_MANY_ATTACHMENTS: 'Attach no more than three files at a time.',
+        INVALID_ATTACHMENT: 'One of the attachments is invalid.',
+        UNSUPPORTED_ATTACHMENT_TYPE: 'Supported uploads are images, audio, PDF and plain text.',
+        INVALID_ATTACHMENT_DATA: 'An uploaded file is empty or could not be read.',
+        INVALID_IMAGE_TYPE: 'Image uploads must use an image format.',
+        INVALID_AUDIO_TYPE: 'Audio uploads must use an audio format.',
+        INVALID_FILE_TYPE: 'Document uploads must be PDF or plain text.',
+        ATTACHMENTS_TOO_LARGE: 'The combined upload size must not exceed 2 MB.'
+      };
+      return json(400, { error: messages[error.message] || 'The attachment could not be processed.', code: error.message });
+    }
+    const attachmentLabels = [
+      ...attachments.images.map((item, index) => 'image ' + (index + 1) + ' (' + item.mimeType + ')'),
+      ...attachments.files.map((item, index) => 'document ' + (index + 1) + ' (' + item.mimeType + ')'),
+      ...(attachments.audio ? ['audio (' + attachments.audio.mimeType + ')'] : [])
+    ];
 
     const jobRef = jobs.doc();
     const now = admin.firestore.FieldValue.serverTimestamp();
-    await jobRef.set({ productId, productName: product.name, task, status: 'processing', createdAt: now, updatedAt: now });
+    await jobRef.set({ productId, productName: product.name, task, attachmentCount: attachmentLabels.length, attachmentTypes: attachmentLabels, status: 'processing', createdAt: now, updatedAt: now });
 
     try {
       const result = await routeRequest({
-        prompt: buildInstruction(product, task, context),
-        history: [], images: [], files: [], audio: null
+        prompt: buildInstruction(product, task, context, attachmentLabels),
+        history: [], images: attachments.images, files: attachments.files, audio: attachments.audio
       });
       await jobRef.set({
         status: 'completed', result: result.answer,
@@ -151,4 +208,4 @@ exports.handler = async event => {
   }
 };
 
-exports._test = { PRODUCTS, SERVICE_GUIDES, buildInstruction, requireEntitlement };
+exports._test = { PRODUCTS, SERVICE_GUIDES, buildInstruction, requireEntitlement, normalizeWorkAttachments, MAX_UPLOAD_BYTES };
