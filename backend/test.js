@@ -35,7 +35,6 @@ async function run() {
   assert.equal(adminLoginOptions.statusCode, 204);
   const adminLoginWrongMethod = await adminLoginHandler({ httpMethod: 'GET', headers: {} });
   assert.equal(adminLoginWrongMethod.statusCode, 405);
-  if (oldAdminCode === undefined) delete process.env.ADMIN_ACCESS_CODE; else process.env.ADMIN_ACCESS_CODE = oldAdminCode;
   if (oldAdminEmails === undefined) delete process.env.ADMIN_EMAILS; else process.env.ADMIN_EMAILS = oldAdminEmails;
   console.log('PASS administrator access-code and signed-session validation');
 
@@ -364,6 +363,7 @@ async function run() {
   assert.equal(adminCryptoUnauthenticated.statusCode, 401, 'Crypto payment approval must require authenticated admin verification');
   console.log('PASS USDT payment networks, duplicate-safe hash IDs, product validation and admin authentication gates');
 
+  if (oldAdminCode === undefined) delete process.env.ADMIN_ACCESS_CODE; else process.env.ADMIN_ACCESS_CODE = oldAdminCode;
   console.log('All backend validation and authentication-gate tests passed.');
 }
 

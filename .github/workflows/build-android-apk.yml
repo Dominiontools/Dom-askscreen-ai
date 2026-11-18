@@ -98,7 +98,7 @@ jobs:
           {
             echo '### Real error (first lines)'
             echo '```'
-            grep -n -E "^e: |What went wrong|Execution failed|error:" -A6 build.log | head -80
+            if [ -f build.log ]; then grep -n -E "^e: |What went wrong|Execution failed|error:" -A6 build.log | head -80; else echo 'Backend validation or setup failed before the Android build log was created.'; fi
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
