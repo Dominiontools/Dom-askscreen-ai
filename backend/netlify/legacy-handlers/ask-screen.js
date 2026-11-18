@@ -20,8 +20,9 @@ const MAX_REQUESTS_PER_WINDOW = Number.isFinite(configuredRateLimit)
   ? Math.min(300, Math.max(10, configuredRateLimit))
   : DEFAULT_MAX_REQUESTS_PER_WINDOW;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
-const PROVIDER_TIMEOUT_MS = 8_000;
-const ROUTER_DEADLINE_MS = 24_000;
+const PROVIDER_TIMEOUT_MS = 25_000;
+// Keep synchronous processing below Netlify's 60-second function execution limit.
+const ROUTER_DEADLINE_MS = 52_000;
 const MAX_PROVIDER_RETRIES = 1;
 const RETRY_BASE_DELAY_MS = 350;
 const COOLDOWN_MS = 30_000;
