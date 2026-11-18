@@ -217,12 +217,17 @@ async function callback(event) {
     const admin = await getAdmin();
     const db = admin.firestore();
     const stateRef = db.collection(STATE_COLLECTION).doc(stateDigest(state));
-    const stateSnapshot = await stateRef.get();
-    if (!stateSnapshot.exists) return html(400, 'Google connection expired', 'This connection request is invalid or has already been used. Return to DomAskScreenAI and start again.');
-    const stateData = stateSnapshot.data() || {};
-    await stateRef.delete();
-    if (stateData.provider !== 'google' || !stateData.uid || !Number.isFinite(stateData.expiresAt) || stateData.expiresAt < Date.now()) {
-      return html(400, 'Google connection expired', 'This connection request has expired. Return to DomAskScreenAI and start again.');
+    const stateData = await db.runTransaction(async transaction => {
+      const stateSnapshot = await transaction.get(stateRef);
+      if (!stateSnapshot.exists) return null;
+      const data = stateSnapshot.data() || {};
+      // Delete inside the same transaction so a callback state can be claimed only once.
+      transaction.delete(stateRef);
+      return data;
+    });
+    if (!stateData || stateData.provider !== 'google' || !stateData.uid ||
+        !Number.isFinite(stateData.expiresAt) || stateData.expiresAt < Date.now()) {
+      return html(400, 'Google connection expired', 'This connection request is invalid, expired or has already been used. Return to DomAskScreenAI and start again.');
     }
 
     const tokenResponse = await fetch(GOOGLE_TOKEN_URL, {
