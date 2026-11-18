@@ -878,3 +878,4 @@ exports.featureForRequest = featureForRequest;
 exports.verifyUser = verifyUser;
 exports.reserveFeatureUse = reserveFeatureUse;
 exports.isEligibleForFreeTrial = isEligibleForFreeTrial;
+exports._test = { getProviders, openAiMessages, normalizePayload, PROVIDER_TIMEOUT_MS, ROUTER_DEADLINE_MS };
