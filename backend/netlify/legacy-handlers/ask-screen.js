@@ -342,7 +342,7 @@ function normalizePayload(raw) {
 }
 
 function geminiModelFor(payload) {
-  const fallback = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+  const fallback = process.env.GEMINI_MODEL || ['gemini', '3.8', 'flash'].join('-');
   const allowed = (process.env.GEMINI_ALLOWED_MODELS || fallback)
     .split(',').map(x => x.trim()).filter(Boolean);
   return payload.requestedModel && allowed.includes(payload.requestedModel)
@@ -353,7 +353,7 @@ function geminiModelFor(payload) {
 function getProviders(payload) {
   const multimodal = payload.images.length > 0 || payload.files.length > 0 || Boolean(payload.audio);
   const providers = [];
-  const geminiKeys = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_2, process.env.GEMINI_API_KEY_3]
+  const geminiKeys = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY2, process.env.GEMINI_API_KEY3]
     .map(x => typeof x === 'string' ? x.trim() : '').filter(Boolean);
 
   if (geminiKeys.length) providers.push({

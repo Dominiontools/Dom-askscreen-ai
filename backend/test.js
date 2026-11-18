@@ -1,19 +1,19 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { handler, isEligibleForFreeTrial, featureForRequest } = require('./netlify/functions/ask-screen');
-const { handler: healthHandler } = require('./netlify/functions/health');
-const { handler: transcriptionHandler } = require('./netlify/functions/record-transcription');
-const { handler: adminHandler } = require('./netlify/functions/admin-dashboard');
-const { handler: adminUsersHandler } = require('./netlify/functions/admin-users');
-const { handler: adminProductSubscriptionsHandler } = require('./netlify/functions/admin-product-subscriptions');
-const { handler: adminSettingsHandler } = require('./netlify/functions/admin-settings');
-const { handler: appUpdateHandler, validReleaseAssetUrl } = require('./netlify/functions/app-update');
-const { handler: supportHandler } = require('./netlify/functions/support-tickets');
-const { handler: supportAdminHandler } = require('./netlify/functions/support-admin');
-const { handler: accountStatusHandler } = require('./netlify/functions/account-status');
-const { handler: cryptoPaymentsHandler, _test: cryptoPaymentTests } = require('./netlify/functions/crypto-payments');
-const { handler: adminCryptoPaymentsHandler } = require('./netlify/functions/admin-crypto-payments');
+const { handler, isEligibleForFreeTrial, featureForRequest } = require('./netlify/legacy-handlers/ask-screen');
+const { handler: healthHandler } = require('./netlify/legacy-handlers/health');
+const { handler: transcriptionHandler } = require('./netlify/legacy-handlers/record-transcription');
+const { handler: adminHandler } = require('./netlify/legacy-handlers/admin-dashboard');
+const { handler: adminUsersHandler } = require('./netlify/legacy-handlers/admin-users');
+const { handler: adminProductSubscriptionsHandler } = require('./netlify/legacy-handlers/admin-product-subscriptions');
+const { handler: adminSettingsHandler } = require('./netlify/legacy-handlers/admin-settings');
+const { handler: appUpdateHandler, validReleaseAssetUrl } = require('./netlify/legacy-handlers/app-update');
+const { handler: supportHandler } = require('./netlify/legacy-handlers/support-tickets');
+const { handler: supportAdminHandler } = require('./netlify/legacy-handlers/support-admin');
+const { handler: accountStatusHandler } = require('./netlify/legacy-handlers/account-status');
+const { handler: cryptoPaymentsHandler, _test: cryptoPaymentTests } = require('./netlify/legacy-handlers/crypto-payments');
+const { handler: adminCryptoPaymentsHandler } = require('./netlify/legacy-handlers/admin-crypto-payments');
 const { DEFAULT_PRODUCTS, normalizeCatalog, calculateBundle } = require('./pricing-catalog');
 const { evaluateProductSubscription, summarizeProductSubscriptions } = require('./product-subscriptions');
 
