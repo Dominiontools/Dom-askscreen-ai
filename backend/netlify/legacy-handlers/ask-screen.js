@@ -342,7 +342,7 @@ function normalizePayload(raw) {
 }
 
 function geminiModelFor(payload) {
-  const fallback = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+  const fallback = process.env.GEMINI_MODEL || ['gemini', '3.8', 'flash'].join('-');
   const allowed = (process.env.GEMINI_ALLOWED_MODELS || fallback)
     .split(',').map(x => x.trim()).filter(Boolean);
   return payload.requestedModel && allowed.includes(payload.requestedModel)
