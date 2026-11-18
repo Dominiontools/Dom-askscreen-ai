@@ -66,6 +66,7 @@ fun WorkServiceWorkspaceDialog(productId: String, productName: String, onDismiss
                                 ?: throw IllegalStateException("The video duration could not be read.")
                             if (durationMs <= 0 || durationMs > 5 * 60 * 1000) throw IllegalStateException("For now, choose a video that is five minutes or shorter.")
                             val sampleTimes = listOf(0L, durationMs / 2, (durationMs - 1).coerceAtLeast(0L)).distinct()
+                            var totalFrameBytes = 0
                             JSONArray().apply {
                                 sampleTimes.forEach { timeMs ->
                                     val bitmap = retriever.getFrameAtTime(timeMs * 1000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
@@ -80,6 +81,8 @@ fun WorkServiceWorkspaceDialog(productId: String, productName: String, onDismiss
                                     bitmap.recycle()
                                     val frameBytes = output.toByteArray()
                                     if (frameBytes.isEmpty()) throw IllegalStateException("A video frame could not be compressed.")
+                                    totalFrameBytes += frameBytes.size
+                                    if (totalFrameBytes > 2 * 1024 * 1024) throw IllegalStateException("The sampled video frames exceed the 2 MB upload limit. Choose a shorter or lower-resolution video.")
                                     put(JSONObject().put("mimeType", "image/jpeg").put("data", Base64.encodeToString(frameBytes, Base64.NO_WRAP)).put("timestampMs", timeMs))
                                 }
                             }
