@@ -1,0 +1,114 @@
+const $=id=>document.getElementById(id);
+const chat=$('chat'),status=$('statusText'),transcriptBox=$('transcript');
+let history=[],recognition=null,listeningMode='off',screenImage=null,lastMode='read',loopStream=null,loopRecorder=null,loopChunks=[],externalStream=null,externalRecorder=null,externalChunks=[];
+$('endpoint').value=localStorage.getItem('dominionEndpoint')||'';
+$('save').onclick=()=>{const value=$('endpoint').value.trim();if(!value){setStatus('Enter a backend URL before saving');$('endpoint').focus();return;}localStorage.setItem('dominionEndpoint',value);setStatus('Backend URL saved on this computer');$('save').textContent='Saved ✓';setTimeout(()=>{$('save').textContent='Save';},1800);};
+function setStatus(s,active=false){status.textContent=s;document.querySelector('.status').classList.toggle('listening',active);}
+function speakAnswer(text){if(!('speechSynthesis' in window))return;window.speechSynthesis.cancel();const utterance=new SpeechSynthesisUtterance(text);utterance.lang=$('language')?.value||'en-NG';utterance.rate=1;window.speechSynthesis.speak(utterance);}
+function addMessage(role,text){const empty=chat.querySelector('.welcome');if(empty)empty.remove();const d=document.createElement('div');d.className='message '+role;const content=document.createElement('div');content.className='message-content';content.textContent=text;d.appendChild(content);if(role==='assistant'){const copy=document.createElement('button');copy.className='copy-answer';copy.type='button';copy.textContent='Copy';copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(text);copy.textContent='Copied';setTimeout(()=>copy.textContent='Copy',1400);}catch{copy.textContent='Select and copy';}});d.appendChild(copy);}chat.appendChild(d);chat.scrollTop=chat.scrollHeight;}
+function friendlyError(error){const message=String(error?.message||'').toLowerCase();if(!navigator.onLine)return 'You appear to be offline. Check your internet connection and try again.';if(message.includes('failed to fetch')||message.includes('network'))return 'We could not connect to the AI service. Check your internet connection and try again.';if(message.includes('no ai provider')||message.includes('no_multimodal_provider'))return 'This feature is temporarily unavailable. Please try again later.';if(message.includes('too large')||message.includes('request is too large'))return 'This file is too large to process. Choose a smaller file and try again.';if(message.includes('unsupported')||message.includes('invalid'))return 'This file format could not be processed. Please choose a supported file and try again.';if(message.includes('timeout')||message.includes('timed out'))return 'The file is taking too long to process. Try a shorter file or try again later.';return 'Sorry, I could not complete that request. Please try again.';}
+function cleanAnswer(value){return String(value||'').replace(/^\s*(?:Here(?:'s| is) (?:the )?answer[:\s]*)/i,'').trim();}
+async function ask(prompt,imageData,audioData,options={}){const endpoint=$('endpoint').value.trim();if(!endpoint){setStatus('Add your Netlify backend URL in settings');return;}
+ if(!options.silent)addMessage('user',options.displayPrompt||prompt);setStatus(options.silent?'Checking for new screen content…':'Processing…',true);
+ const payload={prompt:prompt+'\n\nResponse style: Return only the answer. Do not repeat the question or add an introduction. Keep the answer clear, professional, and well organised. Avoid unnecessary punctuation and filler. If there are multiple questions, label each answer Question 1, Question 2, and so on.',history:history.slice(-12)};if(Array.isArray(options.files)&&options.files.length)payload.files=options.files;if(imageData){const [head,data]=imageData.split(',');payload.images=[{mimeType:(head.match(/data:(.*?);/)||[])[1]||'image/png',data}];}if(audioData)payload.audio=audioData;
+ try{const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const body=await response.json();if(!response.ok)throw new Error(body.message||body.error||'Request failed ('+response.status+')');const answer=cleanAnswer(body.answer||body.text||body.response||body.content||body.output||'');if(!answer)throw new Error('EMPTY_ANSWER');if(String(answer).trim().toUpperCase()==='NO_NEW_QUESTION'){setStatus(options.silent?'Monitoring screen for changes':'Watching screen for the next question',true);return;}if(!options.silent)addMessage('assistant',answer);else addMessage('assistant','New screen update: '+answer);speakAnswer(answer);history.push({role:'user',text:prompt},{role:'model',text:answer});history=history.slice(-12);window.dominion.showAnswer(answer);setStatus('Answer displayed');}
+ catch(e){const message=friendlyError(e);if(!options.silent)addMessage('assistant',message);setStatus(message);}}
+$('askForm').onsubmit=e=>{e.preventDefault();const p=$('prompt').value.trim();if(!p)return;$('prompt').value='';ask(p,screenImage);screenImage=null;};
+$('mediaFile')?.addEventListener('change',async()=>{const file=$('mediaFile').files?.[0];if(!file)return;try{if(file.size>2_700_000)throw new Error('FILE_TOO_LARGE');const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(new Error('FILE_READ_FAILED'));reader.readAsDataURL(file);});const mimeType=(file.type||'').toLowerCase();if(mimeType.startsWith('video/'))await ask('Watch and analyse the entire video from beginning to end before answering. Do not answer from a partial preview. Give only the direct answer in clear, professional language. If there are multiple questions, label each as Question 1, Question 2, and so on.',null,null,{files:[{mimeType,data}],displayPrompt:'Video uploaded: '+file.name});else if(mimeType.startsWith('audio/'))await ask('Listen to the entire audio from beginning to end before answering. Do not answer from a partial preview. Give only the direct answer in clear, professional language.',null,{mimeType,data},{displayPrompt:'Audio uploaded: '+file.name});else throw new Error('UNSUPPORTED_FILE');}catch(error){const message=error.message==='FILE_TOO_LARGE'?'This file is too large. Choose a file smaller than 2.7 MB.':friendlyError(error);addMessage('assistant',message);setStatus(message);}finally{$('mediaFile').value='';}});
+async function readScreen(prompt='Please inspect this screen carefully and answer the visible question(s).'){try{setStatus('Capturing screen…',true);screenImage=await window.dominion.captureScreen();await ask(prompt,screenImage);screenImage=null;}catch(e){setStatus('The screen could not be captured. Check screen permissions and try again.');}}
+$('screenBtn').onclick=()=>readScreen();
+$('systemAudioBtn').onclick=()=>loopRecorder&&loopRecorder.state==='recording'?stopSystemAudio():startSystemAudio();
+
+let screenMonitorTimer=null,lastScreenSnapshot='',screenMonitorBusy=false,firstScreenScan=true;
+async function startContinuousScreenRead(){
+ if(screenMonitorTimer)return;
+ firstScreenScan=true;lastScreenSnapshot='';
+ setStatus('Continuous screen reading started',true);
+ const scan=async()=>{
+  if(screenMonitorBusy)return;
+  screenMonitorBusy=true;
+  try{
+   const shot=await window.dominion.captureScreen();
+   if(shot===lastScreenSnapshot){setStatus('Monitoring screen — no change detected',true);return;}
+   const initial=firstScreenScan;
+   lastScreenSnapshot=shot;firstScreenScan=false;
+   const prompt=initial
+    ?'Read and describe the entire visible screen. Identify every visible question, explain relevant on-screen content, and answer all questions clearly. If there is no question, describe the important screen content.'
+    :'Compare this screen with the previous screen context. Focus on newly appeared or changed content. If a new question is visible, answer it. If there is no new question or meaningful new content, return exactly NO_NEW_QUESTION.';
+   await ask(prompt,shot,null,{silent:!initial});
+  }catch(e){setStatus('Screen reading stopped unexpectedly. Please try again.');stopContinuousScreenRead();}
+  finally{screenMonitorBusy=false;}
+ };
+ await scan();
+ screenMonitorTimer=setInterval(scan,2200);
+}
+function stopContinuousScreenRead(){
+ if(screenMonitorTimer){clearInterval(screenMonitorTimer);screenMonitorTimer=null;}
+ screenMonitorBusy=false;firstScreenScan=true;lastScreenSnapshot='';
+ setStatus('Continuous screen reading stopped');
+}
+
+
+// External audio input: supports USB microphones, virtual microphones and AudioRelay-style devices.
+async function refreshAudioInputs(){
+ const select=$('audioInput'); if(!select)return;
+ try{
+  const devices=await navigator.mediaDevices.enumerateDevices();
+  const inputs=devices.filter(d=>d.kind==='audioinput');
+  select.innerHTML='';
+  if(!inputs.length){select.add(new Option('No microphone detected',''));return;}
+  inputs.forEach((d,i)=>select.add(new Option(d.label||('Audio input '+(i+1)),d.deviceId)));
+  const saved=localStorage.getItem('dominionAudioInput');
+  if(saved&&inputs.some(d=>d.deviceId===saved))select.value=saved;
+ }catch(e){select.innerHTML='<option value="">Audio devices unavailable</option>';setStatus('Audio devices could not be loaded. Check your microphone connection and try again.');}
+}
+if(navigator.mediaDevices?.addEventListener)navigator.mediaDevices.addEventListener('devicechange',refreshAudioInputs);
+$('audioInput')?.addEventListener('change',()=>{localStorage.setItem('dominionAudioInput',$('audioInput').value);setStatus('Audio input selected.');});
+refreshAudioInputs();
+$('externalAudioBtn').onclick=async()=>{
+ if(externalRecorder&&externalRecorder.state==='recording'){externalRecorder.stop();$('externalAudioBtn').textContent='🎧 Use external audio';return;}
+ try{
+  const deviceId=$('audioInput').value;
+  if(!deviceId){setStatus('Select an audio input first. Connect AudioRelay or a USB microphone, then refresh devices.');await refreshAudioInputs();return;}
+  externalStream=await navigator.mediaDevices.getUserMedia({audio:{deviceId:{exact:deviceId},echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+  const mimeType=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':'audio/webm';
+  externalRecorder=new MediaRecorder(externalStream,{mimeType});externalChunks=[];
+  externalRecorder.ondataavailable=e=>{if(e.data.size)externalChunks.push(e.data);};
+  externalRecorder.onerror=e=>setStatus('External audio error: '+(e.error?.message||'recording failed'));
+  externalRecorder.onstop=async()=>{
+   try{
+    const blob=new Blob(externalChunks,{type:'audio/webm'});
+    const data=await new Promise((resolve,reject)=>{const fr=new FileReader();fr.onload=()=>resolve(String(fr.result).split(',')[1]);fr.onerror=()=>reject(new Error('Could not prepare audio'));fr.readAsDataURL(blob);});
+    if(data.length>3800000)throw new Error('Audio is too large; record a shorter segment.');
+    await ask('Listen to the complete audio recording before answering. Give only the direct answer in clear, professional language.',null,{mimeType:'audio/webm',data},{displayPrompt:'External audio recording'});
+   }catch(e){setStatus('The external audio could not be processed. Try a shorter recording or check your audio device.');}
+   finally{externalStream?.getTracks().forEach(t=>t.stop());externalStream=null;externalRecorder=null;externalChunks=[];}
+  };
+  externalRecorder.start(500);$('externalAudioBtn').textContent='■ Finish and analyse audio';setStatus('Listening to external audio. Stop when the audio has finished so the complete recording can be processed.',true);
+ }catch(e){setStatus('The selected audio device could not be opened. Check Windows microphone permissions and close other apps using the device.');}
+};
+
+function cropRegion(data,rect){return new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>{const sx=img.naturalWidth/window.screen.width,sy=img.naturalHeight/window.screen.height;const c=document.createElement('canvas');c.width=Math.max(1,Math.round(rect.width*sx));c.height=Math.max(1,Math.round(rect.height*sy));c.getContext('2d').drawImage(img,Math.round(rect.x*sx),Math.round(rect.y*sy),c.width,c.height,0,0,c.width,c.height);resolve(c.toDataURL('image/png'));};img.onerror=reject;img.src=data;});}
+window.dominion.onRegionSelected(async payload=>{if(!payload)return;try{setStatus('Capturing selected region…',true);const crop=await window.dominion.captureRegion(payload);await ask('Read and explain the selected screen region. Answer any question shown.',crop);}catch(e){setStatus('The selected screen area could not be read. Select it again and try once more.');}});
+function startRecognition(mode){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){setStatus('Windows speech recognition unavailable in this build. Check microphone permissions or use Windows voice typing.');return;}
+ if(recognition){try{recognition.stop();}catch{}recognition=null;}listeningMode=mode;recognition=new SR();recognition.lang=$('language').value;recognition.continuous=true;recognition.interimResults=true;
+ recognition.onstart=()=>setStatus(mode==='transcribe'?'Transcribing — speak now':'Listening — speak now',true);
+ recognition.onerror=e=>setStatus('Microphone input is unavailable. Check Windows microphone permissions and try again.');
+ recognition.onresult=e=>{let final='',interim='';for(let i=e.resultIndex;i<e.results.length;i++){const t=e.results[i][0].transcript;if(e.results[i].isFinal)final+=t;else interim+=t;}if(interim){transcriptBox.hidden=false;transcriptBox.textContent=interim;}if(final.trim()){transcriptBox.hidden=false;transcriptBox.textContent=final;if(mode==='transcribe')addMessage('user','Transcript: '+final);else if(mode==='listen')ask('I am listening to the surrounding audio. Interpret this spoken content and relate it to the screen if relevant: '+final,screenImage);else ask(final,screenImage);}};
+ recognition.onend=()=>{if(listeningMode!=='off'){try{recognition.start();}catch{setStatus('Listening paused');}}else setStatus('Ready');};try{recognition.start();}catch(e){setStatus('The microphone could not start. Check Windows microphone permissions and try again.');}}
+let pcAudioTimer=null;
+async function startSystemAudio(){try{loopStream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:true});const audioTracks=loopStream.getAudioTracks();if(!audioTracks.length){setStatus('Windows did not provide system audio. Select a screen and enable audio sharing.');loopStream.getTracks().forEach(t=>t.stop());return;}const mimeType=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':'audio/webm';loopRecorder=new MediaRecorder(new MediaStream(audioTracks),{mimeType});loopChunks=[];loopRecorder.ondataavailable=e=>{if(e.data.size)loopChunks.push(e.data);};loopRecorder.onerror=e=>{setStatus('PC audio recording error: '+(e.error?.message||'unknown error'));stopSystemAudio();};loopRecorder.onstop=async()=>{clearTimeout(pcAudioTimer);pcAudioTimer=null;try{const blob=new Blob(loopChunks,{type:'audio/webm'});if(!blob.size){setStatus('No PC audio was captured. Try again and check Windows audio sharing.');return;}const data=await new Promise((resolve,reject)=>{const fr=new FileReader();fr.onload=()=>resolve(String(fr.result).split(',')[1]);fr.onerror=()=>reject(new Error('Could not prepare audio'));fr.readAsDataURL(blob);});if(data.length>3_800_000){setStatus('Audio is too large. Record a shorter segment and try again.');return;}await ask('Listen to the complete PC audio recording before answering. Give only the direct answer in clear, professional language.',null,{mimeType:'audio/webm',data},{displayPrompt:'PC audio recording'});}catch(e){setStatus('The PC audio could not be processed. Try a shorter recording and try again.');}finally{loopStream?.getTracks().forEach(t=>t.stop());loopStream=null;loopRecorder=null;loopChunks=[];$('systemAudioBtn').textContent='♫ Listen to PC audio';}};loopRecorder.start(1000);setStatus('Listening to PC audio. Stop when the audio has finished so the complete recording can be processed.',true);$('systemAudioBtn').textContent='■ Finish and analyse audio';}catch(e){setStatus('PC audio could not be started. Check Windows audio-sharing permissions and try again.');$('systemAudioBtn').textContent='♫ Listen to PC audio';}}
+function stopSystemAudio(){clearTimeout(pcAudioTimer);pcAudioTimer=null;if(loopRecorder&&loopRecorder.state!=='inactive')loopRecorder.stop();else{$('systemAudioBtn').textContent='♫ Listen to PC audio';}}
+function stopRecognition(){listeningMode='off';if(recognition){try{recognition.stop();}catch{}recognition=null;}setStatus('Ready');}
+$('micBtn').onclick=()=>listeningMode==='voice'?stopRecognition():startRecognition('voice');
+$('transcribeBtn').onclick=()=>listeningMode==='transcribe'?stopRecognition():startRecognition('transcribe');
+window.dominion.onToggleMic(()=>listeningMode==='voice'?stopRecognition():startRecognition('voice'));
+window.dominion.onRunMode(async mode=>{lastMode=mode;if(mode==='read')startContinuousScreenRead();else if(mode==='stop-read')stopContinuousScreenRead();else if(mode==='region'){}else if(mode==='listen')startRecognition('listen');else if(mode==='readlisten'){startContinuousScreenRead();startRecognition('listen');}else if(mode==='transcribe')startRecognition('transcribe');});
+$('settingsQuick')?.addEventListener('click',()=>{$('settingsQuick').blur();document.querySelector('.settings')?.scrollIntoView({behavior:'smooth',block:'center'});});
+const invisibleQuick=$('invisibleQuick');
+if(invisibleQuick){const syncInvisibleQuick=v=>{invisibleQuick.textContent=v?'Invisible: ON':'Invisible: OFF';invisibleQuick.setAttribute('aria-pressed',String(!!v));};window.dominion.getInvisibleMode().then(syncInvisibleQuick).catch(()=>{});invisibleQuick.addEventListener('click',async()=>{const next=!(invisibleToggle?.checked||invisibleQuick.textContent.endsWith('ON'));window.dominion.setInvisibleMode(next);if(invisibleToggle)invisibleToggle.checked=next;syncInvisibleQuick(next);setStatus(next?'Invisible Presentation Mode enabled — Ask AI windows are excluded from supported screen capture.':'Invisible Presentation Mode disabled.');});window.dominion.onInvisibleModeChanged(syncInvisibleQuick);}
+const invisibleToggle=$('invisibleMode');
+if(invisibleToggle){window.dominion.getInvisibleMode().then(v=>{invisibleToggle.checked=!!v;}).catch(()=>{});invisibleToggle.addEventListener('change',()=>{window.dominion.setInvisibleMode(invisibleToggle.checked);setStatus(invisibleToggle.checked?'Invisible Presentation Mode enabled — Ask AI windows are excluded from screen capture.':'Invisible Presentation Mode disabled.');});window.dominion.onInvisibleModeChanged(v=>{invisibleToggle.checked=!!v;setStatus(v?'Invisible Presentation Mode enabled.':'Invisible Presentation Mode disabled.');});}
+const bubbleToggle=$('enableBubble');if(bubbleToggle){bubbleToggle.checked=localStorage.getItem('dominionFloatingEnabled')==='true';bubbleToggle.addEventListener('change',()=>{localStorage.setItem('dominionFloatingEnabled',String(bubbleToggle.checked));window.dominion.setFloatingEnabled(bubbleToggle.checked);setStatus(bubbleToggle.checked?'One floating bubble enabled. You can minimize this window.':'Floating bubble disabled.');});}
+$('pin').onclick=()=>{window.dominion.setAlwaysOnTop(true);setStatus('Always on top enabled');};
+$('min').onclick=()=>window.dominion.minimize();$('close').onclick=()=>window.dominion.close();

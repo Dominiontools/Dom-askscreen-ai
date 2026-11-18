@@ -123,7 +123,7 @@ function validBase64(data) {
 const SUPPORTED_MEDIA_TYPES = new Set([
   'image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif', 'image/gif',
   'audio/wav', 'audio/x-wav', 'audio/mp3', 'audio/mpeg', 'audio/aiff',
-  'audio/aac', 'audio/ogg', 'audio/flac', 'audio/webm', 'application/pdf', 'text/plain'
+  'audio/aac', 'audio/ogg', 'audio/flac', 'audio/webm', 'video/mp4', 'video/webm', 'video/quicktime', 'video/mpeg', 'application/pdf', 'text/plain'
 ]);
 
 function normalizeAttachment(item, label) {
