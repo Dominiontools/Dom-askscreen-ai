@@ -27,6 +27,9 @@ async function run() {
   process.env.ADMIN_EMAILS = 'owner@example.com';
   assert.equal(adminAuthTests.isAdminAccessCodeValid({ headers: { 'x-admin-access-code': 'a-test-only-admin-code-12345' } }), true);
   assert.equal(adminAuthTests.isAdminAccessCodeValid({ headers: { 'x-admin-access-code': 'wrong' } }), false);
+  assert.equal(adminAuthTests.isAdminAccessCodeValid({ headers: { 'x-admin-access-code': '  a-test-only-admin-code-12345  ' } }), true);
+  process.env.ADMIN_ACCESS_CODE = '  a-test-only-admin-code-12345  ';
+  assert.equal(adminAuthTests.isAdminAccessCodeValid({ headers: { 'x-admin-access-code': 'a-test-only-admin-code-12345' } }), true);
   const testSession = adminAuthTests.createAdminSession({ uid: 'test-uid', email: 'owner@example.com' });
   const verifiedSession = adminAuthTests.verifyAdminSession({ headers: { authorization: 'Bearer ' + testSession } });
   assert.equal(verifiedSession.email, 'owner@example.com');
