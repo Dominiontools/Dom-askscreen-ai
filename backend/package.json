@@ -7,6 +7,7 @@
     "test": "node test.js && node delete-account.test.js"
   },
   "dependencies": {
-    "firebase-admin": "^13.5.0"
+    "firebase-admin": "^13.5.0",
+    "@netlify/aws-lambda-compat": "^2.0.4"
   }
 }
