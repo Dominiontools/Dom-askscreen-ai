@@ -44,6 +44,22 @@ async function run() {
   assert.equal(workServiceTests.PRODUCTS.has('email_management'), false);
   assert.equal(workServiceTests.PRODUCTS.has('core'), false);
   assert.ok(workServiceTests.SERVICE_GUIDES.marketing_social.includes('Publishing'));
+  const tinyImage = Buffer.from('image').toString('base64');
+  const normalizedImage = workServiceTests.normalizeWorkAttachments({ images: [{ mimeType: 'image/png', data: tinyImage }] });
+  assert.equal(normalizedImage.images.length, 1);
+  assert.equal(normalizedImage.images[0].mimeType, 'image/png');
+  assert.equal(normalizedImage.totalBytes, 5);
+  const normalizedAudio = workServiceTests.normalizeWorkAttachments({ audio: { mimeType: 'audio/mpeg', data: Buffer.from('audio').toString('base64') } });
+  assert.equal(normalizedAudio.audio.mimeType, 'audio/mpeg');
+  const normalizedDocument = workServiceTests.normalizeWorkAttachments({ files: [{ mimeType: 'application/pdf', data: Buffer.from('%PDF').toString('base64') }] });
+  assert.equal(normalizedDocument.files.length, 1);
+  assert.throws(() => workServiceTests.normalizeWorkAttachments({ images: [{ mimeType: 'text/plain', data: tinyImage }] }), /INVALID_IMAGE_TYPE/);
+  assert.throws(() => workServiceTests.normalizeWorkAttachments({ files: [{ mimeType: 'application/zip', data: tinyImage }] }), /UNSUPPORTED_ATTACHMENT_TYPE/);
+  assert.throws(() => workServiceTests.normalizeWorkAttachments({ audio: { mimeType: 'audio/mpeg', data: 'bad!' } }), /INVALID_ATTACHMENT_DATA/);
+  assert.throws(() => workServiceTests.normalizeWorkAttachments({ images: Array(4).fill({ mimeType: 'image/png', data: tinyImage }) }), /TOO_MANY_ATTACHMENTS/);
+  assert.throws(() => workServiceTests.normalizeWorkAttachments({ files: [{ mimeType: 'text/plain', data: Buffer.alloc(workServiceTests.MAX_UPLOAD_BYTES + 1).toString('base64') }] }), /ATTACHMENTS_TOO_LARGE/);
+  console.log('PASS Work Centre image, audio and document upload validation');
+
   const workOptions = await workServiceHandler({ httpMethod: 'OPTIONS', headers: {} });
   assert.equal(workOptions.statusCode, 204);
   const workWrongMethod = await workServiceHandler({ httpMethod: 'PUT', headers: {} });
