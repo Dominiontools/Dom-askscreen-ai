@@ -1,6 +1,9 @@
 package com.example.ui.screens
 
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.util.Base64
+import java.io.ByteArrayOutputStream
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -53,17 +56,50 @@ fun WorkServiceWorkspaceDialog(productId: String, productName: String, onDismiss
             try {
                 val mime = context.contentResolver.getType(uri)?.substringBefore(';')?.lowercase()
                     ?: throw IllegalStateException("The selected file type could not be identified.")
-                val allowed = mime.startsWith("image/") || mime.startsWith("audio/") || mime == "application/pdf" || mime == "text/plain"
-                if (!allowed) throw IllegalStateException("Choose an image, audio file, PDF or plain-text file. Video upload is not enabled yet.")
-                val bytes = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                        ?: throw IllegalStateException("The selected file could not be opened.")
-                }
-                if (bytes.isEmpty() || bytes.size > 2 * 1024 * 1024) throw IllegalStateException("Choose a file smaller than 2 MB.")
                 val name = uri.lastPathSegment?.substringAfterLast('/')?.take(100) ?: "Selected file"
-                attachment = JSONObject().put("mimeType", mime).put("data", Base64.encodeToString(bytes, Base64.NO_WRAP))
-                attachmentName = name
-                attachmentMime = mime
+                if (mime.startsWith("video/")) {
+                    val frames = withContext(Dispatchers.IO) {
+                        val retriever = MediaMetadataRetriever()
+                        try {
+                            retriever.setDataSource(context, uri)
+                            val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                                ?: throw IllegalStateException("The video duration could not be read.")
+                            if (durationMs <= 0 || durationMs > 5 * 60 * 1000) throw IllegalStateException("For now, choose a video that is five minutes or shorter.")
+                            val sampleTimes = listOf(0L, durationMs / 2, (durationMs - 1).coerceAtLeast(0L)).distinct()
+                            JSONArray().apply {
+                                sampleTimes.forEach { timeMs ->
+                                    val bitmap = retriever.getFrameAtTime(timeMs * 1000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                                        ?: throw IllegalStateException("A video frame could not be extracted.")
+                                    val scaled = if (bitmap.width > 768 || bitmap.height > 768) {
+                                        val scale = minOf(768f / bitmap.width, 768f / bitmap.height)
+                                        Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt().coerceAtLeast(1), (bitmap.height * scale).toInt().coerceAtLeast(1), true)
+                                    } else bitmap
+                                    val output = ByteArrayOutputStream()
+                                    scaled.compress(Bitmap.CompressFormat.JPEG, 65, output)
+                                    if (scaled !== bitmap) scaled.recycle()
+                                    bitmap.recycle()
+                                    val frameBytes = output.toByteArray()
+                                    if (frameBytes.isEmpty()) throw IllegalStateException("A video frame could not be compressed.")
+                                    put(JSONObject().put("mimeType", "image/jpeg").put("data", Base64.encodeToString(frameBytes, Base64.NO_WRAP)).put("timestampMs", timeMs))
+                                }
+                            }
+                        } finally { retriever.release() }
+                    }
+                    attachment = JSONObject().put("frames", frames)
+                    attachmentName = name
+                    attachmentMime = "video/frames"
+                } else {
+                    val allowed = mime.startsWith("image/") || mime.startsWith("audio/") || mime == "application/pdf" || mime == "text/plain"
+                    if (!allowed) throw IllegalStateException("Choose a video, image, audio file, PDF or plain-text file.")
+                    val bytes = withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                            ?: throw IllegalStateException("The selected file could not be opened.")
+                    }
+                    if (bytes.isEmpty() || bytes.size > 2 * 1024 * 1024) throw IllegalStateException("Choose a file smaller than 2 MB.")
+                    attachment = JSONObject().put("mimeType", mime).put("data", Base64.encodeToString(bytes, Base64.NO_WRAP))
+                    attachmentName = name
+                    attachmentMime = mime
+                }
             } catch (e: Exception) {
                 error = e.message ?: "The selected file could not be attached."
             } finally { busy = false }
@@ -125,7 +161,7 @@ fun WorkServiceWorkspaceDialog(productId: String, productName: String, onDismiss
                     placeholder = { Text("Enter the task and the result you expect…") }, enabled = !busy
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { uploadPicker.launch(arrayOf("image/*", "audio/*", "application/pdf", "text/plain")) }, enabled = !busy) {
+                    OutlinedButton(onClick = { uploadPicker.launch(arrayOf("video/*", "image/*", "audio/*", "application/pdf", "text/plain")) }, enabled = !busy) {
                         Text(if (attachmentName == null) "Attach file" else "Replace file")
                     }
                     if (attachmentName != null) {
@@ -133,7 +169,7 @@ fun WorkServiceWorkspaceDialog(productId: String, productName: String, onDismiss
                     }
                 }
                 attachmentName?.let { Text("Attached: $it (${attachmentMime.orEmpty()})", color = ElectricCyan, fontSize = 11.sp) }
-                Text("Image, audio, PDF and plain-text uploads are supported up to 2 MB per request. Video upload is not enabled yet.", color = Slate400, fontSize = 10.sp)
+                Text("Images, audio, PDF and text: up to 2 MB. Videos up to five minutes are sampled at three timestamps; this analyses frames, not the full video soundtrack.", color = Slate400, fontSize = 10.sp)
                 OutlinedTextField(
                     value = contextText, onValueChange = { contextText = it.take(24000) },
                     modifier = Modifier.fillMaxWidth(), minLines = 4,
@@ -151,6 +187,19 @@ fun WorkServiceWorkspaceDialog(productId: String, productName: String, onDismiss
                                 attachment?.let { file ->
                                     val mime = attachmentMime.orEmpty()
                                     when {
+                                        mime == "video/frames" -> {
+                                            val frames = file.optJSONArray("frames") ?: JSONArray()
+                                            val images = JSONArray()
+                                            val frameNotes = mutableListOf<String>()
+                                            for (index in 0 until frames.length()) {
+                                                val frame = frames.optJSONObject(index) ?: continue
+                                                images.put(JSONObject().put("mimeType", frame.optString("mimeType")).put("data", frame.optString("data")))
+                                                frameNotes.add("Video frame ${index + 1} at ${frame.optLong("timestampMs")} ms")
+                                            }
+                                            if (images.length() == 0) throw IllegalStateException("No usable video frames were extracted.")
+                                            payload.put("images", images)
+                                            payload.put("context", (contextText.trim() + "\\n\\nVIDEO FRAME TIMESTAMPS:\\n" + frameNotes.joinToString("\\n")).trim())
+                                        }
                                         mime.startsWith("image/") -> payload.put("images", JSONArray().put(file))
                                         mime.startsWith("audio/") -> payload.put("audio", file)
                                         else -> payload.put("files", JSONArray().put(file))
