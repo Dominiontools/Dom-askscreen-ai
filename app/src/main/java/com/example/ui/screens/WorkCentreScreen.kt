@@ -124,6 +124,7 @@ fun WorkCentreScreen() {
     var googleEmail by remember { mutableStateOf<String?>(null) }
     var googleBusy by remember { mutableStateOf(false) }
     var googleMessage by remember { mutableStateOf<String?>(null) }
+    var googleToolsOpen by remember { mutableStateOf(false) }
 
     suspend fun googleRequest(action: String, method: String): JSONObject {
         val user = auth.currentUser ?: throw IllegalStateException("Sign in before connecting Google.")
@@ -356,7 +357,12 @@ fun WorkCentreScreen() {
                         }
                     }, enabled = !googleBusy && auth.currentUser != null) { Text("Refresh") }
                 }
-                Text("Connecting does not send emails or create calendar events. Those actions require a separate instruction from you.", color = Slate400, fontSize = 10.sp)
+                if (googleConnected) {
+                    Button(onClick = { googleToolsOpen = true }, enabled = !googleBusy, modifier = Modifier.fillMaxWidth()) {
+                        Text("Open Gmail & Calendar Tools")
+                    }
+                }
+                Text("Connecting alone does not send emails or create calendar events. Review and confirm each action inside the tools.", color = Slate400, fontSize = 10.sp)
             }
         }
 
@@ -404,6 +410,7 @@ fun WorkCentreScreen() {
             color = Slate400, fontSize = 11.sp
         )
     }
+    if (googleToolsOpen) GoogleWorkspaceToolsDialog(onDismiss = { googleToolsOpen = false })
     openedWorkspace?.let { product ->
         WorkServiceWorkspaceDialog(productId = product.id, productName = product.name, onDismiss = { openedWorkspace = null })
     }
