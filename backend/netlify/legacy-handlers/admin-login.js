@@ -60,8 +60,15 @@ exports.handler = async event => {
     let user;
     try { user = await admin.auth().getUserByEmail(email); }
     catch (_) { return json(403, { error: 'The administrator email must belong to a registered, verified account.' }); }
-    if (!user.emailVerified || user.disabled) {
-      return json(403, { error: 'The administrator account must be verified and enabled.' });
+    // The allowlisted administrator has already proved possession of the
+    // server-side admin access code. If their Firebase email is not verified,
+    // mark only this allowlisted account as verified so login does not depend
+    // on a verification email being delivered. Never re-enable a disabled user.
+    if (!user.emailVerified) {
+      user = await admin.auth().updateUser(user.uid, { emailVerified: true });
+    }
+    if (user.disabled) {
+      return json(403, { error: 'The administrator account is disabled in Firebase. Enable it in Authentication to continue.' });
     }
     const token = createAdminSession(user);
     return json(200, { success: true, token, expiresIn: 28800, email });
