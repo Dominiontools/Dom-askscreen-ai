@@ -417,7 +417,15 @@ function getProviders(payload) {
     }
   }
 
-  return providers.filter(p => !isCoolingDown(p.name) && (!multimodal || p.type === 'gemini'));
+  const imageOnly = payload.images.length > 0 && payload.files.length === 0 && !payload.audio;
+  return providers.filter(p => {
+    if (isCoolingDown(p.name)) return false;
+    if (!multimodal) return true;
+    // OpenRouter's configured GPT-4o-mini vision model can inspect sampled video frames.
+    // Keep PDFs and audio on Gemini because they require provider-specific media handling.
+    if (imageOnly && p.name === 'OpenRouter') return true;
+    return p.type === 'gemini';
+  });
 }
 
 function geminiContents(payload) {
@@ -440,10 +448,17 @@ function geminiContents(payload) {
 }
 
 function openAiMessages(payload) {
+  const userContent = [{ type: 'text', text: payload.prompt }];
+  for (const image of payload.images) {
+    userContent.push({
+      type: 'image_url',
+      image_url: { url: 'data:' + image.mimeType + ';base64,' + image.data, detail: 'high' }
+    });
+  }
   return [
     { role: 'system', content: SYSTEM_INSTRUCTION },
     ...payload.history.map(turn => ({ role: turn.role, content: turn.content })),
-    { role: 'user', content: payload.prompt }
+    { role: 'user', content: userContent.length === 1 ? payload.prompt : userContent }
   ];
 }
 
@@ -843,7 +858,7 @@ exports.handler = async function handler(event) {
     if (error.code === 'NO_MULTIMODAL_PROVIDER') {
       return response(503, {
         success: false,
-        error: 'Image, audio and file questions require a configured Gemini API key. Please try again later.',
+        error: 'This media type needs a compatible vision or Gemini provider. Configure Gemini for PDFs/audio, or use the available OpenRouter vision model for images and sampled video frames.',
         code: 'NO_MULTIMODAL_PROVIDER', requestId
       }, requestId);
     }
