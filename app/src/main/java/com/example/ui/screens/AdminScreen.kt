@@ -32,10 +32,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.AskScreenApp
 import com.example.ui.theme.*
-import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -58,13 +56,12 @@ private data class AdminActivityRow(val email:String,val feature:String,val outc
 
 @Composable
 fun AdminScreen(onBack: () -> Unit) {
-    val auth = remember { FirebaseAuth.getInstance() }
     val prefs = remember { AskScreenApp.instance.preferencesManager }
     val scope = rememberCoroutineScope()
     val http = remember { OkHttpClient() }
     val context = LocalContext.current
-    var email by remember { mutableStateOf(auth.currentUser?.email.orEmpty()) }
-    var password by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var adminAccessCode by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var idToken by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -304,6 +301,7 @@ fun AdminScreen(onBack: () -> Unit) {
         withContext(Dispatchers.IO) {
             val request = Request.Builder().url(endpoint)
                 .header("Authorization","Bearer $idToken")
+                
                 .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
             http.newCall(request).execute().use { response ->
@@ -418,25 +416,38 @@ fun AdminScreen(onBack: () -> Unit) {
             Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(18.dp)) {
                 Column(Modifier.fillMaxWidth().padding(18.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
                     Text("Admin sign-in",color=Color.White,fontSize=18.sp,fontWeight=FontWeight.Bold)
-                    Text("Only the verified Firebase account authorized by the owner can enter this area.",color=Slate300,fontSize=13.sp)
+                    Text("Enter the administrator email approved by the owner and the separate access code. No Firebase password is required.",color=Slate300,fontSize=13.sp)
                     OutlinedTextField(value=email,onValueChange={email=it.trim()},label={Text("Admin email")},singleLine=true,modifier=Modifier.fillMaxWidth())
-                    OutlinedTextField(value=password,onValueChange={password=it},label={Text("Password")},visualTransformation=PasswordVisualTransformation(),singleLine=true,modifier=Modifier.fillMaxWidth())
+                    OutlinedTextField(value=adminAccessCode,onValueChange={adminAccessCode=it.take(128)},label={Text("Administrator access code")},visualTransformation=PasswordVisualTransformation(),singleLine=true,modifier=Modifier.fillMaxWidth())
                     Button(onClick={
                         scope.launch {
                             busy=true; error=null
                             try {
-                                val user=auth.signInWithEmailAndPassword(email.trim(),password).await().user ?: throw IllegalStateException("Sign-in failed.")
-                                val token=user.getIdToken(true).await().token ?: throw IllegalStateException("Could not verify account.")
+                                val configured=prefs.backendUrl.trim().trimEnd('/')
+                                if (!configured.endsWith("/ask-screen")) throw IllegalStateException("Set the Netlify AskScreen endpoint in Settings first.")
+                                val endpoint=configured.removeSuffix("/ask-screen") + "/admin-login"
+                                val payload=JSONObject().put("email",email.trim()).put("accessCode",adminAccessCode)
+                                val token=withContext(Dispatchers.IO) {
+                                    val request=Request.Builder().url(endpoint)
+                                        .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
+                                    http.newCall(request).execute().use { response ->
+                                        val body=response.body?.string().orEmpty()
+                                        val json=try { JSONObject(body) } catch (_:Exception) { JSONObject() }
+                                        if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "Admin sign-in failed (HTTP ${response.code})." })
+                                        json.optString("token").takeIf { it.isNotBlank() }
+                                            ?: throw IllegalStateException("The server did not return an administrator session.")
+                                    }
+                                }
                                 idToken=token
+                                adminAccessCode=""
                                 loadData(token)
-                                password=""
                             } catch(e:Exception) {
                                 idToken=""
+                                loaded=false
                                 error=e.message ?: "Admin sign-in failed or this account is not authorized."
-                                if(auth.currentUser!=null) auth.signOut()
                             } finally { busy=false }
                         }
-                    },enabled=!busy && email.contains("@") && password.length>=6,modifier=Modifier.fillMaxWidth()) {
+                    },enabled=!busy && email.contains("@") && adminAccessCode.length>=16,modifier=Modifier.fillMaxWidth()) {
                         if(busy) CircularProgressIndicator(Modifier.size(18.dp),color=Color.White,strokeWidth=2.dp) else Text("Sign in to Admin Centre")
                     }
                 }
@@ -444,7 +455,7 @@ fun AdminScreen(onBack: () -> Unit) {
         } else {
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 Button(onClick={refresh()},enabled=!busy,modifier=Modifier.weight(1f)) { Icon(Icons.Default.Refresh,contentDescription=null); Spacer(Modifier.width(6.dp)); Text("Refresh data") }
-                OutlinedButton(onClick={auth.signOut();idToken="";loaded=false;users=emptyList();payments=emptyList();error=null}) { Text("Sign out") }
+                OutlinedButton(onClick={idToken="";loaded=false;users=emptyList();payments=emptyList();supportTickets=emptyList();auditLogs=emptyList();activityLogs=emptyList();error=null}) { Text("Sign out") }
             }
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 AdminMetric("Registered users",totalUsers.toString(),Modifier.weight(1f))

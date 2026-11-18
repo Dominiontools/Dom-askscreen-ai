@@ -16,9 +16,29 @@ const { handler: cryptoPaymentsHandler, _test: cryptoPaymentTests } = require('.
 const { handler: adminCryptoPaymentsHandler } = require('./netlify/legacy-handlers/admin-crypto-payments');
 const { DEFAULT_PRODUCTS, normalizeCatalog, calculateBundle } = require('./pricing-catalog');
 const { evaluateProductSubscription, summarizeProductSubscriptions } = require('./product-subscriptions');
+const adminAuthTests = require('./netlify/legacy-handlers/admin-auth');
+const { handler: adminLoginHandler } = require('./netlify/legacy-handlers/admin-login');
 const { handler: workServiceHandler, _test: workServiceTests } = require('./netlify/legacy-handlers/work-service');
 
 async function run() {
+  const oldAdminCode = process.env.ADMIN_ACCESS_CODE;
+  const oldAdminEmails = process.env.ADMIN_EMAILS;
+  process.env.ADMIN_ACCESS_CODE = 'a-test-only-admin-code-12345';
+  process.env.ADMIN_EMAILS = 'owner@example.com';
+  assert.equal(adminAuthTests.isAdminAccessCodeValid({ headers: { 'x-admin-access-code': 'a-test-only-admin-code-12345' } }), true);
+  assert.equal(adminAuthTests.isAdminAccessCodeValid({ headers: { 'x-admin-access-code': 'wrong' } }), false);
+  const testSession = adminAuthTests.createAdminSession({ uid: 'test-uid', email: 'owner@example.com' });
+  const verifiedSession = adminAuthTests.verifyAdminSession({ headers: { authorization: 'Bearer ' + testSession } });
+  assert.equal(verifiedSession.email, 'owner@example.com');
+  assert.throws(() => adminAuthTests.verifyAdminSession({ headers: { authorization: 'Bearer ' + testSession + 'x' } }));
+  const adminLoginOptions = await adminLoginHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(adminLoginOptions.statusCode, 204);
+  const adminLoginWrongMethod = await adminLoginHandler({ httpMethod: 'GET', headers: {} });
+  assert.equal(adminLoginWrongMethod.statusCode, 405);
+  if (oldAdminCode === undefined) delete process.env.ADMIN_ACCESS_CODE; else process.env.ADMIN_ACCESS_CODE = oldAdminCode;
+  if (oldAdminEmails === undefined) delete process.env.ADMIN_EMAILS; else process.env.ADMIN_EMAILS = oldAdminEmails;
+  console.log('PASS administrator access-code and signed-session validation');
+
   assert.equal(workServiceTests.PRODUCTS.has('email_management'), false);
   assert.equal(workServiceTests.PRODUCTS.has('core'), false);
   assert.ok(workServiceTests.SERVICE_GUIDES.marketing_social.includes('Publishing'));
