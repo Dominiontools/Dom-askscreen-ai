@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 
 function configuredCode() {
-  return String(process.env.ADMIN_ACCESS_CODE || '');
+  return String(process.env.ADMIN_ACCESS_CODE || '').trim();
 }
 
 function safeEqual(left, right) {
@@ -17,7 +17,7 @@ function isAdminAccessCodeValid(event) {
   const supplied = String(
     event.headers?.['x-admin-access-code'] ||
     event.headers?.['X-Admin-Access-Code'] || ''
-  );
+  ).trim();
   return configured.length >= 16 && safeEqual(supplied, configured);
 }
 
