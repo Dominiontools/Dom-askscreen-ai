@@ -120,6 +120,42 @@ fun WorkCentreScreen() {
     var error by remember { mutableStateOf<String?>(null) }
     var accessError by remember { mutableStateOf<String?>(null) }
     var openedWorkspace by remember { mutableStateOf<WorkCentreProduct?>(null) }
+    var googleConnected by remember { mutableStateOf(false) }
+    var googleEmail by remember { mutableStateOf<String?>(null) }
+    var googleBusy by remember { mutableStateOf(false) }
+    var googleMessage by remember { mutableStateOf<String?>(null) }
+
+    suspend fun googleRequest(action: String, method: String): JSONObject {
+        val user = auth.currentUser ?: throw IllegalStateException("Sign in before connecting Google.")
+        val token = user.getIdToken(true).await().token
+            ?: throw IllegalStateException("Your sign-in could not be verified.")
+        val configured = prefs.backendUrl.trim().trimEnd('/')
+        if (!configured.endsWith("/ask-screen")) throw IllegalStateException("Set the AskScreen backend URL in Settings first.")
+        val endpoint = configured.removeSuffix("/ask-screen") + "/google-oauth?action=" + action
+        return withContext(Dispatchers.IO) {
+            val builder = Request.Builder().url(endpoint).header("Authorization", "Bearer " + token)
+            if (method == "GET") builder.get() else builder.post("{}".toRequestBody("application/json; charset=utf-8".toMediaType()))
+            http.newCall(builder.build()).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
+                if (!response.isSuccessful || !json.optBoolean("success")) throw IllegalStateException(json.optString("code").ifBlank { "Google connection request failed. Please try again." })
+                json
+            }
+        }
+    }
+
+    LaunchedEffect(auth.currentUser?.uid, prefs.backendUrl) {
+        if (auth.currentUser != null && prefs.backendUrl.trim().endsWith("/ask-screen")) {
+            googleBusy = true
+            try {
+                val status = googleRequest("status", "GET")
+                googleConnected = status.optBoolean("connected")
+                googleEmail = status.optString("email").takeIf { it.isNotBlank() && it != "null" }
+                googleMessage = null
+            } catch (e: Exception) { googleMessage = e.message ?: "Google connection status is unavailable." }
+            finally { googleBusy = false }
+        } else { googleConnected = false; googleEmail = null }
+    }
 
     LaunchedEffect(auth.currentUser?.uid, prefs.backendUrl) {
         loading = true
@@ -280,6 +316,47 @@ fun WorkCentreScreen() {
                     }
                 }
                 Icon(Icons.Default.OpenInNew, contentDescription = "Open email management", tint = ElectricCyan)
+            }
+        }
+
+        Card(colors = CardDefaults.cardColors(containerColor = Slate900), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("GOOGLE ACCOUNT CONNECTION", color = ElectricCyan, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text(if (googleConnected) "Connected" + (googleEmail?.let { " • " + it } ?: "") else "Connect Gmail and Google Calendar to enable account-based workspace actions.", color = if (googleConnected) ElectricCyan else Slate300, fontSize = 12.sp)
+                googleMessage?.let { Text(it, color = AmberWarning, fontSize = 11.sp) }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = {
+                        scope.launch {
+                            googleBusy = true; googleMessage = null
+                            try {
+                                if (googleConnected) {
+                                    googleRequest("disconnect", "POST"); googleConnected = false; googleEmail = null
+                                    googleMessage = "Google account disconnected."
+                                } else {
+                                    val started = googleRequest("start", "POST")
+                                    val authorizationUrl = started.optString("authorizationUrl")
+                                    if (authorizationUrl.isBlank()) throw IllegalStateException("Google did not return a connection link.")
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(authorizationUrl)))
+                                    googleMessage = "Complete Google permission approval in your browser, then return here and tap Refresh."
+                                }
+                            } catch (e: Exception) { googleMessage = e.message ?: "Google connection could not be updated." }
+                            finally { googleBusy = false }
+                        }
+                    }, enabled = !googleBusy && auth.currentUser != null, modifier = Modifier.weight(1f)) { Text(if (googleBusy) "Please wait…" else if (googleConnected) "Disconnect Google" else "Connect Google") }
+                    OutlinedButton(onClick = {
+                        scope.launch {
+                            googleBusy = true
+                            try {
+                                val status = googleRequest("status", "GET")
+                                googleConnected = status.optBoolean("connected")
+                                googleEmail = status.optString("email").takeIf { it.isNotBlank() && it != "null" }
+                                googleMessage = if (googleConnected) "Google connection verified." else "Google is not connected yet."
+                            } catch (e: Exception) { googleMessage = e.message ?: "Could not refresh Google status." }
+                            finally { googleBusy = false }
+                        }
+                    }, enabled = !googleBusy && auth.currentUser != null) { Text("Refresh") }
+                }
+                Text("Connecting does not send emails or create calendar events. Those actions require a separate instruction from you.", color = Slate400, fontSize = 10.sp)
             }
         }
 
