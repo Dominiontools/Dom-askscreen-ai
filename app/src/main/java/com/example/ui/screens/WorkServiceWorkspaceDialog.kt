@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.util.Base64
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.TimeUnit
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -37,7 +38,16 @@ import org.json.JSONObject
 fun WorkServiceWorkspaceDialog(productId: String, productName: String, onDismiss: () -> Unit) {
     val auth = remember { FirebaseAuth.getInstance() }
     val prefs = remember { AskScreenApp.instance.preferencesManager }
-    val http = remember { OkHttpClient() }
+    // The backend router may need up to 52 seconds for multimodal providers and retries.
+    // OkHttp's default 10-second read timeout was aborting valid AI jobs prematurely.
+    val http = remember {
+        OkHttpClient.Builder()
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(70, TimeUnit.SECONDS)
+            .callTimeout(75, TimeUnit.SECONDS)
+            .build()
+    }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var task by remember { mutableStateOf("") }
