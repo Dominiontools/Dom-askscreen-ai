@@ -16,8 +16,20 @@ const { handler: cryptoPaymentsHandler, _test: cryptoPaymentTests } = require('.
 const { handler: adminCryptoPaymentsHandler } = require('./netlify/legacy-handlers/admin-crypto-payments');
 const { DEFAULT_PRODUCTS, normalizeCatalog, calculateBundle } = require('./pricing-catalog');
 const { evaluateProductSubscription, summarizeProductSubscriptions } = require('./product-subscriptions');
+const { handler: workServiceHandler, _test: workServiceTests } = require('./netlify/legacy-handlers/work-service');
 
 async function run() {
+  assert.equal(workServiceTests.PRODUCTS.has('email_management'), false);
+  assert.equal(workServiceTests.PRODUCTS.has('core'), false);
+  assert.ok(workServiceTests.SERVICE_GUIDES.marketing_social.includes('Publishing'));
+  const workOptions = await workServiceHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(workOptions.statusCode, 204);
+  const workWrongMethod = await workServiceHandler({ httpMethod: 'PUT', headers: {} });
+  assert.equal(workWrongMethod.statusCode, 405);
+  const workUnauthenticated = await workServiceHandler({ httpMethod: 'GET', headers: {}, queryStringParameters: { productId: 'crm' } });
+  assert.equal(workUnauthenticated.statusCode, 401);
+  console.log('PASS Work Centre workspace authentication and method gates');
+
   const defaultPricing = normalizeCatalog(DEFAULT_PRODUCTS);
   assert.equal(defaultPricing.length, 22, 'The catalogue must include core, specialist products and separate email management');
   assert.equal(defaultPricing.find(item => item.id === 'core').independent, undefined, 'DOM AI Core remains its own core subscription');

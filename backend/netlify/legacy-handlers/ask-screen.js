@@ -857,6 +857,7 @@ exports.handler = async function handler(event) {
 
 
 // Shared authenticated usage helpers for feature-only endpoints.
+exports.routeRequest = routeRequest;
 exports.featureForRequest = featureForRequest;
 exports.verifyUser = verifyUser;
 exports.reserveFeatureUse = reserveFeatureUse;

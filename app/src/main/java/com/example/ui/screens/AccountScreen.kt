@@ -18,6 +18,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.EmailAuthProvider
 import com.example.AskScreenApp
 import com.example.ui.theme.*
@@ -31,6 +32,25 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Request
 import org.json.JSONObject
 import java.util.Locale
+
+
+private fun readableFirebaseAuthError(exception: Exception?): String {
+    val code = (exception as? FirebaseAuthException)?.errorCode.orEmpty()
+    val details = exception?.localizedMessage.orEmpty()
+    if (details.contains("CONFIGURATION_NOT_FOUND", ignoreCase = true)) {
+        return "Firebase Authentication is not fully configured for this app. Open the Firebase project connected to Dominion Ask AI, select Authentication, click Get started if shown, then enable Email/Password under Sign-in method and save."
+    }
+    return when (code) {
+        "ERROR_NETWORK_REQUEST_FAILED" -> "Firebase could not reach its sign-in server. Check your internet connection, switch between Wi-Fi and mobile data, then try again."
+        "ERROR_OPERATION_NOT_ALLOWED" -> "Email and password sign-in is not enabled in the Firebase project. The administrator must enable Email/Password in Firebase Authentication."
+        "ERROR_INVALID_EMAIL" -> "Enter a valid email address."
+        "ERROR_WEAK_PASSWORD" -> "Choose a stronger password with at least 6 characters."
+        "ERROR_EMAIL_ALREADY_IN_USE" -> "This email already has an account. Choose Sign in instead."
+        "ERROR_USER_NOT_FOUND", "ERROR_WRONG_PASSWORD", "ERROR_INVALID_CREDENTIAL" -> "The email or password is incorrect. Check the details or use Forgot password."
+        "ERROR_TOO_MANY_REQUESTS" -> "Firebase temporarily blocked repeated attempts. Wait a while and try again."
+        else -> exception?.localizedMessage ?: "Firebase could not complete the account request. Please try again."
+    }
+}
 
 @Composable
 fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = {}) {
@@ -368,7 +388,7 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
                             }
                         } else {
                             busy = false
-                            message = result.exception?.localizedMessage ?: "Could not complete sign-in."
+                            message = readableFirebaseAuthError(result.exception as? Exception)
                         }
                     }
                 },
