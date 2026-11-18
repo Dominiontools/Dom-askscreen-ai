@@ -43,11 +43,15 @@ exports.handler = async event => {
     let body;
     try { body = JSON.parse(event.body); } catch (_) { return json(400, { error: 'Invalid JSON.' }); }
     const email = String(body.email || '').trim().toLowerCase();
-    const accessCode = String(body.accessCode || '');
+    const accessCode = String(body.accessCode || '').trim();
+    const configuredCode = String(process.env.ADMIN_ACCESS_CODE || '').trim();
     const allowed = (process.env.ADMIN_EMAILS || '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
     if (!allowed.length) return json(503, { error: 'Administrator email access is not configured.' });
     if (!email || email.length > 254 || !allowed.includes(email)) {
       return json(403, { error: 'This email is not authorized for the Admin Centre.' });
+    }
+    if (configuredCode.length < 16) {
+      return json(503, { error: 'Admin access code is missing or must contain at least 16 characters.' });
     }
     const fakeEvent = { headers: { 'x-admin-access-code': accessCode } };
     if (!isAdminAccessCodeValid(fakeEvent)) return json(403, { error: 'Administrator access code is incorrect.' });
