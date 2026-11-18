@@ -37,6 +37,12 @@ fun WorkServiceWorkspaceDialog(productId: String, productName: String, onDismiss
     val http = remember { OkHttpClient() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    var task by remember { mutableStateOf("") }
+    var contextText by remember { mutableStateOf("") }
+    var result by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var history by remember { mutableStateOf<List<String>>(emptyList()) }
     var attachment by remember { mutableStateOf<JSONObject?>(null) }
     var attachmentName by remember { mutableStateOf<String?>(null) }
     var attachmentMime by remember { mutableStateOf<String?>(null) }
@@ -63,12 +69,6 @@ fun WorkServiceWorkspaceDialog(productId: String, productName: String, onDismiss
             } finally { busy = false }
         }
     }
-    var task by remember { mutableStateOf("") }
-    var contextText by remember { mutableStateOf("") }
-    var result by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
-    var busy by remember { mutableStateOf(false) }
-    var history by remember { mutableStateOf<List<String>>(emptyList()) }
 
     suspend fun request(method: String, payload: JSONObject? = null): JSONObject {
         val user = auth.currentUser ?: throw IllegalStateException("Please sign in to use this workspace.")
