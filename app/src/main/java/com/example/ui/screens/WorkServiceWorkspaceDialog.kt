@@ -1,11 +1,15 @@
 package com.example.ui.screens
 
+import android.util.Base64
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -32,6 +36,33 @@ fun WorkServiceWorkspaceDialog(productId: String, productName: String, onDismiss
     val prefs = remember { AskScreenApp.instance.preferencesManager }
     val http = remember { OkHttpClient() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var attachment by remember { mutableStateOf<JSONObject?>(null) }
+    var attachmentName by remember { mutableStateOf<String?>(null) }
+    var attachmentMime by remember { mutableStateOf<String?>(null) }
+    val uploadPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            busy = true
+            error = null
+            try {
+                val mime = context.contentResolver.getType(uri)?.substringBefore(';')?.lowercase()
+                    ?: throw IllegalStateException("The selected file type could not be identified.")
+                val allowed = mime.startsWith("image/") || mime.startsWith("audio/") || mime == "application/pdf" || mime == "text/plain"
+                if (!allowed) throw IllegalStateException("Choose an image, audio file, PDF or plain-text file. Video upload is not enabled yet.")
+                val bytes = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?: throw IllegalStateException("The selected file could not be opened.")
+                }
+                if (bytes.isEmpty() || bytes.size > 2 * 1024 * 1024) throw IllegalStateException("Choose a file smaller than 2 MB.")
+                val name = uri.lastPathSegment?.substringAfterLast('/')?.take(100) ?: "Selected file"
+                attachment = JSONObject().put("mimeType", mime).put("data", Base64.encodeToString(bytes, Base64.NO_WRAP))
+                attachmentName = name
+                attachmentMime = mime
+            } catch (e: Exception) {
+                error = e.message ?: "The selected file could not be attached."
+            } finally { busy = false }
+        }
+    }
     var task by remember { mutableStateOf("") }
     var contextText by remember { mutableStateOf("") }
     var result by remember { mutableStateOf("") }
@@ -93,6 +124,16 @@ fun WorkServiceWorkspaceDialog(productId: String, productName: String, onDismiss
                     label = { Text("What should this service do?") },
                     placeholder = { Text("Enter the task and the result you expect…") }, enabled = !busy
                 )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { uploadPicker.launch(arrayOf("image/*", "audio/*", "application/pdf", "text/plain")) }, enabled = !busy) {
+                        Text(if (attachmentName == null) "Attach file" else "Replace file")
+                    }
+                    if (attachmentName != null) {
+                        TextButton(onClick = { attachment = null; attachmentName = null; attachmentMime = null }, enabled = !busy) { Text("Remove") }
+                    }
+                }
+                attachmentName?.let { Text("Attached: $it (${attachmentMime.orEmpty()})", color = ElectricCyan, fontSize = 11.sp) }
+                Text("Image, audio, PDF and plain-text uploads are supported up to 2 MB per request. Video upload is not enabled yet.", color = Slate400, fontSize = 10.sp)
                 OutlinedTextField(
                     value = contextText, onValueChange = { contextText = it.take(24000) },
                     modifier = Modifier.fillMaxWidth(), minLines = 4,
@@ -107,6 +148,14 @@ fun WorkServiceWorkspaceDialog(productId: String, productName: String, onDismiss
                             result = ""
                             try {
                                 val payload = JSONObject().put("productId", productId).put("task", task.trim()).put("context", contextText.trim())
+                                attachment?.let { file ->
+                                    val mime = attachmentMime.orEmpty()
+                                    when {
+                                        mime.startsWith("image/") -> payload.put("images", JSONArray().put(file))
+                                        mime.startsWith("audio/") -> payload.put("audio", file)
+                                        else -> payload.put("files", JSONArray().put(file))
+                                    }
+                                }
                                 val response = request("POST", payload)
                                 result = response.optJSONObject("job")?.optString("result").orEmpty()
                                 if (result.isBlank()) throw IllegalStateException("The service returned an empty result.")
@@ -137,7 +186,6 @@ fun WorkServiceWorkspaceDialog(productId: String, productName: String, onDismiss
                         }
                     }
                 }
-                Text("This workspace currently performs AI-assisted text tasks. Upload-based image, audio and video processing, live account connections, and external actions are not yet enabled here.", color = Slate400, fontSize = 10.sp)
             }
         }
     }
