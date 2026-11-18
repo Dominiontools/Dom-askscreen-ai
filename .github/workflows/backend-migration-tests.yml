@@ -6,7 +6,7 @@ on:
       - migration/netlify-modern-functions
   pull_request:
     branches:
-      - migration/netlify-modern-functions
+      - fix/full-platform-functionality
 
 jobs:
   backend-tests:
