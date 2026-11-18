@@ -300,3 +300,4 @@ exports.callbackHandler = async event => {
 };
 
 exports._test = { GOOGLE_SCOPES, encryptJson, decryptJson, stateDigest };
+exports._internal = { getConfig, getAdmin, encryptJson, decryptJson, TOKEN_COLLECTION, GOOGLE_TOKEN_URL };
