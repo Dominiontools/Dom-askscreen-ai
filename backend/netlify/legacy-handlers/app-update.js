@@ -1,5 +1,5 @@
 'use strict';
-const { verifyUser } = require('./ask-screen');
+const { verifyAdminSession } = require('./admin-auth');
 let adminPromise;
 async function getAdmin() {
   if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) throw new Error('AUTH_NOT_CONFIGURED');
@@ -18,7 +18,7 @@ function json(statusCode, data) {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+    'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Admin-Access-Code',
     'Cache-Control': 'no-store'
   }, body: JSON.stringify(data) };
 }
@@ -59,7 +59,7 @@ exports.handler = async event => {
         publishedAt: release.publishedAt?.toDate ? release.publishedAt.toDate().toISOString() : null
       } });
     }
-    const decoded = await verifyUser(event);
+    const decoded = verifyAdminSession(event);
     const email = adminEmail(decoded);
     if (!email) return json(403, { error: 'This verified account is not authorized to publish app updates.' });
     const type = String(event.headers?.['content-type'] || event.headers?.['Content-Type'] || '').toLowerCase();

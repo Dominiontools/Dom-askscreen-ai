@@ -3,7 +3,7 @@ name: Build AskScreen AI APK
 on:
   workflow_dispatch:
   push:
-    branches: [main, master, upgrade/continuous-assistant-and-reliability, upgrade/account-auth-and-usage, feature/admin-monitoring-dashboard, fix/full-platform-functionality, feature/operational-work-centre-v2]
+    branches: [main, master, upgrade/continuous-assistant-and-reliability, upgrade/account-auth-and-usage, feature/admin-monitoring-dashboard, fix/full-platform-functionality, feature/operational-work-centre-v2, integration/android-workspaces-release]
   pull_request:
     branches: [upgrade/account-auth-and-usage, fix/full-platform-functionality]
 
@@ -98,7 +98,7 @@ jobs:
           {
             echo '### Real error (first lines)'
             echo '```'
-            grep -n -E "^e: |What went wrong|Execution failed|error:" -A6 build.log | head -80
+            if [ -f build.log ]; then grep -n -E "^e: |What went wrong|Execution failed|error:" -A6 build.log | head -80; else echo 'Backend validation or setup failed before the Android build log was created.'; fi
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 

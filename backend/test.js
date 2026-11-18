@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { handler, isEligibleForFreeTrial, featureForRequest } = require('./netlify/legacy-handlers/ask-screen');
+const { handler, isEligibleForFreeTrial, featureForRequest, _test: askScreenTests } = require('./netlify/legacy-handlers/ask-screen');
 const { handler: healthHandler } = require('./netlify/legacy-handlers/health');
 const { handler: transcriptionHandler } = require('./netlify/legacy-handlers/record-transcription');
 const { handler: adminHandler } = require('./netlify/legacy-handlers/admin-dashboard');
@@ -16,8 +16,84 @@ const { handler: cryptoPaymentsHandler, _test: cryptoPaymentTests } = require('.
 const { handler: adminCryptoPaymentsHandler } = require('./netlify/legacy-handlers/admin-crypto-payments');
 const { DEFAULT_PRODUCTS, normalizeCatalog, calculateBundle } = require('./pricing-catalog');
 const { evaluateProductSubscription, summarizeProductSubscriptions } = require('./product-subscriptions');
+const adminAuthTests = require('./netlify/legacy-handlers/admin-auth');
+const { handler: adminLoginHandler } = require('./netlify/legacy-handlers/admin-login');
+const { handler: workServiceHandler, _test: workServiceTests } = require('./netlify/legacy-handlers/work-service');
 
 async function run() {
+  const oldVisionEnv = {
+    OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+    OPENROUTER_MODEL: process.env.OPENROUTER_MODEL,
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+    GEMINI_API_KEY2: process.env.GEMINI_API_KEY2,
+    GEMINI_API_KEY3: process.env.GEMINI_API_KEY3
+  };
+  process.env.OPENROUTER_API_KEY = 'test-openrouter-key';
+  process.env.OPENROUTER_MODEL = 'openai/gpt-4o-mini';
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.GEMINI_API_KEY2;
+  delete process.env.GEMINI_API_KEY3;
+  const visionPayload = { images: [{ mimeType: 'image/jpeg', data: Buffer.from('frame').toString('base64') }], files: [], audio: null };
+  const visionProviders = askScreenTests.getProviders(visionPayload);
+  assert.ok(visionProviders.some(provider => provider.name === 'OpenRouter'));
+  const visionMessages = askScreenTests.openAiMessages({ prompt: 'Describe this frame', history: [], images: visionPayload.images });
+  assert.equal(visionMessages[1].content[1].type, 'image_url');
+  assert.match(visionMessages[1].content[1].image_url.url, /^data:image\/jpeg;base64,/);
+  const audioOnlyPayload = { images: [], files: [], audio: { mimeType: 'audio/mpeg', data: Buffer.from('audio').toString('base64') } };
+  assert.equal(askScreenTests.getProviders(audioOnlyPayload).some(provider => provider.name === 'OpenRouter'), false);
+  for (const [key, value] of Object.entries(oldVisionEnv)) {
+    if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
+  assert.equal(askScreenTests.PROVIDER_TIMEOUT_MS, 25_000);
+  assert.equal(askScreenTests.ROUTER_DEADLINE_MS, 52_000);
+  console.log('PASS OpenRouter image/video-frame vision fallback and timeout configuration');
+  const oldAdminCode = process.env.ADMIN_ACCESS_CODE;
+  const oldAdminEmails = process.env.ADMIN_EMAILS;
+  process.env.ADMIN_ACCESS_CODE = 'a-test-only-admin-code-12345';
+  process.env.ADMIN_EMAILS = 'owner@example.com';
+  assert.equal(adminAuthTests.isAdminAccessCodeValid({ headers: { 'x-admin-access-code': 'a-test-only-admin-code-12345' } }), true);
+  assert.equal(adminAuthTests.isAdminAccessCodeValid({ headers: { 'x-admin-access-code': 'wrong' } }), false);
+  assert.equal(adminAuthTests.isAdminAccessCodeValid({ headers: { 'x-admin-access-code': '  a-test-only-admin-code-12345  ' } }), true);
+  process.env.ADMIN_ACCESS_CODE = '  a-test-only-admin-code-12345  ';
+  assert.equal(adminAuthTests.isAdminAccessCodeValid({ headers: { 'x-admin-access-code': 'a-test-only-admin-code-12345' } }), true);
+  const testSession = adminAuthTests.createAdminSession({ uid: 'test-uid', email: 'owner@example.com' });
+  const verifiedSession = adminAuthTests.verifyAdminSession({ headers: { authorization: 'Bearer ' + testSession } });
+  assert.equal(verifiedSession.email, 'owner@example.com');
+  assert.throws(() => adminAuthTests.verifyAdminSession({ headers: { authorization: 'Bearer ' + testSession + 'x' } }));
+  const adminLoginOptions = await adminLoginHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(adminLoginOptions.statusCode, 204);
+  const adminLoginWrongMethod = await adminLoginHandler({ httpMethod: 'GET', headers: {} });
+  assert.equal(adminLoginWrongMethod.statusCode, 405);
+  if (oldAdminEmails === undefined) delete process.env.ADMIN_EMAILS; else process.env.ADMIN_EMAILS = oldAdminEmails;
+  console.log('PASS administrator access-code and signed-session validation');
+
+  assert.equal(workServiceTests.PRODUCTS.has('email_management'), false);
+  assert.equal(workServiceTests.PRODUCTS.has('core'), false);
+  assert.ok(workServiceTests.SERVICE_GUIDES.marketing_social.includes('Publishing'));
+  const tinyImage = Buffer.from('image').toString('base64');
+  const normalizedImage = workServiceTests.normalizeWorkAttachments({ images: [{ mimeType: 'image/png', data: tinyImage }] });
+  assert.equal(normalizedImage.images.length, 1);
+  assert.equal(normalizedImage.images[0].mimeType, 'image/png');
+  assert.equal(normalizedImage.totalBytes, 5);
+  const normalizedAudio = workServiceTests.normalizeWorkAttachments({ audio: { mimeType: 'audio/mpeg', data: Buffer.from('audio').toString('base64') } });
+  assert.equal(normalizedAudio.audio.mimeType, 'audio/mpeg');
+  const normalizedDocument = workServiceTests.normalizeWorkAttachments({ files: [{ mimeType: 'application/pdf', data: Buffer.from('%PDF').toString('base64') }] });
+  assert.equal(normalizedDocument.files.length, 1);
+  assert.throws(() => workServiceTests.normalizeWorkAttachments({ images: [{ mimeType: 'text/plain', data: tinyImage }] }), /INVALID_IMAGE_TYPE/);
+  assert.throws(() => workServiceTests.normalizeWorkAttachments({ files: [{ mimeType: 'application/zip', data: tinyImage }] }), /UNSUPPORTED_ATTACHMENT_TYPE/);
+  assert.throws(() => workServiceTests.normalizeWorkAttachments({ audio: { mimeType: 'audio/mpeg', data: 'bad!' } }), /INVALID_ATTACHMENT_DATA/);
+  assert.throws(() => workServiceTests.normalizeWorkAttachments({ images: Array(4).fill({ mimeType: 'image/png', data: tinyImage }) }), /TOO_MANY_ATTACHMENTS/);
+  assert.throws(() => workServiceTests.normalizeWorkAttachments({ files: [{ mimeType: 'text/plain', data: Buffer.alloc(workServiceTests.MAX_UPLOAD_BYTES + 1).toString('base64') }] }), /ATTACHMENTS_TOO_LARGE/);
+  console.log('PASS Work Centre image, audio and document upload validation');
+
+  const workOptions = await workServiceHandler({ httpMethod: 'OPTIONS', headers: {} });
+  assert.equal(workOptions.statusCode, 204);
+  const workWrongMethod = await workServiceHandler({ httpMethod: 'PUT', headers: {} });
+  assert.equal(workWrongMethod.statusCode, 405);
+  const workUnauthenticated = await workServiceHandler({ httpMethod: 'GET', headers: {}, queryStringParameters: { productId: 'crm' } });
+  assert.equal(workUnauthenticated.statusCode, 401);
+  console.log('PASS Work Centre workspace authentication and method gates');
+
   const defaultPricing = normalizeCatalog(DEFAULT_PRODUCTS);
   assert.equal(defaultPricing.length, 22, 'The catalogue must include core, specialist products and separate email management');
   assert.equal(defaultPricing.find(item => item.id === 'core').independent, undefined, 'DOM AI Core remains its own core subscription');
@@ -332,6 +408,7 @@ async function run() {
   assert.equal(adminCryptoUnauthenticated.statusCode, 401, 'Crypto payment approval must require authenticated admin verification');
   console.log('PASS USDT payment networks, duplicate-safe hash IDs, product validation and admin authentication gates');
 
+  if (oldAdminCode === undefined) delete process.env.ADMIN_ACCESS_CODE; else process.env.ADMIN_ACCESS_CODE = oldAdminCode;
   console.log('All backend validation and authentication-gate tests passed.');
 }
 
