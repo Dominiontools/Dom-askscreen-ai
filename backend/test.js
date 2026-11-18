@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { handler, isEligibleForFreeTrial, featureForRequest } = require('./netlify/legacy-handlers/ask-screen');
+const { handler, isEligibleForFreeTrial, featureForRequest, _test: askScreenTests } = require('./netlify/legacy-handlers/ask-screen');
 const { handler: healthHandler } = require('./netlify/legacy-handlers/health');
 const { handler: transcriptionHandler } = require('./netlify/legacy-handlers/record-transcription');
 const { handler: adminHandler } = require('./netlify/legacy-handlers/admin-dashboard');
@@ -21,6 +21,32 @@ const { handler: adminLoginHandler } = require('./netlify/legacy-handlers/admin-
 const { handler: workServiceHandler, _test: workServiceTests } = require('./netlify/legacy-handlers/work-service');
 
 async function run() {
+  const oldVisionEnv = {
+    OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+    OPENROUTER_MODEL: process.env.OPENROUTER_MODEL,
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+    GEMINI_API_KEY2: process.env.GEMINI_API_KEY2,
+    GEMINI_API_KEY3: process.env.GEMINI_API_KEY3
+  };
+  process.env.OPENROUTER_API_KEY = 'test-openrouter-key';
+  process.env.OPENROUTER_MODEL = 'openai/gpt-4o-mini';
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.GEMINI_API_KEY2;
+  delete process.env.GEMINI_API_KEY3;
+  const visionPayload = { images: [{ mimeType: 'image/jpeg', data: Buffer.from('frame').toString('base64') }], files: [], audio: null };
+  const visionProviders = askScreenTests.getProviders(visionPayload);
+  assert.ok(visionProviders.some(provider => provider.name === 'OpenRouter'));
+  const visionMessages = askScreenTests.openAiMessages({ prompt: 'Describe this frame', history: [], images: visionPayload.images });
+  assert.equal(visionMessages[1].content[1].type, 'image_url');
+  assert.match(visionMessages[1].content[1].image_url.url, /^data:image\\/jpeg;base64,/);
+  const audioOnlyPayload = { images: [], files: [], audio: { mimeType: 'audio/mpeg', data: Buffer.from('audio').toString('base64') } };
+  assert.equal(askScreenTests.getProviders(audioOnlyPayload).some(provider => provider.name === 'OpenRouter'), false);
+  for (const [key, value] of Object.entries(oldVisionEnv)) {
+    if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
+  assert.equal(askScreenTests.PROVIDER_TIMEOUT_MS, 25_000);
+  assert.equal(askScreenTests.ROUTER_DEADLINE_MS, 52_000);
+  console.log('PASS OpenRouter image/video-frame vision fallback and timeout configuration');
   const oldAdminCode = process.env.ADMIN_ACCESS_CODE;
   const oldAdminEmails = process.env.ADMIN_EMAILS;
   process.env.ADMIN_ACCESS_CODE = 'a-test-only-admin-code-12345';
