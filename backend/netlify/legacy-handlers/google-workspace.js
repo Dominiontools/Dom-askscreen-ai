@@ -93,7 +93,7 @@ async function googleApi(path, accessToken, options = {}) {
 }
 
 function encodeBase64Url(value) {
-  return Buffer.from(value).toString('base64').replace(/=/g, '').replace(/\\+/g, '-').replace(/\\//g, '_');
+  return Buffer.from(value).toString('base64').replace(/=/g, '').replaceAll('+', '-').replaceAll('/', '_');
 }
 
 async function listGmail(uid, event) {
@@ -120,16 +120,16 @@ async function createGmail(uid, parsed, send) {
   const to = typeof parsed.to === 'string' ? parsed.to.trim() : '';
   const subject = typeof parsed.subject === 'string' ? parsed.subject.trim() : '';
   const body = typeof parsed.body === 'string' ? parsed.body : '';
-  if (!to || to.length > 254 || /[\\r\\n]/.test(to) || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(to)) {
+  if (!to || to.length > 254 || /[\r\n]/.test(to) || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(to)) {
     throw Object.assign(new Error('INVALID_RECIPIENT'), { statusCode: 400 });
   }
-  if (!subject || subject.length > 200 || /[\\r\\n]/.test(subject) || !body.trim() || body.length > 100_000) {
+  if (!subject || subject.length > 200 || /[\r\n]/.test(subject) || !body.trim() || body.length > 100_000) {
     throw Object.assign(new Error('INVALID_EMAIL_CONTENT'), { statusCode: 400 });
   }
   const { accessToken, connection } = await accessTokenFor(uid);
   requireScopes(connection, send ? [GMAIL_SEND] : [GMAIL_COMPOSE]);
-  const raw = encodeBase64Url('To: ' + to + '\\r\\nSubject: ' + subject +
-    '\\r\\nMIME-Version: 1.0\\r\\nContent-Type: text/plain; charset=UTF-8\\r\\nContent-Transfer-Encoding: 8bit\\r\\n\\r\\n' + body);
+  const raw = encodeBase64Url('To: ' + to + '\r\nSubject: ' + subject +
+    '\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n' + body);
   const data = await googleApi('/gmail/v1/users/me/' + (send ? 'messages/send' : 'drafts'), accessToken, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(send ? { raw } : { message: { raw } })
