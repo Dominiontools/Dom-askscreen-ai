@@ -1037,7 +1037,7 @@ Instructions:
                             val message = error.message.orEmpty()
                             liveCaptions.value = when {
                                 message.startsWith("SUBSCRIPTION_REQUIRED") ->
-                                    "Your two free transcription uses are finished. Subscribe to continue."
+                                    "Your free transcription uses are finished. The subscription page is opening; choose DOM AI Core in Account to continue."
                                 message.startsWith("SIGN_IN_REQUIRED") ->
                                     "Please sign in to continue transcription."
                                 else -> "Transcription could not be verified. Please check your connection and try again."
