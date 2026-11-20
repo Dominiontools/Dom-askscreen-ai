@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -66,6 +67,13 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
     var createAccount by remember { mutableStateOf(false) }
     var accountStatus by remember { mutableStateOf<JSONObject?>(null) }
     var pricingSettings by remember { mutableStateOf<JSONObject?>(null) }
+    var paymentConfig by remember { mutableStateOf<JSONObject?>(null) }
+    var paymentProductId by remember { mutableStateOf("core") }
+    var paymentNetwork by remember { mutableStateOf("TRC20") }
+    var paymentHash by remember { mutableStateOf("") }
+    var paymentNotice by remember { mutableStateOf<String?>(null) }
+    var paymentMenuOpen by remember { mutableStateOf(false) }
+    var accountIdToken by remember { mutableStateOf("") }
     var statusLoading by remember { mutableStateOf(false) }
     var statusError by remember { mutableStateOf<String?>(null) }
     var refreshCounter by remember { mutableIntStateOf(0) }
@@ -83,6 +91,7 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
             try {
                 val token = user.getIdToken(true).await().token
                     ?: throw IllegalStateException("Could not verify your account.")
+                accountIdToken = token
                 val configured = prefs.backendUrl.trim().trimEnd('/')
                 if (!configured.endsWith("/ask-screen")) {
                     throw IllegalStateException("Set your AskScreen backend URL in Settings to view account usage.")
@@ -107,6 +116,14 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
                         if (!response.isSuccessful) throw IllegalStateException("Product prices are temporarily unavailable.")
                         val publicJson = try { JSONObject(response.body?.string().orEmpty()) } catch (_: Exception) { JSONObject() }
                         publicJson.optJSONObject("settings")
+                    }
+                }
+                paymentConfig = withContext(Dispatchers.IO) {
+                    val paymentEndpoint = configured.removeSuffix("/ask-screen") + "/crypto-payments"
+                    val request = Request.Builder().url(paymentEndpoint).get().build()
+                    http.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) throw IllegalStateException("USDT payment options are temporarily unavailable.")
+                        JSONObject(response.body?.string().orEmpty())
                     }
                 }
             } catch (e: Exception) {
@@ -246,6 +263,99 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
                         Text("AI Suite with ${settings.optInt("bundleDiscountPercent",10)}% discount: USD " + String.format(Locale.US,"%.2f",aiSuite.optInt("priceCents") / 100.0) + "/month", color = Color.White, fontWeight = FontWeight.SemiBold)
                         Text("Complete Business Bundle: USD " + String.format(Locale.US,"%.2f",complete.optInt("priceCents") / 100.0) + "/month", color = Color(0xFF8FE0B0), fontWeight = FontWeight.SemiBold)
                         Text("Email Management is an independent product. Prices are displayed for planning; checkout will be enabled after Paystack approval.", color = Slate400, fontSize = 11.sp)
+                    }
+                }
+            }
+            paymentConfig?.let { payment ->
+                Spacer(Modifier.height(14.dp))
+                Card(colors = CardDefaults.cardColors(containerColor = Slate900), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Text("Subscribe with USDT", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Text("Choose DOM AI Core or a separate Work Centre service. Send the exact monthly amount to the wallet below, then submit your transaction hash. Your access remains locked until the administrator verifies and approves the payment.", color = Slate400, fontSize = 12.sp)
+                        val productArray = pricingSettings?.optJSONArray("pricing")
+                        val chosenProduct = (0 until (productArray?.length() ?: 0)).mapNotNull { productArray?.optJSONObject(it) }
+                            .firstOrNull { it.optString("id") == paymentProductId }
+                        OutlinedButton(onClick = { paymentMenuOpen = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(chosenProduct?.optString("name") ?: "DOM AI Core")
+                        }
+                        DropdownMenu(expanded = paymentMenuOpen, onDismissRequest = { paymentMenuOpen = false }) {
+                            (0 until (productArray?.length() ?: 0)).forEach { index ->
+                                val item = productArray?.optJSONObject(index) ?: return@forEach
+                                DropdownMenuItem(
+                                    text = { Text(item.optString("name")) },
+                                    onClick = {
+                                        paymentProductId = item.optString("id")
+                                        paymentMenuOpen = false
+                                        paymentNotice = null
+                                    }
+                                )
+                            }
+                        }
+                        val cents = chosenProduct?.optInt("monthlyPriceCents") ?: 900
+                        val amountLabel = String.format(Locale.US, "%.2f", cents / 100.0)
+                        Text("Amount: $amountLabel USDT / month", color = ElectricCyan, fontWeight = FontWeight.SemiBold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("TRC20", "BEP20").forEach { network ->
+                                FilterChip(selected = paymentNetwork == network, onClick = { paymentNetwork = network }, label = { Text(network) })
+                            }
+                        }
+                        val networkArray = payment.optJSONArray("networks")
+                        val wallet = (0 until (networkArray?.length() ?: 0)).mapNotNull { networkArray?.optJSONObject(it) }
+                            .firstOrNull { it.optString("id") == paymentNetwork }
+                        Text(wallet?.optString("name") ?: paymentNetwork, color = Slate300, fontSize = 12.sp)
+                        SelectionContainer {
+                            Text(wallet?.optString("address") ?: "Wallet address unavailable", color = Color.White, fontSize = 12.sp)
+                        }
+                        OutlinedTextField(
+                            value = paymentHash,
+                            onValueChange = { paymentHash = it.trim().take(140) },
+                            label = { Text("Transaction hash") },
+                            singleLine = true,
+                            enabled = !busy,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Button(
+                            enabled = !busy && emailVerified && accountIdToken.isNotBlank() &&
+                                paymentHash.isNotBlank() && wallet?.optString("address")?.isNotBlank() == true,
+                            onClick = {
+                                scope.launch {
+                                    busy = true
+                                    paymentNotice = null
+                                    try {
+                                        val configured = prefs.backendUrl.trim().trimEnd('/')
+                                        val endpoint = configured.removeSuffix("/ask-screen") + "/crypto-payments"
+                                        val payload = JSONObject().put("productId", paymentProductId)
+                                            .put("network", paymentNetwork).put("transactionHash", paymentHash.trim())
+                                        val result = withContext(Dispatchers.IO) {
+                                            val request = Request.Builder().url(endpoint)
+                                                .header("Authorization", "Bearer $accountIdToken")
+                                                .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                                                .build()
+                                            http.newCall(request).execute().use { response ->
+                                                val body = try { JSONObject(response.body?.string().orEmpty()) } catch (_: Exception) { JSONObject() }
+                                                if (!response.isSuccessful) throw IllegalStateException(
+                                                    body.optString("error").ifBlank { "Payment submission failed." }
+                                                )
+                                                body
+                                            }
+                                        }
+                                        paymentHash = ""
+                                        paymentNotice = result.optString("message", "Payment submitted. Access remains locked until administrator approval.")
+                                        refreshCounter++
+                                    } catch (e: Exception) {
+                                        paymentNotice = e.message ?: "Payment submission failed."
+                                    } finally {
+                                        busy = false
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text(if (busy) "Submitting..." else "I have sent the USDT — submit for approval") }
+                        if (!emailVerified) Text("Verify your email address before submitting a payment.", color = AmberWarning, fontSize = 11.sp)
+                        paymentNotice?.let { Text(it, color = if (it.contains("submitted", true)) ElectricCyan else AmberWarning, fontSize = 12.sp) }
+                        HorizontalDivider(color = Slate700)
+                        Text("Paystack — Coming soon", color = AmberWarning, fontWeight = FontWeight.SemiBold)
+                        Text("Paystack checkout will be enabled after account verification and setup.", color = Slate400, fontSize = 11.sp)
                     }
                 }
             }
