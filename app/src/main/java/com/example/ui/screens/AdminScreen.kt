@@ -85,8 +85,8 @@ fun AdminScreen(onBack: () -> Unit) {
     var trialUsers by remember { mutableIntStateOf(0) }
     var disabledUsers by remember { mutableIntStateOf(0) }
     var loaded by remember { mutableStateOf(false) }
-    var releaseVersionCode by remember { mutableStateOf("2") }
-    var releaseVersionName by remember { mutableStateOf("1.1") }
+    var releaseVersionCode by remember { mutableStateOf("3") }
+    var releaseVersionName by remember { mutableStateOf("1.1.0") }
     var releaseNotes by remember { mutableStateOf("") }
     var selectedApkUri by remember { mutableStateOf<Uri?>(null) }
     var selectedApkName by remember { mutableStateOf("") }
