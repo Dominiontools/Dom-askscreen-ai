@@ -10,6 +10,7 @@ import androidx.compose.ui.platform.LocalContext
 import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
 import java.io.FileOutputStream
+import java.security.MessageDigest
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -87,10 +88,26 @@ fun AdminScreen(onBack: () -> Unit) {
     var releaseVersionCode by remember { mutableStateOf("2") }
     var releaseVersionName by remember { mutableStateOf("1.1") }
     var releaseNotes by remember { mutableStateOf("") }
-    var releaseDownloadUrl by remember { mutableStateOf("") }
-    var releaseSizeBytes by remember { mutableStateOf("") }
-    var releaseSha256 by remember { mutableStateOf("") }
+    var selectedApkUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedApkName by remember { mutableStateOf("") }
+    var selectedApkSize by remember { mutableLongStateOf(0L) }
     var releaseMessage by remember { mutableStateOf<String?>(null) }
+    val apkPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            selectedApkUri = uri
+            selectedApkName = "selected.apk"
+            selectedApkSize = 0L
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    if (nameIndex >= 0) selectedApkName = cursor.getString(nameIndex) ?: "selected.apk"
+                    if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) selectedApkSize = cursor.getLong(sizeIndex)
+                }
+            }
+            releaseMessage = null
+        }
+    }
     var grantDialogOpen by remember { mutableStateOf(false) }
     var grantTargetUid by remember { mutableStateOf("") }
     var selectedGrantProduct by remember { mutableStateOf("video_annotation") }
@@ -377,30 +394,78 @@ fun AdminScreen(onBack: () -> Unit) {
             ?: throw IllegalArgumentException("Version code must be a whole number.")
         if (versionCode < 2) throw IllegalArgumentException("Version code must be at least 2.")
         if (releaseVersionName.isBlank()) throw IllegalArgumentException("Enter the version name.")
-        val downloadUrl = releaseDownloadUrl.trim()
-        if (!downloadUrl.startsWith("https://github.com/Dominiontools/Dom-askscreen-ai/releases/download/") || !downloadUrl.substringBefore("?").lowercase().endsWith(".apk")) {
-            throw IllegalArgumentException("Paste the HTTPS APK asset link from a GitHub Release for this repository.")
-        }
-        val sizeBytes = releaseSizeBytes.toLongOrNull() ?: 0L
-        if (sizeBytes < 0L || sizeBytes > 2L * 1024L * 1024L * 1024L) throw IllegalArgumentException("Enter a valid APK size in bytes, or leave it blank.")
-        val checksum = releaseSha256.trim().lowercase()
-        if (!checksum.matches(Regex("[a-f0-9]{64}"))) throw IllegalArgumentException("Enter the APK SHA-256 checksum (64 hexadecimal characters).")
+        val selectedUri = selectedApkUri ?: throw IllegalArgumentException("Choose the signed APK from this device.")
         val configured = prefs.backendUrl.trim().trimEnd('/')
-        if (!configured.endsWith("/ask-screen")) throw IllegalStateException("Set your Netlify AskScreen endpoint in Settings first.")
+        if (!configured.endsWith("/ask-screen")) throw IllegalStateException("Set your AskScreen backend URL in Settings first.")
         val endpoint = configured.removeSuffix("/ask-screen") + "/app-update"
-        val payload = JSONObject().put("action", "publish").put("versionCode", versionCode)
-            .put("versionName", releaseVersionName.trim()).put("releaseNotes", releaseNotes.trim())
-            .put("downloadUrl", downloadUrl).put("sizeBytes", sizeBytes).put("sha256", checksum)
-        withContext(Dispatchers.IO) {
-            val request = Request.Builder().url(endpoint).header("Authorization", "Bearer $idToken")
-                .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
-            http.newCall(request).execute().use { response ->
-                val body = response.body?.string().orEmpty()
-                val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
-                if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "Could not publish the app update." })
+        val tempApk = File.createTempFile("dom-askscreen-release-", ".apk", context.cacheDir)
+        try {
+            val sizeAndHash = withContext(Dispatchers.IO) {
+                context.contentResolver.openInputStream(selectedUri)?.use { input ->
+                    FileOutputStream(tempApk).use { output -> input.copyTo(output) }
+                } ?: throw IllegalStateException("The selected APK could not be opened.")
+                val size = tempApk.length()
+                if (size <= 0L || size > 300L * 1024L * 1024L) {
+                    throw IllegalArgumentException("The APK must be between 1 byte and 300 MB.")
+                }
+                val digest = MessageDigest.getInstance("SHA-256")
+                tempApk.inputStream().use { input ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        digest.update(buffer, 0, count)
+                    }
+                }
+                val checksum = digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+                size to checksum
             }
+            val preparePayload = JSONObject()
+                .put("action", "prepare_upload")
+                .put("versionCode", versionCode)
+                .put("versionName", releaseVersionName.trim())
+                .put("releaseNotes", releaseNotes.trim())
+                .put("sizeBytes", sizeAndHash.first)
+                .put("sha256", sizeAndHash.second)
+            val prepared = withContext(Dispatchers.IO) {
+                val request = Request.Builder().url(endpoint).header("Authorization", "Bearer $idToken")
+                    .post(preparePayload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
+                http.newCall(request).execute().use { response ->
+                    val body = response.body?.string().orEmpty()
+                    val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
+                    if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "Could not prepare the APK upload." })
+                    json
+                }
+            }
+            val uploadUrl = prepared.optString("uploadUrl")
+            val uploadId = prepared.optString("uploadId")
+            if (uploadUrl.isBlank() || uploadId.isBlank()) throw IllegalStateException("The server did not return a secure APK upload session.")
+            withContext(Dispatchers.IO) {
+                val uploadRequest = Request.Builder().url(uploadUrl)
+                    .header("Content-Type", "application/vnd.android.package-archive")
+                    .put(tempApk.asRequestBody("application/vnd.android.package-archive".toMediaType()))
+                    .build()
+                http.newCall(uploadRequest).execute().use { response ->
+                    if (!response.isSuccessful) throw IllegalStateException("APK upload failed (HTTP ${response.code}). Please try again.")
+                }
+            }
+            val publishPayload = JSONObject().put("action", "publish_uploaded").put("uploadId", uploadId)
+            withContext(Dispatchers.IO) {
+                val request = Request.Builder().url(endpoint).header("Authorization", "Bearer $idToken")
+                    .post(publishPayload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
+                http.newCall(request).execute().use { response ->
+                    val body = response.body?.string().orEmpty()
+                    val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
+                    if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "The APK uploaded, but publishing failed." })
+                }
+            }
+            releaseMessage = "Version ${releaseVersionName.trim()} has been uploaded and published. Customer apps can now check for this update."
+            selectedApkUri = null
+            selectedApkName = ""
+            selectedApkSize = 0L
+        } finally {
+            tempApk.delete()
         }
-        releaseMessage = "Version ${releaseVersionName.trim()} has been published. Customer apps can now check for this update."
     }
 
     Column(Modifier.fillMaxSize().background(Slate950).verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement=Arrangement.spacedBy(14.dp)) {
@@ -528,25 +593,29 @@ fun AdminScreen(onBack: () -> Unit) {
             Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(16.dp)) {
                 Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                     Text("App Update Centre",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
-                    Text("Upload the APK to GitHub Releases first, then register its download link here. Customers will receive the update through the app.",color=Slate400,fontSize=11.sp)
+                    Text("Select the signed APK directly from this device. It uploads securely to the app's Firebase Storage bucket; you do not need to create a GitHub Release or paste a link.",color=Slate400,fontSize=11.sp)
                     OutlinedTextField(value=releaseVersionName,onValueChange={releaseVersionName=it.take(40)},label={Text("Version name (example: 1.1)")},singleLine=true,modifier=Modifier.fillMaxWidth())
                     OutlinedTextField(value=releaseVersionCode,onValueChange={releaseVersionCode=it.filter(Char::isDigit).take(9)},label={Text("Version code (must increase each release)")},singleLine=true,modifier=Modifier.fillMaxWidth())
-                    OutlinedTextField(value=releaseDownloadUrl,onValueChange={releaseDownloadUrl=it.take(1000)},label={Text("GitHub APK download link")},supportingText={Text("Paste the .apk asset link from the GitHub Release.")},modifier=Modifier.fillMaxWidth())
-                    OutlinedTextField(value=releaseSizeBytes,onValueChange={releaseSizeBytes=it.filter(Char::isDigit).take(12)},label={Text("APK size in bytes (optional)")},singleLine=true,modifier=Modifier.fillMaxWidth())
-                    OutlinedTextField(value=releaseSha256,onValueChange={releaseSha256=it.filter { ch -> ch.isDigit() || ch.lowercaseChar() in 'a'..'f' }.take(64)},label={Text("APK SHA-256 checksum (required)")},supportingText={Text("Generate this from the exact APK you uploaded to GitHub Releases.")},singleLine=true,modifier=Modifier.fillMaxWidth())
+                    OutlinedButton(onClick={apkPicker.launch(arrayOf("application/vnd.android.package-archive","application/octet-stream"))},enabled=!busy,modifier=Modifier.fillMaxWidth()) {
+                        Text(if(selectedApkName.isBlank()) "Choose APK from this device" else "Choose a different APK")
+                    }
+                    if(selectedApkName.isNotBlank()) {
+                        Text("Selected: $selectedApkName",color=Color.White,fontSize=12.sp)
+                        if(selectedApkSize>0L) Text("File size: ${String.format(Locale.US,"%.2f",selectedApkSize/1024.0/1024.0)} MB",color=Slate400,fontSize=11.sp)
+                    }
                     OutlinedTextField(value=releaseNotes,onValueChange={releaseNotes=it.take(2000)},label={Text("What's new in this update")},supportingText={Text("${releaseNotes.length}/2000 characters")},minLines=2,maxLines=5,modifier=Modifier.fillMaxWidth())
                     Button(onClick={
                         scope.launch {
                             busy = true; error = null; releaseMessage = null
                             try { publishApk() }
-                            catch(e:Exception) { error = e.message ?: "Could not publish this app update." }
+                            catch(e:Exception) { error = e.message ?: "Could not upload this app update." }
                             finally { busy = false }
                         }
-                    },enabled=!busy && idToken.isNotBlank() && releaseVersionCode.toIntOrNull()!=null && releaseVersionName.isNotBlank() && releaseDownloadUrl.isNotBlank() && releaseSha256.length==64,modifier=Modifier.fillMaxWidth()) {
-                        Text(if(busy) "Publishing…" else "Publish update link")
+                    },enabled=!busy && idToken.isNotBlank() && selectedApkUri!=null && releaseVersionCode.toIntOrNull()!=null && releaseVersionName.isNotBlank(),modifier=Modifier.fillMaxWidth()) {
+                        Text(if(busy) "Uploading and publishing…" else "Upload and publish APK")
                     }
                     releaseMessage?.let { Text(it,color=ElectricCyan,fontSize=12.sp) }
-                    Text("Important: upload only the signed APK built with the same package name and signing key as the customer app. Increase versionCode for every release. The SHA-256 checksum must match that exact APK. Android will ask customers to approve installation.",color=AmberWarning,fontSize=11.sp,lineHeight=16.sp)
+                    Text("Important: upload only the signed APK built with the same package name and signing key as the customer app. Increase versionCode for every release. The app calculates the APK SHA-256 checksum automatically. Android will still ask customers to approve installation.",color=AmberWarning,fontSize=11.sp,lineHeight=16.sp)
                 }
             }
             Text("Registered users & free-trial usage",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
