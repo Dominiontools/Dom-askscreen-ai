@@ -57,16 +57,21 @@ function storageBucket(admin) {
   return admin.storage().bucket(bucketName);
 }
 function validApkMetadata(body) {
+  const invalid = message => {
+    const error = new Error(message);
+    error.statusCode = 400;
+    throw error;
+  };
   const versionCode = Number(body.versionCode);
   const versionName = typeof body.versionName === 'string' ? body.versionName.trim() : '';
   const sizeBytes = Number(body.sizeBytes);
   const sha256 = typeof body.sha256 === 'string' ? body.sha256.trim().toLowerCase() : '';
   const releaseNotes = typeof body.releaseNotes === 'string' ? body.releaseNotes.trim() : '';
-  if (!Number.isSafeInteger(versionCode) || versionCode < 2) throw new Error('Version code must be a whole number greater than 1.');
-  if (!versionName || versionName.length > 40) throw new Error('Enter a valid version name (maximum 40 characters).');
-  if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 1 || sizeBytes > 300 * 1024 * 1024) throw new Error('APK size must be between 1 byte and 300 MB.');
-  if (!/^[a-f0-9]{64}$/.test(sha256)) throw new Error('Provide the APK SHA-256 checksum (64 hexadecimal characters).');
-  if (releaseNotes.length > 2000) throw new Error('Release notes must not exceed 2,000 characters.');
+  if (!Number.isSafeInteger(versionCode) || versionCode < 2) invalid('Version code must be a whole number greater than 1.');
+  if (!versionName || versionName.length > 40) invalid('Enter a valid version name (maximum 40 characters).');
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 1 || sizeBytes > 300 * 1024 * 1024) invalid('APK size must be between 1 byte and 300 MB.');
+  if (!/^[a-f0-9]{64}$/.test(sha256)) invalid('Provide the APK SHA-256 checksum (64 hexadecimal characters).');
+  if (releaseNotes.length > 2000) invalid('Release notes must not exceed 2,000 characters.');
   return { versionCode, versionName, sizeBytes, sha256, releaseNotes };
 }
 async function prepareUpload(admin, db, decoded, body) {
@@ -208,7 +213,8 @@ exports.handler = async event => {
     const status = error.statusCode || (error.message === 'AUTH_NOT_CONFIGURED' ? 503 : 500);
     console.error('[App Update] Request failed:', error.message);
     const message = status === 503 ? 'Firebase server configuration is missing. Add FIREBASE_SERVICE_ACCOUNT_JSON in Netlify.'
-      : status === 401 ? 'Please sign in again.' : 'App update request could not be completed.';
+      : status === 401 ? 'Please sign in again.'
+      : status === 400 ? error.message : 'App update request could not be completed.';
     return json(status, { error: message });
   }
 };
