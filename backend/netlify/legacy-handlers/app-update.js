@@ -8,7 +8,12 @@ async function getAdmin() {
     const admin = require('firebase-admin');
     if (!admin.apps.length) {
       const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-      admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+      const bucketName = String(process.env.FIREBASE_STORAGE_BUCKET || '').trim() ||
+        (serviceAccount.project_id ? serviceAccount.project_id + '.firebasestorage.app' : '');
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        ...(bucketName ? { storageBucket: bucketName } : {})
+      });
     }
     return admin;
   })();
@@ -46,6 +51,7 @@ exports._test = { validReleaseAssetUrl, validApkMetadata };
 
 function storageBucket(admin) {
   const bucketName = String(process.env.FIREBASE_STORAGE_BUCKET || '').trim() ||
+    String(admin.app().options.storageBucket || '').trim() ||
     (admin.app().options.projectId ? admin.app().options.projectId + '.firebasestorage.app' : '');
   if (!bucketName) throw new Error('STORAGE_BUCKET_NOT_CONFIGURED');
   return admin.storage().bucket(bucketName);
