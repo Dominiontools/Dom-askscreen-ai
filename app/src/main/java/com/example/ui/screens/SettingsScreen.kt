@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.app.Activity
 import android.widget.Toast
 import android.content.Intent
 import android.net.Uri
@@ -27,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.AskScreenApp
+import com.example.service.AskScreenOverlayService
 import com.example.data.model.WindowSizePreset
 import com.example.ui.theme.*
 import kotlinx.coroutines.Dispatchers
@@ -53,6 +55,7 @@ fun SettingsScreen() {
     var isAutoSubmit by remember { mutableStateOf(prefs.isAutoSubmitEnabled) }
     var monitorInterval by remember { mutableFloatStateOf(prefs.autoMonitorIntervalMs.toFloat() / 1000f) }
     var audioLanguageTag by remember { mutableStateOf(prefs.audioLanguageTag) }
+    var isClassroomPrivacyMode by remember { mutableStateOf(prefs.isClassroomPrivacyMode) }
 
     var isTestingConnection by remember { mutableStateOf(false) }
 
@@ -313,6 +316,43 @@ fun SettingsScreen() {
 
         // 5. PRIVACY & SAFETY
         SettingsCard(title = "Privacy & Safety", icon = Icons.Default.Security) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Classroom Privacy Mode", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Protects the app and floating AI windows from supported screen sharing, screen recording and screenshots. You can still see and use them on your phone.",
+                        fontSize = 11.sp, color = Slate400, lineHeight = 16.sp
+                    )
+                }
+                Switch(
+                    checked = isClassroomPrivacyMode,
+                    onCheckedChange = { enabled ->
+                        isClassroomPrivacyMode = enabled
+                        prefs.isClassroomPrivacyMode = enabled
+                        (context as? Activity)?.window?.let { activityWindow ->
+                            if (enabled) activityWindow.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                            else activityWindow.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                        }
+                        AskScreenOverlayService.refreshPrivacyMode()
+                        Toast.makeText(
+                            context,
+                            if (enabled) "Classroom Privacy Mode is on." else "Classroom Privacy Mode is off.",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                    colors = SwitchDefaults.colors(checkedTrackColor = ElectricCyan)
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                "Screen-sharing apps and Android devices differ. Protected areas may appear black or blocked to viewers; notifications and other device content are not hidden by this setting.",
+                fontSize = 10.sp, color = Slate400, lineHeight = 15.sp
+            )
+            Spacer(modifier = Modifier.height(12.dp))
             Text(
                 text = "• Screen and microphone capture are user-started and remain active only while the session is running.\n" +
                         "• Android may block capture of secure, DRM-protected, or otherwise restricted screens.\n" +
