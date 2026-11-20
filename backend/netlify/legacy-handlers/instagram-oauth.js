@@ -11,14 +11,15 @@ const STATE_COLLECTION = 'askScreenOAuthStates';
 const STATE_TTL_MS = 10 * 60 * 1000;
 const PROVIDER = 'instagram';
 
-function response(statusCode, data) {
+function response(statusCode, data, extraHeaders = {}) {
   return { statusCode, headers: {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Authorization, Content-Type'
-  }, body: JSON.stringify(data) };
+    'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+    ...extraHeaders
+  }, body: statusCode === 204 ? '' : JSON.stringify(data) };
 }
 
 function html(statusCode, title, message) {
