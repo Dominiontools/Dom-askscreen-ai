@@ -104,8 +104,7 @@ exports.handler = async event => {
       }
     }
     const paymentHistorySnapshot = authUser.email
-      ? await db.collection('askScreenPayments').where('email', '==', String(authUser.email).trim().toLowerCase())
-          .orderBy('createdAt', 'desc').limit(10).get()
+      ? await db.collection('askScreenPayments').where('email', '==', String(authUser.email).trim().toLowerCase()).limit(25).get()
       : null;
     const paymentHistory = paymentHistorySnapshot ? paymentHistorySnapshot.docs.map(doc => {
       const payment = doc.data();
@@ -119,7 +118,7 @@ exports.handler = async event => {
           ? payment.createdAt.toDate().toISOString() : null,
         reviewNote: payment.reviewNote || ''
       };
-    }) : [];
+    }).sort((a, b) => Date.parse(b.createdAt || '') - Date.parse(a.createdAt || '')).slice(0, 10) : [];
     const usage = account.usage || {};
     const subscription = account.subscription || {};
     const productSubscriptions = summarizeProductSubscriptions(account.productSubscriptions || {});
