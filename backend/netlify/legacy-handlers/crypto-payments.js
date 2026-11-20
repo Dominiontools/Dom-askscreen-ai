@@ -50,9 +50,9 @@ exports.handler = async event => {
   const network = typeof body.network === 'string' ? body.network.trim().toUpperCase() : '';
   const txHash = typeof body.transactionHash === 'string' ? body.transactionHash.trim() : '';
   const amount = Number(body.amountUSDT);
-  const product = DEFAULT_PRODUCTS.find(item => item.id === productId && item.independent === true);
+  const product = DEFAULT_PRODUCTS.find(item => item.id === productId && (item.id === 'core' || item.independent === true));
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return json(400, { error: 'Enter a valid email address.' });
-  if (!product) return json(400, { error: 'Choose an available Work Centre service. DOM AI Core is purchased separately.' });
+  if (!product) return json(400, { error: 'Choose DOM AI Core or an available Work Centre service.' });
   if (!['BEP20', 'TRC20'].includes(network) || !validTxHash(network, txHash)) return json(400, { error: 'Choose the correct network and enter a valid transaction hash.' });
   if (!Number.isFinite(amount) || amount <= 0 || amount > 1000000) return json(400, { error: 'Enter the USDT amount sent.' });
   try {
