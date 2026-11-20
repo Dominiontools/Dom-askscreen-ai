@@ -47,7 +47,7 @@ async function latestRelease(db) {
   return snap.exists ? snap.data() : null;
 }
 exports.validReleaseAssetUrl = validReleaseAssetUrl;
-exports._test = { validReleaseAssetUrl, validApkMetadata };
+exports._test = { validReleaseAssetUrl, validApkMetadata, sha256OfStream };
 
 function storageBucket(admin) {
   const bucketName = String(process.env.FIREBASE_STORAGE_BUCKET || '').trim() ||
@@ -56,6 +56,15 @@ function storageBucket(admin) {
   if (!bucketName) throw new Error('STORAGE_BUCKET_NOT_CONFIGURED');
   return admin.storage().bucket(bucketName);
 }
+function sha256OfStream(stream) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    stream.on('data', chunk => hash.update(chunk));
+    stream.on('error', reject);
+    stream.on('end', () => resolve(hash.digest('hex')));
+  });
+}
+
 function validApkMetadata(body) {
   const invalid = message => {
     const error = new Error(message);
@@ -117,6 +126,10 @@ async function publishUploadedApk(admin, db, decoded, body) {
   if (Number(metadata.size || 0) !== Number(session.sizeBytes) ||
       metadata.contentType !== 'application/vnd.android.package-archive') {
     return { statusCode: 400, body: { error: 'The uploaded APK size or file type does not match the selected file.' } };
+  }
+  const uploadedSha256 = await sha256OfStream(file.createReadStream());
+  if (uploadedSha256 !== session.sha256) {
+    return { statusCode: 400, body: { error: 'The uploaded APK checksum does not match. Please select and upload the APK again.' } };
   }
   const current = await latestRelease(db);
   if (current && Number(session.versionCode) <= Number(current.versionCode || 0)) {
