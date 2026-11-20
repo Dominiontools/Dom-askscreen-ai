@@ -86,8 +86,8 @@ fun AdminScreen(onBack: () -> Unit) {
     var trialUsers by remember { mutableIntStateOf(0) }
     var disabledUsers by remember { mutableIntStateOf(0) }
     var loaded by remember { mutableStateOf(false) }
-    var releaseVersionCode by remember { mutableStateOf("3") }
-    var releaseVersionName by remember { mutableStateOf("1.1.0") }
+    var releaseVersionCode by remember { mutableStateOf("4") }
+    var releaseVersionName by remember { mutableStateOf("1.1.1") }
     var releaseNotes by remember { mutableStateOf("") }
     var selectedApkUri by remember { mutableStateOf<Uri?>(null) }
     var selectedApkName by remember { mutableStateOf("") }
@@ -545,6 +545,41 @@ fun AdminScreen(onBack: () -> Unit) {
                 AdminMetric("Trial-eligible users",trialUsers.toString(),Modifier.weight(1f))
                 AdminMetric("Disabled accounts",disabledUsers.toString(),Modifier.weight(1f))
             }
+            Text("Payment review queue",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
+            Text("Verify every USDT transaction directly on the selected blockchain before approving. A screenshot alone is not proof of payment.",color=AmberWarning,fontSize=11.sp)
+            if(payments.isEmpty()) Text("No payment records yet. Customer submissions will appear here for blockchain verification and approval.",color=Slate400,fontSize=12.sp)
+            payments.forEach { payment ->
+                Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(12.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(5.dp)) {
+                        Text(payment.productName.ifBlank { "Customer payment" },color=Color.White,fontWeight=FontWeight.SemiBold)
+                        Text(payment.email,color=ElectricCyan,fontSize=12.sp)
+                        Text("${payment.amount} • ${payment.network.ifBlank { payment.provider }} • ${payment.status.uppercase()}",color=ElectricCyan,fontSize=12.sp)
+                        if(payment.transactionHash.isNotBlank()) Text("Transaction: ${payment.transactionHash}",color=Slate300,fontSize=10.sp)
+                        if(payment.destinationAddress.isNotBlank()) Text("Destination: ${payment.destinationAddress}",color=Slate400,fontSize=10.sp)
+                        Text("${payment.reference} • ${payment.date}",color=Slate400,fontSize=11.sp)
+                        if(payment.provider=="USDT_MANUAL" && payment.status=="pending") {
+                            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                                Button(onClick={
+                                    scope.launch {
+                                        busy=true; error=null
+                                        try { reviewCryptoPayment(payment.id,"approve") }
+                                        catch(e:Exception) { error=e.message ?: "Could not approve payment." }
+                                        finally { busy=false }
+                                    }
+                                },enabled=!busy && payment.id.isNotBlank(),modifier=Modifier.weight(1f)) { Text("Approve & activate") }
+                                OutlinedButton(onClick={
+                                    scope.launch {
+                                        busy=true; error=null
+                                        try { reviewCryptoPayment(payment.id,"reject") }
+                                        catch(e:Exception) { error=e.message ?: "Could not reject payment." }
+                                        finally { busy=false }
+                                    }
+                                },enabled=!busy && payment.id.isNotBlank(),modifier=Modifier.weight(1f)) { Text("Reject") }
+                            }
+                        }
+                    }
+                }
+            }
             Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(16.dp)) {
                 Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                     Text("App & feature settings",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
@@ -684,41 +719,6 @@ fun AdminScreen(onBack: () -> Unit) {
                             }
                         },enabled=!busy && user.uid.isNotBlank()) {
                             Text(if(user.disabled) "Enable account" else "Disable account")
-                        }
-                    }
-                }
-            }
-            Text("Payment review queue",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
-            Text("Verify every USDT transaction directly on the selected blockchain before approving. A screenshot alone is not proof of payment.",color=AmberWarning,fontSize=11.sp)
-            if(payments.isEmpty()) Text("No payment records have been submitted yet.",color=Slate400,fontSize=12.sp)
-            payments.forEach { payment ->
-                Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(12.dp)) {
-                    Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(5.dp)) {
-                        Text(payment.productName.ifBlank { "Customer payment" },color=Color.White,fontWeight=FontWeight.SemiBold)
-                        Text(payment.email,color=ElectricCyan,fontSize=12.sp)
-                        Text("${payment.amount} • ${payment.network.ifBlank { payment.provider }} • ${payment.status.uppercase()}",color=ElectricCyan,fontSize=12.sp)
-                        if(payment.transactionHash.isNotBlank()) Text("Transaction: ${payment.transactionHash}",color=Slate300,fontSize=10.sp)
-                        if(payment.destinationAddress.isNotBlank()) Text("Destination: ${payment.destinationAddress}",color=Slate400,fontSize=10.sp)
-                        Text("${payment.reference} • ${payment.date}",color=Slate400,fontSize=11.sp)
-                        if(payment.provider=="USDT_MANUAL" && payment.status=="pending") {
-                            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                                Button(onClick={
-                                    scope.launch {
-                                        busy=true; error=null
-                                        try { reviewCryptoPayment(payment.id,"approve") }
-                                        catch(e:Exception) { error=e.message ?: "Could not approve payment." }
-                                        finally { busy=false }
-                                    }
-                                },enabled=!busy && payment.id.isNotBlank(),modifier=Modifier.weight(1f)) { Text("Approve & activate") }
-                                OutlinedButton(onClick={
-                                    scope.launch {
-                                        busy=true; error=null
-                                        try { reviewCryptoPayment(payment.id,"reject") }
-                                        catch(e:Exception) { error=e.message ?: "Could not reject payment." }
-                                        finally { busy=false }
-                                    }
-                                },enabled=!busy && payment.id.isNotBlank(),modifier=Modifier.weight(1f)) { Text("Reject") }
-                            }
                         }
                     }
                 }
