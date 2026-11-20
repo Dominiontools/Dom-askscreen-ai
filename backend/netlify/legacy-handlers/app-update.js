@@ -82,7 +82,8 @@ async function prepareUpload(admin, db, decoded, body) {
   const expiresAt = Date.now() + 15 * 60 * 1000;
   const [uploadUrl] = await file.getSignedUrl({
     version: 'v4', action: 'write', expires: expiresAt,
-    contentType: 'application/vnd.android.package-archive'
+    contentType: 'application/vnd.android.package-archive',
+    queryParams: { ifGenerationMatch: '0' }
   });
   await db.collection('askScreenAppUploadSessions').doc(uploadId).create({
     uploadId, objectPath, bucketName: bucket.name, uid: decoded.uid, email: decoded.email,
