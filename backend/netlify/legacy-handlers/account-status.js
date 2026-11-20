@@ -103,6 +103,23 @@ exports.handler = async event => {
         }
       }
     }
+    const paymentHistorySnapshot = authUser.email
+      ? await db.collection('askScreenPayments').where('email', '==', String(authUser.email).trim().toLowerCase())
+          .orderBy('createdAt', 'desc').limit(10).get()
+      : null;
+    const paymentHistory = paymentHistorySnapshot ? paymentHistorySnapshot.docs.map(doc => {
+      const payment = doc.data();
+      return {
+        id: doc.id,
+        productName: payment.productName || payment.productId || 'Subscription',
+        amount: payment.amount || '',
+        currency: payment.currency || 'USDT',
+        status: payment.status || 'unknown',
+        createdAt: payment.createdAt && typeof payment.createdAt.toDate === 'function'
+          ? payment.createdAt.toDate().toISOString() : null,
+        reviewNote: payment.reviewNote || ''
+      };
+    }) : [];
     const usage = account.usage || {};
     const subscription = account.subscription || {};
     const productSubscriptions = summarizeProductSubscriptions(account.productSubscriptions || {});
@@ -128,6 +145,7 @@ exports.handler = async event => {
       subscription: { status: paid ? 'active' : (subscription.status === 'active' ? 'expired' : (subscription.status || 'inactive')),
         currentPeriodEnd: end ? new Date(end).toISOString() : null },
       productSubscriptions,
+      paymentHistory,
       features: { screen: features.screen !== false, spoken: features.spoken !== false,
         transcription: features.transcription !== false }
     });
