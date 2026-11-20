@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity() {
         com.example.util.configureAppCheck(this, intent)
         enableEdgeToEdge()
         handleIncomingShareIntent(intent)
+        if (intent.getBooleanExtra("open_subscription_checkout", false)) currentSelectedTab.value = NavigationTab.ACCOUNT
 
         setContent {
             AskScreenTheme {
@@ -274,6 +275,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra("open_subscription_checkout", false)) {
+            currentSelectedTab.value = NavigationTab.ACCOUNT
+        }
         handleIncomingShareIntent(intent)
     }
 
