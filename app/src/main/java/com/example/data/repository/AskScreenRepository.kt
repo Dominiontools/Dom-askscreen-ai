@@ -81,9 +81,10 @@ class AskScreenRepository(private val context: Context) {
             val selectedModel = prefs.geminiModel.ifEmpty { "gemini-3.8-flash" }
             val user = FirebaseAuth.getInstance().currentUser
                 ?: throw Exception("SIGN_IN_REQUIRED: Open the Account tab and sign in before using AskScreen AI.")
+            prefs.refreshBackendUrl()
             val backendUrl = prefs.backendUrl.trim()
             if (backendUrl.isBlank() || !backendUrl.startsWith("https://")) {
-                throw Exception("BACKEND_REQUIRED: Add your existing Netlify AskScreen endpoint in Settings before continuing.")
+                throw Exception("BACKEND_UNAVAILABLE: AskScreen could not load its central server configuration. Please try again.")
             }
             val answerText = callCustomBackend(
                 backendUrl = backendUrl, prompt = prompt, model = selectedModel,
@@ -128,9 +129,10 @@ class AskScreenRepository(private val context: Context) {
         try {
             val user = FirebaseAuth.getInstance().currentUser
                 ?: throw Exception("SIGN_IN_REQUIRED: Open the Account tab and sign in before using transcription.")
+            prefs.refreshBackendUrl()
             val configuredUrl = prefs.backendUrl.trim()
             if (configuredUrl.isBlank() || !configuredUrl.startsWith("https://")) {
-                throw Exception("BACKEND_REQUIRED: Add your Netlify AskScreen endpoint in Settings before transcribing.")
+                throw Exception("BACKEND_UNAVAILABLE: AskScreen could not load its central server configuration. Please try again.")
             }
             val endpoint = configuredUrl.replace(Regex("/ask-screen/?$"), "/record-transcription")
             if (endpoint == configuredUrl) {
