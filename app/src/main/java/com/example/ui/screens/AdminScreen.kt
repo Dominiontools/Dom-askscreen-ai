@@ -405,6 +405,15 @@ fun AdminScreen(onBack: () -> Unit) {
                 context.contentResolver.openInputStream(selectedUri)?.use { input ->
                     FileOutputStream(tempApk).use { output -> input.copyTo(output) }
                 } ?: throw IllegalStateException("The selected APK could not be opened.")
+                val archiveInfo = context.packageManager.getPackageArchiveInfo(tempApk.absolutePath, 0)
+                    ?: throw IllegalArgumentException("Android could not read this APK. Choose a valid APK file.")
+                if (archiveInfo.packageName != "com.dominion.askscreenai") {
+                    throw IllegalArgumentException("This APK is not the DOM Ask AI app package.")
+                }
+                val apkVersionCode = if (Build.VERSION.SDK_INT >= 28) archiveInfo.longVersionCode else archiveInfo.versionCode.toLong()
+                if (apkVersionCode != versionCode.toLong()) {
+                    throw IllegalArgumentException("The selected APK version code is $apkVersionCode, but you entered $versionCode. Make them match.")
+                }
                 val size = tempApk.length()
                 if (size <= 0L || size > 300L * 1024L * 1024L) {
                     throw IllegalArgumentException("The APK must be between 1 byte and 300 MB.")
