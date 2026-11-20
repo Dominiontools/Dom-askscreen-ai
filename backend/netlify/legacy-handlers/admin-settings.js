@@ -24,8 +24,18 @@ const DEFAULTS = {
   features: { screen: true, spoken: true, transcription: true },
   freeTrialLimit: 2,
   pricing: DEFAULT_PRODUCTS,
-  bundleDiscountPercent: DEFAULT_BUNDLE_DISCOUNT_PERCENT
+  bundleDiscountPercent: DEFAULT_BUNDLE_DISCOUNT_PERCENT,
+  backendUrl: 'https://domaskscreenai.netlify.app/.netlify/functions/ask-screen'
 };
+
+function validBackendUrl(value) {
+  if (typeof value !== 'string' || value.length > 500) return false;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash &&
+      url.pathname.replace(/\/+$/, '').endsWith('/ask-screen');
+  } catch (_) { return false; }
+}
 
 function json(statusCode, data) {
   return {
@@ -63,6 +73,7 @@ exports.handler = async event => {
           freeTrialLimit: Number.isInteger(saved.freeTrialLimit) ? saved.freeTrialLimit : DEFAULTS.freeTrialLimit,
           pricing: normalizeCatalog(Array.isArray(saved.pricing) ? saved.pricing : DEFAULTS.pricing),
           bundleDiscountPercent: Number.isInteger(saved.bundleDiscountPercent) ? saved.bundleDiscountPercent : DEFAULTS.bundleDiscountPercent,
+          backendUrl: validBackendUrl(saved.backendUrl) ? saved.backendUrl : DEFAULTS.backendUrl,
           bundles: calculateBundle(Array.isArray(saved.pricing) ? saved.pricing : DEFAULTS.pricing, Number.isInteger(saved.bundleDiscountPercent) ? saved.bundleDiscountPercent : DEFAULTS.bundleDiscountPercent)
         }
       });
@@ -84,6 +95,8 @@ exports.handler = async event => {
     let body;
     try { body = JSON.parse(event.body); } catch (_) { return json(400, { error: 'Invalid JSON.' }); }
     const announcement = typeof body.announcement === 'string' ? body.announcement.trim() : '';
+    const backendUrl = body.backendUrl === undefined ? null : String(body.backendUrl).trim();
+    if (backendUrl !== null && !validBackendUrl(backendUrl)) return json(400, { error: 'Backend URL must be a valid HTTPS AskScreen function URL ending in /ask-screen.' });
     const features = body.features || {};
     const freeTrialLimit = body.freeTrialLimit;
     let pricing;
@@ -104,7 +117,7 @@ exports.handler = async event => {
     if (!Number.isInteger(freeTrialLimit) || freeTrialLimit < 0 || freeTrialLimit > 10) {
       return json(400, { error: 'Free-trial limit must be a whole number from 0 to 10.' });
     }
-    const settings = { announcement, features, freeTrialLimit, ...(pricing ? { pricing } : {}), ...(bundleDiscountPercent !== null ? { bundleDiscountPercent } : {}), updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: email };
+    const settings = { announcement, features, freeTrialLimit, ...(backendUrl !== null ? { backendUrl } : {}), ...(pricing ? { pricing } : {}), ...(bundleDiscountPercent !== null ? { bundleDiscountPercent } : {}), updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: email };
     await ref.set(settings, { merge: true });
     await db.collection('askScreenAdminAuditLogs').add({
       action: 'app_settings_updated',
@@ -118,7 +131,7 @@ exports.handler = async event => {
     const savedSettings = updatedSnapshot.data() || {};
     const finalPricing = normalizeCatalog(savedSettings.pricing || DEFAULTS.pricing);
     const finalDiscount = Number.isInteger(savedSettings.bundleDiscountPercent) ? savedSettings.bundleDiscountPercent : DEFAULTS.bundleDiscountPercent;
-    return json(200, { success: true, settings: { announcement, features, freeTrialLimit, pricing: finalPricing, bundleDiscountPercent: finalDiscount, bundles: calculateBundle(finalPricing, finalDiscount) } });
+    return json(200, { success: true, settings: { announcement, features, freeTrialLimit, backendUrl: validBackendUrl(savedSettings.backendUrl) ? savedSettings.backendUrl : DEFAULTS.backendUrl, pricing: finalPricing, bundleDiscountPercent: finalDiscount, bundles: calculateBundle(finalPricing, finalDiscount) } });
   } catch (error) {
     const status = error.statusCode || (error.message === 'AUTH_NOT_CONFIGURED' ? 503 : 500);
     console.error('[Admin Settings] Request failed:', error.message);
