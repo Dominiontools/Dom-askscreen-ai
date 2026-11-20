@@ -233,6 +233,27 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
                             }
                         }
                     }
+                    val paymentHistory = accountStatus?.optJSONArray("paymentHistory")
+                    if (paymentHistory != null && paymentHistory.length() > 0) {
+                        Spacer(Modifier.height(6.dp))
+                        Text("USDT PAYMENT HISTORY", color = ElectricCyan, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        for (index in 0 until paymentHistory.length()) {
+                            val item = paymentHistory.optJSONObject(index) ?: continue
+                            val paymentStatus = item.optString("status", "unknown")
+                            val statusColor = when (paymentStatus) {
+                                "approved" -> ElectricCyan
+                                "pending" -> AmberWarning
+                                else -> Slate400
+                            }
+                            Text(
+                                "${item.optString("productName")} • ${item.optString("amount")} ${item.optString("currency", "USDT")} • ${paymentStatus.uppercase()}",
+                                color = statusColor, fontSize = 11.sp
+                            )
+                            if (item.optString("reviewNote").isNotBlank()) {
+                                Text(item.optString("reviewNote"), color = Slate400, fontSize = 10.sp)
+                            }
+                        }
+                    }
                     Text("Usage is linked to this signed-in account.", color = Slate400, fontSize = 11.sp)
                 }
             }
