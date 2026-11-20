@@ -75,7 +75,10 @@ class MainActivity : ComponentActivity() {
                 var updateBusy by remember { mutableStateOf(false) }
                 var updateError by remember { mutableStateOf<String?>(null) }
                 val updateScope = rememberCoroutineScope()
-                LaunchedEffect(Unit) { availableUpdate = loadSelfHostedUpdate() }
+                LaunchedEffect(Unit) {
+                    AskScreenApp.instance.preferencesManager.refreshBackendUrl()
+                    availableUpdate = loadSelfHostedUpdate()
+                }
 
                 if (showAdminScreen) {
                     AdminScreen(onBack = { showAdminScreen = false })
