@@ -44,7 +44,6 @@ fun SettingsScreen() {
 
     var bubbleSize by remember { mutableIntStateOf(prefs.bubbleSizeDp) }
     var bubbleOpacity by remember { mutableIntStateOf(prefs.bubbleOpacityPercent) }
-    var backendUrl by remember { mutableStateOf(prefs.backendUrl) }
     var apiKeyOverride by remember { mutableStateOf(prefs.apiKeyOverride) }
     var selectedModel by remember { mutableStateOf(prefs.geminiModel) }
     var selectedPreset by remember { mutableStateOf(prefs.windowPreset) }
@@ -192,36 +191,7 @@ fun SettingsScreen() {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 3. AI BACKEND (only the link is needed; the AI keys live on the backend)
-        SettingsCard(title = "AI Backend", icon = Icons.Default.Cloud) {
-            Text("Backend link", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Medium)
-            Text(
-                "Paste your Netlify ask-screen function URL here, ending in /ask-screen. The app uses this same backend link for account usage and secure admin monitoring.",
-                fontSize = 11.sp,
-                color = Slate400
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-
-            OutlinedTextField(
-                value = backendUrl,
-                onValueChange = {
-                    backendUrl = it
-                    prefs.backendUrl = it.trim()
-                },
-                placeholder = { Text("https://your-site.netlify.app/.netlify/functions/ask-screen", fontSize = 11.sp, color = Slate600) },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = ElectricCyan,
-                    unfocusedBorderColor = Slate700,
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White
-                ),
-                singleLine = true
-            )
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
+        // Backend connection is centrally managed by the administrator.
 
         // 4. VOICE & TTS
         SettingsCard(title = "Voice & Text-To-Speech", icon = Icons.Default.VolumeUp) {

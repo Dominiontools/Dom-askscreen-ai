@@ -1,6 +1,7 @@
 package com.example.data.repository
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
@@ -34,6 +35,18 @@ import java.util.concurrent.TimeUnit
 private const val TAG = "AskScreenRepository"
 
 class AskScreenRepository(private val context: Context) {
+    private fun openSubscriptionCheckout(feature: String) {
+        runCatching {
+            context.startActivity(
+                Intent(context, com.example.MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    putExtra("open_subscription_checkout", true)
+                    putExtra("subscription_feature", feature)
+                }
+            )
+        }.onFailure { Log.w(TAG, "Could not open subscription checkout", it) }
+    }
+
     private val prefs = PreferencesManager(context)
     private val db = AppDatabase.getDatabase(context)
     private val historyDao: HistoryDao = db.historyDao()
@@ -68,9 +81,10 @@ class AskScreenRepository(private val context: Context) {
             val selectedModel = prefs.geminiModel.ifEmpty { "gemini-3.8-flash" }
             val user = FirebaseAuth.getInstance().currentUser
                 ?: throw Exception("SIGN_IN_REQUIRED: Open the Account tab and sign in before using AskScreen AI.")
+            prefs.refreshBackendUrl()
             val backendUrl = prefs.backendUrl.trim()
             if (backendUrl.isBlank() || !backendUrl.startsWith("https://")) {
-                throw Exception("BACKEND_REQUIRED: Add your existing Netlify AskScreen endpoint in Settings before continuing.")
+                throw Exception("BACKEND_UNAVAILABLE: AskScreen could not load its central server configuration. Please try again.")
             }
             val answerText = callCustomBackend(
                 backendUrl = backendUrl, prompt = prompt, model = selectedModel,
@@ -115,9 +129,10 @@ class AskScreenRepository(private val context: Context) {
         try {
             val user = FirebaseAuth.getInstance().currentUser
                 ?: throw Exception("SIGN_IN_REQUIRED: Open the Account tab and sign in before using transcription.")
+            prefs.refreshBackendUrl()
             val configuredUrl = prefs.backendUrl.trim()
             if (configuredUrl.isBlank() || !configuredUrl.startsWith("https://")) {
-                throw Exception("BACKEND_REQUIRED: Add your Netlify AskScreen endpoint in Settings before transcribing.")
+                throw Exception("BACKEND_UNAVAILABLE: AskScreen could not load its central server configuration. Please try again.")
             }
             val endpoint = configuredUrl.replace(Regex("/ask-screen/?$"), "/record-transcription")
             if (endpoint == configuredUrl) {
@@ -135,8 +150,10 @@ class AskScreenRepository(private val context: Context) {
                 if (!response.isSuccessful) {
                     val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
                     when {
-                        json.optString("code") == "SUBSCRIPTION_REQUIRED" ->
+                        json.optString("code") == "SUBSCRIPTION_REQUIRED" -> {
+                            openSubscriptionCheckout("transcription")
                             throw Exception("SUBSCRIPTION_REQUIRED:transcription")
+                        }
                         response.code == 401 ->
                             throw Exception("SIGN_IN_REQUIRED: Please sign in again from the Account tab.")
                         else -> throw Exception(json.optString("error").ifBlank {
@@ -229,7 +246,11 @@ class AskScreenRepository(private val context: Context) {
             if (!response.isSuccessful) {
                 val errorJson = try { JSONObject(responseBody) } catch (_: Exception) { JSONObject() }
                 val serverMsg = errorJson.optString("error", "")
-                if (errorJson.optString("code") == "SUBSCRIPTION_REQUIRED") throw Exception("SUBSCRIPTION_REQUIRED:${errorJson.optString("feature")}")
+                if (errorJson.optString("code") == "SUBSCRIPTION_REQUIRED") {
+                    val feature = errorJson.optString("feature").ifBlank { "screen" }
+                    openSubscriptionCheckout(feature)
+                    throw Exception("SUBSCRIPTION_REQUIRED:$feature")
+                }
                 if (response.code == 401) throw Exception("SIGN_IN_REQUIRED: Please sign in again from the Account tab.")
                 val errorCode = errorJson.optString("code", "")
                 val requestId = response.header("X-Request-Id").orEmpty()

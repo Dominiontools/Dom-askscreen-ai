@@ -1,6 +1,7 @@
 'use strict';
 
-const { DEFAULT_PRODUCTS } = require('../../pricing-catalog');
+const { DEFAULT_PRODUCTS, normalizeCatalog } = require('../../pricing-catalog');
+const { verifyUser } = require('./ask-screen');
 const WALLETS = {
   BEP20: process.env.USDT_BEP20_ADDRESS || '0xc0C830d8165E9ff2Da899397128dB9247d64154F',
   TRC20: process.env.USDT_TRC20_ADDRESS || 'TSmksTL3haP4iSQC49j5mMpF9xw6feoXH'
@@ -18,6 +19,9 @@ function validTxHash(network, hash) {
 }
 function paymentId(network, hash) {
   return network.toLowerCase() + '_' + hash.trim().toLowerCase().replace(/^0x/, '');
+}
+function purchasableProduct(productId) {
+  return DEFAULT_PRODUCTS.find(item => item.id === productId && (item.id === 'core' || item.independent === true)) || null;
 }
 let adminPromise;
 async function getAdmin() {
@@ -45,19 +49,26 @@ exports.handler = async event => {
   if (!event.body || Buffer.byteLength(event.body, 'utf8') > 5000) return json(413, { error: 'Request is too large.' });
   let body;
   try { body = JSON.parse(event.body); } catch (_) { return json(400, { error: 'Invalid JSON.' }); }
-  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
   const productId = typeof body.productId === 'string' ? body.productId.trim() : '';
   const network = typeof body.network === 'string' ? body.network.trim().toUpperCase() : '';
   const txHash = typeof body.transactionHash === 'string' ? body.transactionHash.trim() : '';
-  const amount = Number(body.amountUSDT);
-  const product = DEFAULT_PRODUCTS.find(item => item.id === productId && item.independent === true);
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return json(400, { error: 'Enter a valid email address.' });
-  if (!product) return json(400, { error: 'Choose an available Work Centre service. DOM AI Core is purchased separately.' });
+  const product = purchasableProduct(productId);
+  if (!product) return json(400, { error: 'Choose DOM AI Core or an available Work Centre service.' });
   if (!['BEP20', 'TRC20'].includes(network) || !validTxHash(network, txHash)) return json(400, { error: 'Choose the correct network and enter a valid transaction hash.' });
-  if (!Number.isFinite(amount) || amount <= 0 || amount > 1000000) return json(400, { error: 'Enter the USDT amount sent.' });
   try {
+    const decoded = await verifyUser(event);
     const admin = await getAdmin();
+    const customer = await admin.auth().getUser(decoded.uid);
+    if (!customer.emailVerified || !customer.email) return json(403, { error: 'Verify your email address before submitting a payment.' });
+    const email = String(customer.email).trim().toLowerCase();
     const db = admin.firestore();
+    const configSnapshot = await db.collection('askScreenAppConfig').doc('public').get();
+    const savedPricing = configSnapshot.exists ? configSnapshot.data().pricing : null;
+    const catalog = normalizeCatalog(Array.isArray(savedPricing) ? savedPricing : DEFAULT_PRODUCTS);
+    const pricedProduct = catalog.find(item => item.id === productId);
+    if (!pricedProduct) return json(400, { error: 'The selected subscription is not available.' });
+    const amount = Number((pricedProduct.monthlyPriceCents / 100).toFixed(2));
+    if (!Number.isFinite(amount) || amount <= 0) return json(400, { error: 'This subscription does not have a valid monthly price.' });
     const id = paymentId(network, txHash);
     const ref = db.collection('askScreenPayments').doc(id);
     const existing = await ref.get();
@@ -67,9 +78,10 @@ exports.handler = async event => {
       uid: null,
       email,
       productId,
-      productName: product.name,
-      amount: amount.toFixed(6),
+      productName: pricedProduct.name,
+      amount: amount.toFixed(2),
       currency: 'USDT',
+      expectedAmount: amount.toFixed(2),
       network,
       destinationAddress: WALLETS[network],
       reference: txHash,
@@ -81,7 +93,11 @@ exports.handler = async event => {
     return json(201, { success: true, status: 'pending', message: 'Payment details submitted. Access remains locked until an administrator verifies and approves the transaction.' });
   } catch (error) {
     console.error('[Crypto Payments] Submission failed:', error.message);
-    return json(error.message === 'AUTH_NOT_CONFIGURED' ? 503 : 500, { error: 'Payment submission is temporarily unavailable.' });
+    const status = error.statusCode || (error.message === 'AUTH_NOT_CONFIGURED' ? 503 : 500);
+    const message = status === 401 ? 'Please sign in again.' :
+      status === 403 ? 'Verify your email address before submitting a payment.' :
+      'Payment submission is temporarily unavailable.';
+    return json(status, { error: message });
   }
 };
-exports._test = { validTxHash, paymentId, WALLETS };
+exports._test = { validTxHash, paymentId, purchasableProduct, WALLETS };

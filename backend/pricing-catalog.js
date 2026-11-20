@@ -35,7 +35,8 @@ function normalizeCatalog(input) {
   const normalized = DEFAULT_PRODUCTS.map(product => {
     const supplied = byId.get(product.id);
     if (!supplied) throw new Error('Missing pricing for ' + product.name + '.');
-    const monthlyPriceCents = supplied.monthlyPriceCents;
+    // DOM AI Core is a fixed USD $9/month subscription; only separate Work Centre products are editable.
+    const monthlyPriceCents = product.id === 'core' ? 900 : supplied.monthlyPriceCents;
     if (!Number.isInteger(monthlyPriceCents) || monthlyPriceCents < 0 || monthlyPriceCents > 1000000) {
       throw new Error('Price for ' + product.name + ' must be between $0 and $10,000 per month.');
     }

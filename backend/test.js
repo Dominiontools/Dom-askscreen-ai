@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const { Readable } = require('node:stream');
 const { handler, isEligibleForFreeTrial, featureForRequest, _test: askScreenTests } = require('./netlify/legacy-handlers/ask-screen');
 const { handler: healthHandler } = require('./netlify/legacy-handlers/health');
 const { handler: transcriptionHandler } = require('./netlify/legacy-handlers/record-transcription');
@@ -8,7 +9,7 @@ const { handler: adminHandler } = require('./netlify/legacy-handlers/admin-dashb
 const { handler: adminUsersHandler } = require('./netlify/legacy-handlers/admin-users');
 const { handler: adminProductSubscriptionsHandler } = require('./netlify/legacy-handlers/admin-product-subscriptions');
 const { handler: adminSettingsHandler } = require('./netlify/legacy-handlers/admin-settings');
-const { handler: appUpdateHandler, validReleaseAssetUrl } = require('./netlify/legacy-handlers/app-update');
+const { handler: appUpdateHandler, validReleaseAssetUrl, _test: appUpdateTests } = require('./netlify/legacy-handlers/app-update');
 const { handler: supportHandler } = require('./netlify/legacy-handlers/support-tickets');
 const { handler: supportAdminHandler } = require('./netlify/legacy-handlers/support-admin');
 const { handler: accountStatusHandler } = require('./netlify/legacy-handlers/account-status');
@@ -97,6 +98,11 @@ async function run() {
   const defaultPricing = normalizeCatalog(DEFAULT_PRODUCTS);
   assert.equal(defaultPricing.length, 22, 'The catalogue must include core, specialist products and separate email management');
   assert.equal(defaultPricing.find(item => item.id === 'core').independent, undefined, 'DOM AI Core remains its own core subscription');
+  const attemptedCorePriceChange = normalizeCatalog(DEFAULT_PRODUCTS.map(item =>
+    item.id === 'core' ? { ...item, monthlyPriceCents: 100 } : item
+  ));
+  assert.equal(attemptedCorePriceChange.find(item => item.id === 'core').monthlyPriceCents, 900,
+    'DOM AI Core must remain fixed at USD 9/month even if a client submits another price');
   assert.equal(defaultPricing.find(item => item.id === 'video_annotation').independent, true, 'Work services can be subscribed to independently of Core');
   assert.equal(defaultPricing.find(item => item.id === 'email_management').independent, true, 'Email Management remains an independent monthly product');
   const defaultBundles = calculateBundle(defaultPricing, 10);
@@ -119,6 +125,23 @@ async function run() {
   assert.equal(products.find(item => item.id === 'video_annotation').status, 'active');
   assert.equal(products.find(item => item.id === 'core'), undefined, 'Core is not treated as a Work Centre product');
   console.log('PASS Independent product subscription status and expiry checks');
+  const apkHash = await appUpdateTests.sha256OfStream(Readable.from([Buffer.from('DOM AskScreen APK test payload')]));
+  assert.equal(apkHash, require('node:crypto').createHash('sha256').update('DOM AskScreen APK test payload').digest('hex'));
+  const apkMetadata = appUpdateTests.validApkMetadata({
+    versionCode: 3, versionName: '1.2.0', sizeBytes: 1024,
+    sha256: 'a'.repeat(64), releaseNotes: 'Direct APK upload test'
+  });
+  assert.equal(apkMetadata.versionCode, 3);
+  assert.equal(apkMetadata.sizeBytes, 1024);
+  assert.throws(() => appUpdateTests.validApkMetadata({
+    versionCode: 3, versionName: '1.2.0', sizeBytes: 0,
+    sha256: 'a'.repeat(64), releaseNotes: ''
+  }), /APK size/);
+  assert.throws(() => appUpdateTests.validApkMetadata({
+    versionCode: 3, versionName: '1.2.0', sizeBytes: 1024,
+    sha256: 'bad', releaseNotes: ''
+  }), /SHA-256/);
+
   assert.equal(validReleaseAssetUrl('https://github.com/Dominiontools/Dom-askscreen-ai/releases/download/v1.2.0/app.apk'), true,
     'Only APK assets hosted in this repository release path should be accepted');
   assert.equal(validReleaseAssetUrl('http://github.com/Dominiontools/Dom-askscreen-ai/releases/download/v1.2.0/app.apk'), false,
@@ -389,16 +412,19 @@ async function run() {
   assert.equal(cryptoPaymentTests.validTxHash('TRC20', 'a'.repeat(64)), true);
   assert.equal(cryptoPaymentTests.validTxHash('TRC20', '0x' + 'a'.repeat(64)), false);
   assert.equal(cryptoPaymentTests.paymentId('BEP20', '0x' + 'A'.repeat(64)), cryptoPaymentTests.paymentId('BEP20', '0x' + 'a'.repeat(64)));
+  assert.equal(cryptoPaymentTests.purchasableProduct('core').id, 'core', 'DOM AI Core must be purchasable with USDT');
+  assert.equal(cryptoPaymentTests.purchasableProduct('video_annotation').id, 'video_annotation', 'Independent Work Centre services must remain purchasable');
+  assert.equal(cryptoPaymentTests.purchasableProduct('unknown'), null, 'Unknown products must not be purchasable');
   const cryptoBadSubmission = await cryptoPaymentsHandler({
     httpMethod: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email: 'not-an-email', productId: 'video_annotation', network: 'BEP20', transactionHash: '0x' + 'a'.repeat(64), amountUSDT: 35 })
+    body: JSON.stringify({ productId: 'core', network: 'BEP20', transactionHash: 'not-a-valid-hash' })
   });
-  assert.equal(cryptoBadSubmission.statusCode, 400, 'Crypto payment submission must validate email before recording a payment');
-  const cryptoUnknownProduct = await cryptoPaymentsHandler({
+  assert.equal(cryptoBadSubmission.statusCode, 400, 'Crypto payment submission must reject invalid transaction hashes before authentication');
+  const cryptoUnauthenticatedSubmission = await cryptoPaymentsHandler({
     httpMethod: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email: 'customer@example.com', productId: 'core', network: 'BEP20', transactionHash: '0x' + 'a'.repeat(64), amountUSDT: 9 })
+    body: JSON.stringify({ productId: 'core', network: 'BEP20', transactionHash: '0x' + 'a'.repeat(64) })
   });
-  assert.equal(cryptoUnknownProduct.statusCode, 400, 'Crypto Work Centre checkout must not sell DOM AI Core as a specialist module');
+  assert.equal(cryptoUnauthenticatedSubmission.statusCode, 401, 'USDT payment submission must require a signed-in customer');
   const adminCryptoOptions = await adminCryptoPaymentsHandler({ httpMethod: 'OPTIONS', headers: {} });
   assert.equal(adminCryptoOptions.statusCode, 204);
   const adminCryptoUnauthenticated = await adminCryptoPaymentsHandler({
@@ -406,7 +432,7 @@ async function run() {
     body: JSON.stringify({ paymentId: 'bep20_test', action: 'approve' })
   });
   assert.equal(adminCryptoUnauthenticated.statusCode, 401, 'Crypto payment approval must require authenticated admin verification');
-  console.log('PASS USDT payment networks, duplicate-safe hash IDs, product validation and admin authentication gates');
+  console.log('PASS USDT payment networks, Core and Work Centre product eligibility, customer authentication and admin approval gates');
 
   if (oldAdminCode === undefined) delete process.env.ADMIN_ACCESS_CODE; else process.env.ADMIN_ACCESS_CODE = oldAdminCode;
   console.log('All backend validation and authentication-gate tests passed.');

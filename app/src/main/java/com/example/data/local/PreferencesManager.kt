@@ -5,6 +5,12 @@ import android.content.SharedPreferences
 import com.example.data.model.WindowSizePreset
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
+import java.util.concurrent.TimeUnit
 
 class PreferencesManager(context: Context) {
     private val prefs: SharedPreferences =
@@ -31,6 +37,8 @@ class PreferencesManager(context: Context) {
         private const val KEY_AUTO_SUBMIT = "auto_submit_practice"
         private const val KEY_AUTO_MONITOR_INTERVAL = "auto_monitor_interval_ms"
         private const val KEY_AUDIO_LANGUAGE_TAG = "audio_language_tag"
+        const val DEFAULT_BACKEND_URL = "https://domaskscreenai.netlify.app/.netlify/functions/ask-screen"
+        const val BOOTSTRAP_ADMIN_SETTINGS_URL = "https://domaskscreenai.netlify.app/.netlify/functions/admin-settings"
     }
 
     private val _assistantEnabledFlow = MutableStateFlow(isAssistantEnabled)
@@ -60,8 +68,32 @@ class PreferencesManager(context: Context) {
         set(value) = prefs.edit().putInt(KEY_BUBBLE_POS_Y, value).apply()
 
     var backendUrl: String
-        get() = prefs.getString(KEY_BACKEND_URL, "") ?: ""
+        get() = (prefs.getString(KEY_BACKEND_URL, "") ?: "").ifBlank { DEFAULT_BACKEND_URL }
         set(value) = prefs.edit().putString(KEY_BACKEND_URL, value.trim()).apply()
+
+    /** Refresh the centrally managed API address from the stable bootstrap endpoint. */
+    suspend fun refreshBackendUrl(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val client = OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(10, TimeUnit.SECONDS)
+                .build()
+            val request = Request.Builder().url(BOOTSTRAP_ADMIN_SETTINGS_URL).get().build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext false
+                val root = JSONObject(response.body?.string().orEmpty())
+                val settings = root.optJSONObject("settings") ?: return@withContext false
+                val candidate = settings.optString("backendUrl").trim()
+                val uri = android.net.Uri.parse(candidate)
+                val valid = uri.scheme == "https" && !uri.host.isNullOrBlank() &&
+                    uri.userInfo == null && uri.query == null && uri.fragment == null &&
+                    uri.path.orEmpty().trimEnd('/').endsWith("/ask-screen")
+                if (!valid) return@withContext false
+                prefs.edit().putString(KEY_BACKEND_URL, candidate).apply()
+                true
+            }
+        } catch (_: Exception) { false }
+    }
 
     var apiKeyOverride: String
         get() = prefs.getString(KEY_API_KEY_OVERRIDE, "") ?: ""
