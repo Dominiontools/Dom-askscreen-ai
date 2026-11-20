@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const { Readable } = require('node:stream');
 const { handler, isEligibleForFreeTrial, featureForRequest, _test: askScreenTests } = require('./netlify/legacy-handlers/ask-screen');
 const { handler: healthHandler } = require('./netlify/legacy-handlers/health');
 const { handler: transcriptionHandler } = require('./netlify/legacy-handlers/record-transcription');
@@ -124,6 +125,8 @@ async function run() {
   assert.equal(products.find(item => item.id === 'video_annotation').status, 'active');
   assert.equal(products.find(item => item.id === 'core'), undefined, 'Core is not treated as a Work Centre product');
   console.log('PASS Independent product subscription status and expiry checks');
+  const apkHash = await appUpdateTests.sha256OfStream(Readable.from([Buffer.from('DOM AskScreen APK test payload')]));
+  assert.equal(apkHash, require('node:crypto').createHash('sha256').update('DOM AskScreen APK test payload').digest('hex'));
   const apkMetadata = appUpdateTests.validApkMetadata({
     versionCode: 3, versionName: '1.2.0', sizeBytes: 1024,
     sha256: 'a'.repeat(64), releaseNotes: 'Direct APK upload test'
