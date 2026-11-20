@@ -47,15 +47,10 @@ exports.handler = async event => {
       try { customer = await admin.auth().getUserByEmail(String(payment.email || '')); }
       catch (lookupError) { if (lookupError.code !== 'auth/user-not-found') throw lookupError; }
       const verifiedCustomer = customer && customer.emailVerified ? customer : null;
-      const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-      const expiresAt = admin.firestore.Timestamp.fromDate(periodEnd);
       const now = admin.firestore.FieldValue.serverTimestamp();
       const accountRef = verifiedCustomer ? db.collection('askScreenAccounts').doc(verifiedCustomer.uid) : null;
-      const record = {
-        status: 'active', currentPeriodEnd: expiresAt, source: 'verified_usdt_payment',
-        paymentId, network: payment.network, transactionHash: payment.transactionHash,
-        verifiedByUid: decoded.uid, verifiedByEmail: email, verifiedAt: now, updatedAt: now
-      };
+      let periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      let expiresAt = admin.firestore.Timestamp.fromDate(periodEnd);
       await db.runTransaction(async transaction => {
         const current = await transaction.get(paymentRef);
         if (!current.exists || current.data().provider !== 'USDT_MANUAL' || current.data().status !== 'pending') {
@@ -63,12 +58,29 @@ exports.handler = async event => {
           conflict.code = 'PAYMENT_ALREADY_REVIEWED';
           throw conflict;
         }
+        const account = accountRef ? await transaction.get(accountRef) : null;
+        if (account && account.exists) {
+          const accountData = account.data();
+          const currentEntitlement = product.id === 'core'
+            ? accountData.subscription
+            : (accountData.productSubscriptions || {})[product.id];
+          const currentEnd = currentEntitlement && currentEntitlement.currentPeriodEnd &&
+            typeof currentEntitlement.currentPeriodEnd.toDate === 'function'
+            ? currentEntitlement.currentPeriodEnd.toDate().getTime() : 0;
+          const renewalBase = Math.max(Date.now(), currentEnd);
+          periodEnd = new Date(renewalBase + 30 * 24 * 60 * 60 * 1000);
+          expiresAt = admin.firestore.Timestamp.fromDate(periodEnd);
+        }
+        const record = {
+          status: 'active', currentPeriodEnd: expiresAt, source: 'verified_usdt_payment',
+          paymentId, network: payment.network, transactionHash: payment.transactionHash,
+          verifiedByUid: decoded.uid, verifiedByEmail: email, verifiedAt: now, updatedAt: now
+        };
         if (accountRef) {
-          const account = await transaction.get(accountRef);
           if (product.id === 'core') {
             transaction.set(accountRef, { subscription: record, updatedAt: now }, { merge: true });
           } else {
-            const existing = account.exists ? account.data().productSubscriptions || {} : {};
+            const existing = account && account.exists ? account.data().productSubscriptions || {} : {};
             transaction.set(accountRef, {
               productSubscriptions: { ...existing, [product.id]: record },
               updatedAt: now
