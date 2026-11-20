@@ -90,7 +90,11 @@ exports.handler = async event => {
     return json(201, { success: true, status: 'pending', message: 'Payment details submitted. Access remains locked until an administrator verifies and approves the transaction.' });
   } catch (error) {
     console.error('[Crypto Payments] Submission failed:', error.message);
-    return json(error.message === 'AUTH_NOT_CONFIGURED' ? 503 : 500, { error: 'Payment submission is temporarily unavailable.' });
+    const status = error.statusCode || (error.message === 'AUTH_NOT_CONFIGURED' ? 503 : 500);
+    const message = status === 401 ? 'Please sign in again.' :
+      status === 403 ? 'Verify your email address before submitting a payment.' :
+      'Payment submission is temporarily unavailable.';
+    return json(status, { error: message });
   }
 };
 exports._test = { validTxHash, paymentId, WALLETS };
