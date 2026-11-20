@@ -190,6 +190,28 @@ async function inspectToken(token, config) {
       console.warn('[Instagram OAuth] Could not read one granted Instagram asset:', error.message);
     }
   }
+
+  // Some token-debugger responses omit target_ids. In that case, ask Meta for
+  // the Instagram accounts explicitly assigned to the authorized business user.
+  if (!accounts.length) {
+    try {
+      const assigned = await graphGet('/me/assigned_instagram_accounts', {
+        fields: 'id,username,name,profile_picture_url',
+        access_token: token
+      });
+      for (const account of (Array.isArray(assigned.data) ? assigned.data : []).slice(0, 10)) {
+        if (!account || !account.id) continue;
+        accounts.push({
+          id: String(account.id),
+          username: typeof account.username === 'string' ? account.username : null,
+          name: typeof account.name === 'string' ? account.name : null,
+          profilePictureUrl: typeof account.profile_picture_url === 'string' ? account.profile_picture_url : null
+        });
+      }
+    } catch (error) {
+      console.warn('[Instagram OAuth] Assigned Instagram account lookup was unavailable:', error.message);
+    }
+  }
   return { scopes, accounts, tokenExpiresAt: Number(tokenData.expires_at || 0) || null };
 }
 
