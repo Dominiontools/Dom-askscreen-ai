@@ -293,6 +293,8 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                         Text("Subscribe with USDT", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                         Text("Choose DOM AI Core or a separate Work Centre service. Send the exact monthly amount to the wallet below, then submit your transaction hash. Your access remains locked until the administrator verifies and approves the payment.", color = Slate400, fontSize = 12.sp)
+                        Text("Payment account: ${signedInEmail.orEmpty()} (taken from your verified sign-in). Do not enter your email in the transaction hash field.", color = ElectricCyan, fontSize = 11.sp)
+                        Text("Paste the real blockchain transaction ID after sending USDT. For TRC20, use the 64-character transaction hash from your wallet or explorer.", color = Slate400, fontSize = 11.sp)
                         val productArray = pricingSettings?.optJSONArray("pricing")
                         val chosenProduct = (0 until (productArray?.length() ?: 0)).mapNotNull { productArray?.optJSONObject(it) }
                             .firstOrNull { it.optString("id") == paymentProductId }
@@ -330,7 +332,8 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
                         OutlinedTextField(
                             value = paymentHash,
                             onValueChange = { paymentHash = it.trim().take(140) },
-                            label = { Text("Transaction hash") },
+                            label = { Text("Blockchain transaction hash (not email)") },
+                            supportingText = { Text("TRC20: 64 hexadecimal characters. Your account email is read automatically.") },
                             singleLine = true,
                             enabled = !busy,
                             modifier = Modifier.fillMaxWidth()
