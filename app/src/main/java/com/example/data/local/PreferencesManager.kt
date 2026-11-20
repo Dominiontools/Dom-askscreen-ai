@@ -37,6 +37,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_AUTO_SUBMIT = "auto_submit_practice"
         private const val KEY_AUTO_MONITOR_INTERVAL = "auto_monitor_interval_ms"
         private const val KEY_AUDIO_LANGUAGE_TAG = "audio_language_tag"
+        private const val KEY_CLASSROOM_PRIVACY_MODE = "classroom_privacy_mode"
         const val DEFAULT_BACKEND_URL = "https://domaskscreenai.netlify.app/.netlify/functions/ask-screen"
         const val BOOTSTRAP_ADMIN_SETTINGS_URL = "https://domaskscreenai.netlify.app/.netlify/functions/admin-settings"
     }
@@ -150,6 +151,11 @@ class PreferencesManager(context: Context) {
     var isAutoSubmitEnabled: Boolean
         get() = prefs.getBoolean(KEY_AUTO_SUBMIT, false)
         set(value) = prefs.edit().putBoolean(KEY_AUTO_SUBMIT, value).apply()
+
+    /** Protects AskScreen windows from supported screenshots, recordings and screen sharing. */
+    var isClassroomPrivacyMode: Boolean
+        get() = prefs.getBoolean(KEY_CLASSROOM_PRIVACY_MODE, false)
+        set(value) = prefs.edit().putBoolean(KEY_CLASSROOM_PRIVACY_MODE, value).apply()
 
     /** Speech recognition language: device default, English (Nigeria), or Yoruba (Nigeria). */
     var audioLanguageTag: String
