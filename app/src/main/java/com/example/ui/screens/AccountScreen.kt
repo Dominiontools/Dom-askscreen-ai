@@ -241,7 +241,7 @@ fun AccountScreen(onAdminAccess: () -> Unit = {}, onSupportAccess: () -> Unit = 
                 Card(colors = CardDefaults.cardColors(containerColor = Slate900), modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Available AI services and plans", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        Text("DOM AI Core ($9/month) unlocks the main chat and screen features. Work Centre services are separate monthly subscriptions: customers can choose any individual work service without buying DOM AI Core. A Work subscription does not unlock Core chat or screen features.", color = Slate400, fontSize = 12.sp)
+                        Text("DOM AI Core ($9/month) unlocks AI Screen and on-screen questions, AI text and image answers, spoken AI answers, and transcription. It does not unlock Workspace. Every Work Centre service has its own separate subscription, and a Work Centre subscription does not unlock Core AI features.", color = Slate400, fontSize = 12.sp)
                         val products = settings.optJSONArray("pricing")
                         if (products != null) {
                             for (i in 0 until products.length()) {
