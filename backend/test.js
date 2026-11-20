@@ -8,7 +8,7 @@ const { handler: adminHandler } = require('./netlify/legacy-handlers/admin-dashb
 const { handler: adminUsersHandler } = require('./netlify/legacy-handlers/admin-users');
 const { handler: adminProductSubscriptionsHandler } = require('./netlify/legacy-handlers/admin-product-subscriptions');
 const { handler: adminSettingsHandler } = require('./netlify/legacy-handlers/admin-settings');
-const { handler: appUpdateHandler, validReleaseAssetUrl } = require('./netlify/legacy-handlers/app-update');
+const { handler: appUpdateHandler, validReleaseAssetUrl, _test: appUpdateTests } = require('./netlify/legacy-handlers/app-update');
 const { handler: supportHandler } = require('./netlify/legacy-handlers/support-tickets');
 const { handler: supportAdminHandler } = require('./netlify/legacy-handlers/support-admin');
 const { handler: accountStatusHandler } = require('./netlify/legacy-handlers/account-status');
@@ -124,6 +124,21 @@ async function run() {
   assert.equal(products.find(item => item.id === 'video_annotation').status, 'active');
   assert.equal(products.find(item => item.id === 'core'), undefined, 'Core is not treated as a Work Centre product');
   console.log('PASS Independent product subscription status and expiry checks');
+  const apkMetadata = appUpdateTests.validApkMetadata({
+    versionCode: 3, versionName: '1.2.0', sizeBytes: 1024,
+    sha256: 'a'.repeat(64), releaseNotes: 'Direct APK upload test'
+  });
+  assert.equal(apkMetadata.versionCode, 3);
+  assert.equal(apkMetadata.sizeBytes, 1024);
+  assert.throws(() => appUpdateTests.validApkMetadata({
+    versionCode: 3, versionName: '1.2.0', sizeBytes: 0,
+    sha256: 'a'.repeat(64), releaseNotes: ''
+  }), /APK size/);
+  assert.throws(() => appUpdateTests.validApkMetadata({
+    versionCode: 3, versionName: '1.2.0', sizeBytes: 1024,
+    sha256: 'bad', releaseNotes: ''
+  }), /SHA-256/);
+
   assert.equal(validReleaseAssetUrl('https://github.com/Dominiontools/Dom-askscreen-ai/releases/download/v1.2.0/app.apk'), true,
     'Only APK assets hosted in this repository release path should be accepted');
   assert.equal(validReleaseAssetUrl('http://github.com/Dominiontools/Dom-askscreen-ai/releases/download/v1.2.0/app.apk'), false,
