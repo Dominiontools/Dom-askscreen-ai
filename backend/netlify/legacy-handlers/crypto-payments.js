@@ -20,6 +20,9 @@ function validTxHash(network, hash) {
 function paymentId(network, hash) {
   return network.toLowerCase() + '_' + hash.trim().toLowerCase().replace(/^0x/, '');
 }
+function purchasableProduct(productId) {
+  return DEFAULT_PRODUCTS.find(item => item.id === productId && (item.id === 'core' || item.independent === true)) || null;
+}
 let adminPromise;
 async function getAdmin() {
   if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) throw new Error('AUTH_NOT_CONFIGURED');
@@ -49,7 +52,7 @@ exports.handler = async event => {
   const productId = typeof body.productId === 'string' ? body.productId.trim() : '';
   const network = typeof body.network === 'string' ? body.network.trim().toUpperCase() : '';
   const txHash = typeof body.transactionHash === 'string' ? body.transactionHash.trim() : '';
-  const product = DEFAULT_PRODUCTS.find(item => item.id === productId && (item.id === 'core' || item.independent === true));
+  const product = purchasableProduct(productId);
   if (!product) return json(400, { error: 'Choose DOM AI Core or an available Work Centre service.' });
   if (!['BEP20', 'TRC20'].includes(network) || !validTxHash(network, txHash)) return json(400, { error: 'Choose the correct network and enter a valid transaction hash.' });
   try {
@@ -97,4 +100,4 @@ exports.handler = async event => {
     return json(status, { error: message });
   }
 };
-exports._test = { validTxHash, paymentId, WALLETS };
+exports._test = { validTxHash, paymentId, purchasableProduct, WALLETS };
