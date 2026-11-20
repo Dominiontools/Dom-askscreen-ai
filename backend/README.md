@@ -138,3 +138,41 @@ Default catalogue arithmetic:
 - Complete business bundle before discount: $545/month; after 10% discount: $490.50/month.
 
 These are catalogue prices, not payment activation. Paystack checkout and verified payment webhooks remain a separate future implementation; do not grant paid access merely because a customer views the catalogue. The manual Work Centre access override described above is separate from payment processing and must never be represented as a completed payment.
+
+
+## 11. Instagram API — Meta Unified Login
+
+The first Instagram integration phase adds a secure account-connection flow. It does not publish posts, send messages, moderate comments, or schedule content yet. Those actions require a separate authenticated workspace API and will be added only after the connection flow is verified.
+
+### Meta configuration
+
+In Meta for Developers → DomAskScreenAI → Use cases → Instagram API → API setup with Unified Login, create/select the configuration using the Instagram professional-account asset and the required Instagram permissions. The configuration ID is stored server-side; do not put the App Secret or access token in the Android app or GitHub.
+
+Register this exact redirect URL in the Meta configuration:
+
+`https://domaskscreenai.netlify.app/.netlify/functions/instagram-oauth-callback`
+
+### Netlify environment variables
+
+Add the following variables to the `domaskscreenai` Netlify site. Give them Functions/Runtime scope and apply them to production, deploy previews and branch deploys as appropriate:
+
+- `META_APP_ID` — the numeric Meta App ID.
+- `META_APP_SECRET` — the Meta App Secret; mark it secret.
+- `META_INSTAGRAM_CONFIG_ID` — the Facebook Login for Business configuration ID.
+- `META_INSTAGRAM_REDIRECT_URI` — the exact HTTPS callback URL shown above.
+- `META_GRAPH_API_VERSION` — optional Graph API version; defaults to `v27.0`.
+- `INTEGRATION_TOKEN_ENCRYPTION_KEY` — existing 32-byte base64 encryption key used for encrypted third-party tokens.
+- `FIREBASE_SERVICE_ACCOUNT_JSON` — existing Firebase Admin service-account secret.
+
+Never send the App Secret or encryption key in chat, commit them to GitHub, or embed them in the Android APK. The backend rejects redirect URLs outside the exact production callback path.
+
+### Backend endpoints
+
+- `POST /.netlify/functions/instagram-oauth?action=start` — requires a Firebase ID token in the Authorization header and returns a short-lived Meta authorization URL with a random, single-use state value.
+- `GET /.netlify/functions/instagram-oauth?action=status` — requires a Firebase ID token and returns the signed-in user's connection status, granted scopes and readable Instagram assets. It never returns the stored access token.
+- `POST /.netlify/functions/instagram-oauth?action=disconnect` — requires a Firebase ID token and removes the signed-in user's locally stored encrypted integration record. The customer should also remove the app's access from Meta Business Integrations if they want to revoke Meta-side access.
+- `GET /.netlify/functions/instagram-oauth-callback` — exchanges Meta's one-time authorization code server-side, verifies the returned token belongs to this Meta app, and stores the token encrypted in that Firebase user's Firestore integration record.
+
+The OAuth state is random, hashed before storage, bound to the Firebase UID, expires after ten minutes and is consumed atomically once. Tokens are encrypted using AES-256-GCM with the existing integration encryption key. The App Secret and access token are used only on the server. The callback is not considered ready for customer use until the Meta App ID and App Secret are configured in Netlify and the exact redirect URL is saved in Meta.
+
+Meta App Review/Advanced Access may be required before customers outside the app's roles or test assets can use the requested permissions. The app must be configured and reviewed for the actual features it offers before production use.
