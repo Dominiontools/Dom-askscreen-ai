@@ -496,8 +496,9 @@ fun AdminScreen(onBack: () -> Unit) {
                                     val cents = value.toBigDecimalOrNull()?.takeIf { it >= BigDecimal.ZERO }?.multiply(BigDecimal(100))?.setScale(0,RoundingMode.HALF_UP)?.toInt()
                                     pricingRows = pricingRows.map { if (it.id == row.id) it.copy(priceText=value,monthlyPriceCents=cents?.takeIf { amount -> amount <= 1000000 } ?: it.monthlyPriceCents) else it }
                                 },
-                                label={Text("${row.name} — USD/month")},
+                                label={Text(if (row.id == "core") "DOM AI Core — fixed USD 9/month" else "${row.name} — USD/month")},
                                 singleLine=true,
+                                enabled=row.id != "core",
                                 modifier=Modifier.fillMaxWidth()
                             )
                         }
