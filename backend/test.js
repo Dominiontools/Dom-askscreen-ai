@@ -97,6 +97,11 @@ async function run() {
   const defaultPricing = normalizeCatalog(DEFAULT_PRODUCTS);
   assert.equal(defaultPricing.length, 22, 'The catalogue must include core, specialist products and separate email management');
   assert.equal(defaultPricing.find(item => item.id === 'core').independent, undefined, 'DOM AI Core remains its own core subscription');
+  const attemptedCorePriceChange = normalizeCatalog(DEFAULT_PRODUCTS.map(item =>
+    item.id === 'core' ? { ...item, monthlyPriceCents: 100 } : item
+  ));
+  assert.equal(attemptedCorePriceChange.find(item => item.id === 'core').monthlyPriceCents, 900,
+    'DOM AI Core must remain fixed at USD 9/month even if a client submits another price');
   assert.equal(defaultPricing.find(item => item.id === 'video_annotation').independent, true, 'Work services can be subscribed to independently of Core');
   assert.equal(defaultPricing.find(item => item.id === 'email_management').independent, true, 'Email Management remains an independent monthly product');
   const defaultBundles = calculateBundle(defaultPricing, 10);
