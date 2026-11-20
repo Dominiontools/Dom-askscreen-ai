@@ -41,8 +41,8 @@ exports.handler = async event => {
     const payment = paymentSnap.data();
     if (payment.provider !== 'USDT_MANUAL' || payment.status !== 'pending') return json(409, { error: 'Only pending USDT payments can be reviewed.' });
     if (action === 'approve') {
-      const product = DEFAULT_PRODUCTS.find(item => item.id === payment.productId && item.independent === true);
-      if (!product) return json(400, { error: 'The payment does not reference a valid independent service.' });
+      const product = DEFAULT_PRODUCTS.find(item => item.id === payment.productId && (item.id === 'core' || item.independent === true));
+      if (!product) return json(400, { error: 'The payment does not reference a valid subscription product.' });
       let customer = null;
       try { customer = await admin.auth().getUserByEmail(String(payment.email || '')); }
       catch (lookupError) { if (lookupError.code !== 'auth/user-not-found') throw lookupError; }
@@ -65,11 +65,15 @@ exports.handler = async event => {
         }
         if (accountRef) {
           const account = await transaction.get(accountRef);
-          const existing = account.exists ? account.data().productSubscriptions || {} : {};
-          transaction.set(accountRef, {
-            productSubscriptions: { ...existing, [product.id]: record },
-            updatedAt: now
-          }, { merge: true });
+          if (product.id === 'core') {
+            transaction.set(accountRef, { subscription: record, updatedAt: now }, { merge: true });
+          } else {
+            const existing = account.exists ? account.data().productSubscriptions || {} : {};
+            transaction.set(accountRef, {
+              productSubscriptions: { ...existing, [product.id]: record },
+              updatedAt: now
+            }, { merge: true });
+          }
         }
         transaction.update(paymentRef, {
           status: 'approved', uid: verifiedCustomer ? verifiedCustomer.uid : null,
