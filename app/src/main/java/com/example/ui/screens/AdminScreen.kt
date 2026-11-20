@@ -395,6 +395,7 @@ fun AdminScreen(onBack: () -> Unit) {
         if (versionCode < 2) throw IllegalArgumentException("Version code must be at least 2.")
         if (releaseVersionName.isBlank()) throw IllegalArgumentException("Enter the version name.")
         val selectedUri = selectedApkUri ?: throw IllegalArgumentException("Choose the signed APK from this device.")
+        if (!selectedApkName.lowercase(Locale.US).endsWith(".apk")) throw IllegalArgumentException("Choose a file ending in .apk.")
         val configured = prefs.backendUrl.trim().trimEnd('/')
         if (!configured.endsWith("/ask-screen")) throw IllegalStateException("Set your AskScreen backend URL in Settings first.")
         val endpoint = configured.removeSuffix("/ask-screen") + "/app-update"
