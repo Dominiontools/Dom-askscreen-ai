@@ -389,16 +389,19 @@ async function run() {
   assert.equal(cryptoPaymentTests.validTxHash('TRC20', 'a'.repeat(64)), true);
   assert.equal(cryptoPaymentTests.validTxHash('TRC20', '0x' + 'a'.repeat(64)), false);
   assert.equal(cryptoPaymentTests.paymentId('BEP20', '0x' + 'A'.repeat(64)), cryptoPaymentTests.paymentId('BEP20', '0x' + 'a'.repeat(64)));
+  assert.equal(cryptoPaymentTests.purchasableProduct('core').id, 'core', 'DOM AI Core must be purchasable with USDT');
+  assert.equal(cryptoPaymentTests.purchasableProduct('video_annotation').id, 'video_annotation', 'Independent Work Centre services must remain purchasable');
+  assert.equal(cryptoPaymentTests.purchasableProduct('unknown'), null, 'Unknown products must not be purchasable');
   const cryptoBadSubmission = await cryptoPaymentsHandler({
     httpMethod: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email: 'not-an-email', productId: 'video_annotation', network: 'BEP20', transactionHash: '0x' + 'a'.repeat(64), amountUSDT: 35 })
+    body: JSON.stringify({ productId: 'core', network: 'BEP20', transactionHash: 'not-a-valid-hash' })
   });
-  assert.equal(cryptoBadSubmission.statusCode, 400, 'Crypto payment submission must validate email before recording a payment');
-  const cryptoUnknownProduct = await cryptoPaymentsHandler({
+  assert.equal(cryptoBadSubmission.statusCode, 400, 'Crypto payment submission must reject invalid transaction hashes before authentication');
+  const cryptoUnauthenticatedSubmission = await cryptoPaymentsHandler({
     httpMethod: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email: 'customer@example.com', productId: 'core', network: 'BEP20', transactionHash: '0x' + 'a'.repeat(64), amountUSDT: 9 })
+    body: JSON.stringify({ productId: 'core', network: 'BEP20', transactionHash: '0x' + 'a'.repeat(64) })
   });
-  assert.equal(cryptoUnknownProduct.statusCode, 400, 'Crypto Work Centre checkout must not sell DOM AI Core as a specialist module');
+  assert.equal(cryptoUnauthenticatedSubmission.statusCode, 401, 'USDT payment submission must require a signed-in customer');
   const adminCryptoOptions = await adminCryptoPaymentsHandler({ httpMethod: 'OPTIONS', headers: {} });
   assert.equal(adminCryptoOptions.statusCode, 204);
   const adminCryptoUnauthenticated = await adminCryptoPaymentsHandler({
@@ -406,7 +409,7 @@ async function run() {
     body: JSON.stringify({ paymentId: 'bep20_test', action: 'approve' })
   });
   assert.equal(adminCryptoUnauthenticated.statusCode, 401, 'Crypto payment approval must require authenticated admin verification');
-  console.log('PASS USDT payment networks, duplicate-safe hash IDs, product validation and admin authentication gates');
+  console.log('PASS USDT payment networks, Core and Work Centre product eligibility, customer authentication and admin approval gates');
 
   if (oldAdminCode === undefined) delete process.env.ADMIN_ACCESS_CODE; else process.env.ADMIN_ACCESS_CODE = oldAdminCode;
   console.log('All backend validation and authentication-gate tests passed.');
