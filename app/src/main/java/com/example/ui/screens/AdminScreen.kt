@@ -74,6 +74,7 @@ fun AdminScreen(onBack: () -> Unit) {
     var auditLogs by remember { mutableStateOf<List<AdminAuditRow>>(emptyList()) }
     var activityLogs by remember { mutableStateOf<List<AdminActivityRow>>(emptyList()) }
     var announcement by remember { mutableStateOf("") }
+    var backendUrl by remember { mutableStateOf(prefs.backendUrl) }
     var screenEnabled by remember { mutableStateOf(true) }
     var spokenEnabled by remember { mutableStateOf(true) }
     var transcriptionEnabled by remember { mutableStateOf(true) }
@@ -150,6 +151,7 @@ fun AdminScreen(onBack: () -> Unit) {
         val settings = result.optJSONObject("settings") ?: JSONObject()
         val features = settings.optJSONObject("features") ?: JSONObject()
         announcement = settings.optString("announcement")
+        backendUrl = settings.optString("backendUrl", prefs.backendUrl)
         screenEnabled = features.optBoolean("screen",true)
         spokenEnabled = features.optBoolean("spoken",true)
         transcriptionEnabled = features.optBoolean("transcription",true)
@@ -181,7 +183,10 @@ fun AdminScreen(onBack: () -> Unit) {
         pricingRows.forEach { row ->
             priceArray.put(JSONObject().put("id",row.id).put("monthlyPriceCents",row.monthlyPriceCents))
         }
-        val payload = JSONObject().put("announcement",announcement).put("features",features).put("freeTrialLimit",limit)
+        val backendCandidate = backendUrl.trim()
+        val backendUri = Uri.parse(backendCandidate)
+        if (backendUri.scheme != "https" || backendUri.userInfo != null || backendUri.query != null || backendUri.fragment != null || !backendUri.path.orEmpty().trimEnd('/').endsWith("/ask-screen")) throw IllegalArgumentException("Enter a valid HTTPS AskScreen endpoint ending in /ask-screen.")
+        val payload = JSONObject().put("announcement",announcement).put("backendUrl",backendCandidate).put("features",features).put("freeTrialLimit",limit)
             .put("pricing",priceArray).put("bundleDiscountPercent",discount)
         withContext(Dispatchers.IO) {
             val request = Request.Builder().url(endpoint).header("Authorization","Bearer $token")
@@ -545,6 +550,7 @@ fun AdminScreen(onBack: () -> Unit) {
                     Text("App & feature settings",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
                     Text("Make routine app changes here without editing source code. Changes are saved on the server.",color=Slate400,fontSize=11.sp)
                     OutlinedTextField(value=announcement,onValueChange={if(it.length<=240) announcement=it},label={Text("Customer announcement (optional)")},supportingText={Text("${announcement.length}/240 characters")},modifier=Modifier.fillMaxWidth(),minLines=2,maxLines=3)
+                    OutlinedTextField(value=backendUrl,onValueChange={backendUrl=it.take(500)},label={Text("Central AskScreen backend URL")},supportingText={Text("HTTPS URL ending in /ask-screen. All app installations refresh this address automatically.")},singleLine=true,modifier=Modifier.fillMaxWidth())
                     Row(verticalAlignment=Alignment.CenterVertically,modifier=Modifier.fillMaxWidth()) {
                         Column(Modifier.weight(1f)) { Text("Screen reading",color=Color.White); Text("Allow screen and image questions",color=Slate400,fontSize=11.sp) }
                         Switch(checked=screenEnabled,onCheckedChange={screenEnabled=it})
