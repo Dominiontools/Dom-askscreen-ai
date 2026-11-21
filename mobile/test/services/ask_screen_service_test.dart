@@ -23,7 +23,7 @@ class FakeTransport implements ApiTransport {
     String? body,
   }) async {
     this.method = method;
-    authorization = headers['Authorization'];
+    authorization = headers['authorization'];
     return response;
   }
 }
