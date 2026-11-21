@@ -20,10 +20,12 @@ const MAX_REQUESTS_PER_WINDOW = Number.isFinite(configuredRateLimit)
   ? Math.min(300, Math.max(10, configuredRateLimit))
   : DEFAULT_MAX_REQUESTS_PER_WINDOW;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
-const PROVIDER_TIMEOUT_MS = 25_000;
+const PROVIDER_TIMEOUT_MS = 8_000;
 // Keep synchronous processing below Netlify's 60-second function execution limit.
-const ROUTER_DEADLINE_MS = 52_000;
-const MAX_PROVIDER_RETRIES = 1;
+const ROUTER_DEADLINE_MS = 18_000;
+// Do not spend a second full provider timeout retrying an upstream outage.
+// Rotate Gemini keys for authentication/quota errors, then fail over immediately.
+const MAX_PROVIDER_RETRIES = 0;
 const RETRY_BASE_DELAY_MS = 350;
 const COOLDOWN_MS = 30_000;
 const MAX_HISTORY_ITEMS = 12;
@@ -649,7 +651,9 @@ async function routeRequest(payload) {
 
     const keys = provider.type === 'gemini' ? provider.keys : [provider.key];
 
-    for (let index = 0; index < keys.length; index++) {
+    // A provider outage or timeout should move to the next provider immediately.
+    // Only rotate Gemini keys for invalid-key or quota/rate-limit responses.
+    providerKeyLoop: for (let index = 0; index < keys.length; index++) {
       let attempt = 0;
       while (attempt <= MAX_PROVIDER_RETRIES && Date.now() < deadline) {
         try {
@@ -673,28 +677,20 @@ async function routeRequest(payload) {
             attempt: attempt + 1
           });
 
-          if (
-            provider.type === 'gemini' &&
-            isInvalidGeminiKey(error) &&
-            index < keys.length - 1
-          ) break;
+          const canRotateGeminiKey = provider.type === 'gemini' &&
+            index < keys.length - 1 &&
+            (isInvalidGeminiKey(error) || error.status === 429);
+          if (canRotateGeminiKey) break;
 
-          const canRetry = isRetryableProviderError(error) &&
-            attempt < MAX_PROVIDER_RETRIES;
-          const backoff = error.retryAfterMs || RETRY_BASE_DELAY_MS * (attempt + 1);
-          if (canRetry && Date.now() + backoff + 250 < deadline) {
-            attempt++;
-            await wait(backoff);
-            continue;
-          }
-
-          if (error.status === 429 || isRetryableProviderError(error)) {
+          // A 5xx, network failure, or timeout is provider-wide, not key-specific.
+          // Cool down this provider and continue to the next compatible provider.
+          if (isRetryableProviderError(error) || error.status === 429) {
             coolDown(provider.name);
-            break;
+            break providerKeyLoop;
           }
           if (!shouldTryNextProvider(error)) throw error;
           coolDown(provider.name);
-          break;
+          break providerKeyLoop;
         }
       }
     }
