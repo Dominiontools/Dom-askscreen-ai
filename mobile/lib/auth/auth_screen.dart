@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 import 'auth_repository.dart';
+import 'auth_session.dart';
 
-/// Reusable authentication UI. The host app must initialize Firebase first.
+/// Shared sign-in and registration screen for Firebase-backed platform adapters.
 class AuthScreen extends StatefulWidget {
-  const AuthScreen({super.key, required this.repository, required this.onSignedIn});
+  const AuthScreen({
+    super.key,
+    required this.repository,
+    required this.onSignedIn,
+  });
 
-  final AuthRepository repository;
-  final ValueChanged<User> onSignedIn;
+  final AuthSession repository;
+  final ValueChanged<AppUser> onSignedIn;
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
@@ -35,16 +39,15 @@ class _AuthScreenState extends State<AuthScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() { _busy = true; _error = null; _message = null; });
     try {
-      final credential = _createAccount
+      final user = _createAccount
           ? await widget.repository.createAccount(email: _email.text, password: _password.text)
           : await widget.repository.signIn(email: _email.text, password: _password.text);
-      final user = credential.user;
-      if (user == null) throw Exception('Account could not be loaded. Please try again.');
       if (!mounted) return;
       if (user.emailVerified) {
         widget.onSignedIn(user);
       } else {
-        setState(() => _message = 'Check your email and verify your address before continuing. Then sign in again.');
+        setState(() => _message =
+            'Check your email and verify your address. Then select “I have verified my email”.');
       }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -62,7 +65,43 @@ class _AuthScreenState extends State<AuthScreen> {
     setState(() { _busy = true; _error = null; _message = null; });
     try {
       await widget.repository.sendPasswordReset(email: email);
-      if (mounted) setState(() => _message = 'Password reset instructions have been sent if the account exists.');
+      if (mounted) {
+        setState(() => _message =
+            'Password reset instructions have been sent if the account exists.');
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _resendVerification() async {
+    setState(() { _busy = true; _error = null; _message = null; });
+    try {
+      await widget.repository.resendEmailVerification();
+      if (mounted) {
+        setState(() => _message = 'A new verification email has been sent.');
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _checkVerification() async {
+    setState(() { _busy = true; _error = null; _message = null; });
+    try {
+      await widget.repository.reloadCurrentUser();
+      final user = widget.repository.currentUser;
+      if (!mounted) return;
+      if (user?.emailVerified == true) {
+        widget.onSignedIn(user!);
+      } else {
+        setState(() => _message =
+            'Your email is not verified yet. Open the verification link, then try again.');
+      }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -72,6 +111,8 @@ class _AuthScreenState extends State<AuthScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final hasUnverifiedUser = widget.repository.currentUser != null &&
+        !widget.repository.currentUser!.emailVerified;
     return Scaffold(
       body: SafeArea(
         child: Center(
@@ -123,29 +164,16 @@ class _AuthScreenState extends State<AuthScreen> {
                           child: const Text('Forgot password?'),
                         ),
                       ),
-                    if (widget.repository.currentUser != null &&
-                        !widget.repository.currentUser!.emailVerified)
-                      Align(
-                        alignment: Alignment.center,
-                        child: TextButton(
-                          onPressed: _busy
-                              ? null
-                              : () async {
-                                  setState(() { _busy = true; _error = null; _message = null; });
-                                  try {
-                                    await widget.repository.resendEmailVerification();
-                                    if (mounted) {
-                                      setState(() => _message = 'A new verification email has been sent.');
-                                    }
-                                  } catch (e) {
-                                    if (mounted) setState(() => _error = e.toString());
-                                  } finally {
-                                    if (mounted) setState(() => _busy = false);
-                                  }
-                                },
-                          child: const Text('Resend verification email'),
-                        ),
+                    if (hasUnverifiedUser) ...[
+                      TextButton(
+                        onPressed: _busy ? null : _resendVerification,
+                        child: const Text('Resend verification email'),
                       ),
+                      OutlinedButton(
+                        onPressed: _busy ? null : _checkVerification,
+                        child: const Text('I have verified my email'),
+                      ),
+                    ],
                     if (_error != null) Padding(
                       padding: const EdgeInsets.only(top: 12),
                       child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
