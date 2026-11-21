@@ -1,0 +1,70 @@
+name: Android signed test APK
+
+on:
+  push:
+    branches:
+      - feature/flutter-cross-platform-foundation
+    paths:
+      - '.github/workflows/android-signed-test-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-signed-test-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  signed-test-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out development branch
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Restore Android upload keystore
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PATH: ${{ runner.temp }}/my-upload-key.jks
+        run: |
+          set -euo pipefail
+          if [ -z "${ANDROID_KEYSTORE_BASE64}" ]; then
+            echo "ANDROID_KEYSTORE_BASE64 secret is missing."
+            exit 1
+          fi
+          printf '%s' "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${KEYSTORE_PATH}"
+          test -s "${KEYSTORE_PATH}"
+          echo "KEYSTORE_PATH=${KEYSTORE_PATH}" >> "$GITHUB_ENV"
+
+      - name: Build release-signed test APK
+        shell: bash
+        env:
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${STORE_PASSWORD}" ] || [ -z "${KEY_PASSWORD}" ]; then
+            echo "One or both Android signing password secrets are missing."
+            exit 1
+          fi
+          gradle :app:assembleRelease --no-daemon --no-configuration-cache --stacktrace
+
+      - name: Upload signed test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: dom-askscreen-ai-android-signed-test-apk
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 7
