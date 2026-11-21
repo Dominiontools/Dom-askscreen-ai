@@ -4,20 +4,20 @@
   "platforms": {
     "android": {
       "status": "preparing",
-      "label": "Android package is not yet published",
+      "label": "A signed release APK or verified Play Store listing is still required",
       "buttonLabel": "Android download coming soon",
       "url": null
     },
     "ios": {
       "status": "preparing",
-      "label": "Apple signing and TestFlight distribution are still required",
-      "buttonLabel": "iOS testing setup in progress",
+      "label": "Apple signing and TestFlight or App Store distribution are still required",
+      "buttonLabel": "iOS distribution in progress",
       "url": null
     },
     "windows": {
       "status": "preparing",
-      "label": "Windows build passed; public installer packaging and testing remain",
-      "buttonLabel": "Windows installer coming soon",
+      "label": "Windows setup installer built; device testing and public release approval remain",
+      "buttonLabel": "Public Windows download not enabled",
       "url": null
     }
   }
