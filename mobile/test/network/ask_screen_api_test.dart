@@ -53,6 +53,8 @@ void main() {
       idToken: 'firebase-id-token',
       queryType: 'SCREEN',
       history: const [{'role': 'user', 'text': 'Previous question'}],
+      mode: 'SPECIFIC_TASK',
+      taskContext: const {'title': 'Fibonacci Test', 'description': 'Answer questions about Fibonacci.'},
     );
 
     expect(answer, 'Hello from DOM AI');
@@ -63,6 +65,8 @@ void main() {
     expect(body['prompt'], 'Explain photosynthesis');
     expect(body['queryType'], 'SCREEN');
     expect(body['history'], isA<List>());
+    expect(body['mode'], 'SPECIFIC_TASK');
+    expect(body['taskContext']['title'], 'Fibonacci Test');
   });
 
   test('requests account status from the sibling endpoint', () async {
