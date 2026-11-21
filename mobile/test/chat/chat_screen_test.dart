@@ -90,7 +90,7 @@ void main() {
 
     await tester.tap(find.text('Specific Task').first);
     await tester.pumpAndSettle();
-    await tester.enterText(find.widgetWithText(TextField, 'For example: Fibonacci Test'), 'Fibonacci Test');
+    await tester.enterText(find.byWidgetPredicate((widget) => widget is TextField && widget.decoration?.hintText == 'For example: Fibonacci Test'), 'Fibonacci Test');
     await tester.tap(find.text('Activate task'));
     await tester.pumpAndSettle();
 
@@ -108,7 +108,7 @@ void main() {
     await openChat(tester, {});
     await tester.tap(find.text('Specific Task').first);
     await tester.pumpAndSettle();
-    await tester.enterText(find.widgetWithText(TextField, 'For example: Fibonacci Test'), 'Fibonacci');
+    await tester.enterText(find.byWidgetPredicate((widget) => widget is TextField && widget.decoration?.hintText == 'For example: Fibonacci Test'), 'Fibonacci');
     await tester.tap(find.text('Activate task'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Normal AI').first);
