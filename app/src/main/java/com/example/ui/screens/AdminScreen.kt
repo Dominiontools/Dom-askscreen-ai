@@ -106,7 +106,7 @@ fun AdminScreen(onBack: () -> Unit) {
     var releaseVersionName by remember { mutableStateOf(nextReleaseName(installedVersion.first)) }
     var currentPublishedRelease by remember { mutableStateOf("No release has been published yet.") }
     var releaseHistory by remember { mutableStateOf<List<AdminReleaseRow>>(emptyList()) }
-    var releaseNotes by remember { mutableStateOf("") }
+    var releaseNotes by remember { mutableStateOf("Classroom Privacy Mode, payment approval fixes, and a more reliable in-app update flow.") }
     var selectedApkUri by remember { mutableStateOf<Uri?>(null) }
     var selectedApkName by remember { mutableStateOf("") }
     var selectedApkSize by remember { mutableLongStateOf(0L) }
@@ -125,6 +125,29 @@ fun AdminScreen(onBack: () -> Unit) {
                 }
             }
             releaseMessage = null
+            scope.launch {
+                try {
+                    val detected = withContext(Dispatchers.IO) {
+                        val temp = File.createTempFile("dom-askscreen-version-", ".apk", context.cacheDir)
+                        try {
+                            context.contentResolver.openInputStream(uri)?.use { input ->
+                                FileOutputStream(temp).use { output -> input.copyTo(output) }
+                            } ?: throw IllegalStateException("The selected APK could not be opened.")
+                            val info = context.packageManager.getPackageArchiveInfo(temp.absolutePath, 0)
+                                ?: throw IllegalArgumentException("Android could not read this APK.")
+                            if (info.packageName != "com.dominion.askscreenai") throw IllegalArgumentException("This is not the DOM Ask AI APK.")
+                            val code = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
+                            val name = info.versionName?.trim().orEmpty()
+                            if (code < 2L || name.isBlank()) throw IllegalArgumentException("The APK version details are invalid.")
+                            name to code
+                        } finally { temp.delete() }
+                    }
+                    releaseVersionName = detected.first
+                    releaseVersionCode = detected.second.toString()
+                } catch (e: Exception) {
+                    releaseMessage = e.message ?: "Could not read the APK version."
+                }
+            }
         }
     }
     var grantDialogOpen by remember { mutableStateOf(false) }
