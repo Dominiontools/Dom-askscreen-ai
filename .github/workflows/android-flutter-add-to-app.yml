@@ -76,6 +76,7 @@ jobs:
             firebase_core: ^5.2.0
             firebase_auth: ^7.1.0
             shared_preferences: ^2.5.3
+            flutter_secure_storage: ^11.2.0
 
           dev_dependencies:
             flutter_test:
@@ -145,7 +146,7 @@ jobs:
               marker = "plugins {"
               if marker not in root_text:
                   raise SystemExit("Root Gradle plugins block was not found.")
-              root_text = root_text.replace(marker, marker + "\\n" + flutter_plugin_declaration, 1)
+              root_text = root_text.replace(marker, marker + "\n" + flutter_plugin_declaration, 1)
           root_build.write_text(root_text)
 
           app = Path("app/build.gradle.kts")
