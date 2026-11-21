@@ -433,10 +433,6 @@ fun AdminScreen(onBack: () -> Unit) {
     }
 
     suspend fun publishApk() {
-        val versionCode = releaseVersionCode.toIntOrNull()
-            ?: throw IllegalArgumentException("Version code must be a whole number.")
-        if (versionCode < 2) throw IllegalArgumentException("Version code must be at least 2.")
-        if (releaseVersionName.isBlank()) throw IllegalArgumentException("Enter the version name.")
         val selectedUri = selectedApkUri ?: throw IllegalArgumentException("Choose the signed APK from this device.")
         if (!selectedApkName.lowercase(Locale.US).endsWith(".apk")) throw IllegalArgumentException("Choose a file ending in .apk.")
         val configured = prefs.backendUrl.trim().trimEnd('/')
@@ -454,8 +450,12 @@ fun AdminScreen(onBack: () -> Unit) {
                     throw IllegalArgumentException("This APK is not the DOM Ask AI app package.")
                 }
                 val apkVersionCode = if (Build.VERSION.SDK_INT >= 28) archiveInfo.longVersionCode else archiveInfo.versionCode.toLong()
-                if (apkVersionCode != versionCode.toLong()) {
-                    throw IllegalArgumentException("The selected APK version code is $apkVersionCode, but you entered $versionCode. Make them match.")
+                val apkVersionName = archiveInfo.versionName?.trim().orEmpty()
+                if (apkVersionCode < 2L || apkVersionCode > Int.MAX_VALUE.toLong()) {
+                    throw IllegalArgumentException("The selected APK has an invalid Android version code.")
+                }
+                if (apkVersionName.isBlank() || apkVersionName.length > 40) {
+                    throw IllegalArgumentException("The selected APK has an invalid version name.")
                 }
                 val size = tempApk.length()
                 if (size <= 0L || size > 300L * 1024L * 1024L) {
@@ -471,15 +471,19 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
                 val checksum = digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
-                size to checksum
+                Triple(size, checksum, apkVersionCode to apkVersionName)
             }
+            val versionCode = apkDetails.third.first.toInt()
+            val versionName = apkDetails.third.second
+            releaseVersionCode = versionCode.toString()
+            releaseVersionName = versionName
             val preparePayload = JSONObject()
                 .put("action", "prepare_upload")
                 .put("versionCode", versionCode)
-                .put("versionName", releaseVersionName.trim())
+                .put("versionName", versionName)
                 .put("releaseNotes", releaseNotes.trim())
-                .put("sizeBytes", sizeAndHash.first)
-                .put("sha256", sizeAndHash.second)
+                .put("sizeBytes", apkDetails.first)
+                .put("sha256", apkDetails.second)
             val prepared = withContext(Dispatchers.IO) {
                 val request = Request.Builder().url(endpoint).header("Authorization", "Bearer $idToken")
                     .post(preparePayload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
@@ -512,7 +516,7 @@ fun AdminScreen(onBack: () -> Unit) {
                     if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "The APK uploaded, but publishing failed." })
                 }
             }
-            releaseMessage = "Version ${releaseVersionName.trim()} has been uploaded and published. Customer apps can now check for this update."
+            releaseMessage = "Version ${versionName} (code ${versionCode}) has been uploaded and published. Customer apps can now check for this update."
             selectedApkUri = null
             selectedApkName = ""
             selectedApkSize = 0L
@@ -691,8 +695,8 @@ fun AdminScreen(onBack: () -> Unit) {
                         }
                     }
                     Text("Select the signed APK directly from this device. It uploads securely to the app's Firebase Storage bucket; you do not need to create a GitHub Release or paste a link.",color=Slate400,fontSize=11.sp)
-                    OutlinedTextField(value=releaseVersionName,onValueChange={releaseVersionName=it.take(40)},label={Text("Version name (next: ${nextReleaseName(installedVersion.first)})")},singleLine=true,modifier=Modifier.fillMaxWidth())
-                    OutlinedTextField(value=releaseVersionCode,onValueChange={releaseVersionCode=it.filter(Char::isDigit).take(9)},label={Text("Version code (next: ${installedVersion.second + 1L})")},singleLine=true,modifier=Modifier.fillMaxWidth())
+                    Text("APK version: $releaseVersionName (code $releaseVersionCode)",color=Slate300,fontSize=11.sp)
+                    Text("The version name and version code are read directly from the selected APK before upload, so the release listing always matches the file.",color=Slate400,fontSize=10.sp)
                     OutlinedButton(onClick={apkPicker.launch(arrayOf("application/vnd.android.package-archive","application/octet-stream"))},enabled=!busy,modifier=Modifier.fillMaxWidth()) {
                         Text(if(selectedApkName.isBlank()) "Choose APK from this device" else "Choose a different APK")
                     }
