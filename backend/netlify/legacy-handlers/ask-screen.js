@@ -20,9 +20,9 @@ const MAX_REQUESTS_PER_WINDOW = Number.isFinite(configuredRateLimit)
   ? Math.min(300, Math.max(10, configuredRateLimit))
   : DEFAULT_MAX_REQUESTS_PER_WINDOW;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
-const PROVIDER_TIMEOUT_MS = 10_000;
+const PROVIDER_TIMEOUT_MS = 8_000;
 // Keep synchronous processing below Netlify's 60-second function execution limit.
-const ROUTER_DEADLINE_MS = 24_000;
+const ROUTER_DEADLINE_MS = 18_000;
 // Do not spend a second full provider timeout retrying an upstream outage.
 // Rotate Gemini keys for authentication/quota errors, then fail over immediately.
 const MAX_PROVIDER_RETRIES = 0;
