@@ -35,6 +35,27 @@ class ExampleRobolectricTest {
     }
 
     @Test
+    fun `classroom privacy and invisible presentation preferences are independent`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = PreferencesManager(context)
+
+        assertEquals(false, prefs.isClassroomPrivacyMode)
+        assertEquals(false, prefs.isInvisiblePresentationMode)
+
+        prefs.isClassroomPrivacyMode = true
+        assertEquals(true, prefs.isClassroomPrivacyMode)
+        assertEquals(false, prefs.isInvisiblePresentationMode)
+
+        prefs.isInvisiblePresentationMode = true
+        assertEquals(true, prefs.isClassroomPrivacyMode)
+        assertEquals(true, prefs.isInvisiblePresentationMode)
+
+        prefs.isClassroomPrivacyMode = false
+        assertEquals(false, prefs.isClassroomPrivacyMode)
+        assertEquals(true, prefs.isInvisiblePresentationMode)
+    }
+
+    @Test
     fun `verify query type display names`() {
         assertEquals("Screen Reading", QueryType.SCREEN.displayName)
         assertEquals("Audio Listening", QueryType.AUDIO.displayName)
