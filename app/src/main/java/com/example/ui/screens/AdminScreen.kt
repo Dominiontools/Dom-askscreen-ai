@@ -440,7 +440,7 @@ fun AdminScreen(onBack: () -> Unit) {
         val endpoint = configured.removeSuffix("/ask-screen") + "/app-update"
         val tempApk = File.createTempFile("dom-askscreen-release-", ".apk", context.cacheDir)
         try {
-            val sizeAndHash = withContext(Dispatchers.IO) {
+            val apkDetails = withContext(Dispatchers.IO) {
                 context.contentResolver.openInputStream(selectedUri)?.use { input ->
                     FileOutputStream(tempApk).use { output -> input.copyTo(output) }
                 } ?: throw IllegalStateException("The selected APK could not be opened.")
