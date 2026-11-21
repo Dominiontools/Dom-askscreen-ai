@@ -22,6 +22,8 @@ class _ChatMessage {
 
 class _ChatScreenState extends State<ChatScreen> {
   final _input = TextEditingController();
+  final _taskTitleEditor = TextEditingController();
+  final _taskDescriptionEditor = TextEditingController();
   final _scroll = ScrollController();
   final List<_ChatMessage> _messages = [];
   bool _sending = false;
@@ -68,8 +70,8 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _editTask() async {
-    final titleController = TextEditingController(text: _taskTitle);
-    final descriptionController = TextEditingController(text: _taskDescription);
+    _taskTitleEditor.text = _taskTitle;
+    _taskDescriptionEditor.text = _taskDescription;
     final result = await showDialog<Map<String, String>>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -79,7 +81,7 @@ class _ChatScreenState extends State<ChatScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
-                controller: titleController,
+                controller: _taskTitleEditor,
                 autofocus: true,
                 textCapitalization: TextCapitalization.sentences,
                 decoration: const InputDecoration(
@@ -90,7 +92,7 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
               const SizedBox(height: 12),
               TextField(
-                controller: descriptionController,
+                controller: _taskDescriptionEditor,
                 minLines: 3,
                 maxLines: 6,
                 textCapitalization: TextCapitalization.sentences,
@@ -116,11 +118,11 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           FilledButton(
             onPressed: () {
-              final title = titleController.text.trim();
+              final title = _taskTitleEditor.text.trim();
               if (title.isEmpty) return;
               Navigator.pop(dialogContext, {
                 'title': title,
-                'description': descriptionController.text.trim(),
+                'description': _taskDescriptionEditor.text.trim(),
               });
             },
             child: const Text('Activate task'),
@@ -128,8 +130,6 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
     );
-    titleController.dispose();
-    descriptionController.dispose();
     if (result == null || !mounted) return;
     setState(() {
       _taskTitle = result['title']!;
@@ -154,6 +154,8 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void dispose() {
     _input.dispose();
+    _taskTitleEditor.dispose();
+    _taskDescriptionEditor.dispose();
     _scroll.dispose();
     super.dispose();
   }
