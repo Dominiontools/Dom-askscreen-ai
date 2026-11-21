@@ -1,0 +1,67 @@
+name: Flutter iOS and Windows build checks
+
+on:
+  push:
+    branches:
+      - feature/flutter-cross-platform-foundation
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/flutter-platform-builds.yml'
+  pull_request:
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/flutter-platform-builds.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flutter-platform-builds-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+      - name: Resolve packages
+        run: flutter pub get
+      - name: Analyze
+        run: flutter analyze --no-pub --no-fatal-infos
+      - name: Run tests
+        run: flutter test --no-pub
+      - name: Build Windows application
+        run: flutter build windows --release
+
+  ios-build:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve packages
+        run: flutter pub get
+      - name: Analyze
+        run: flutter analyze --no-pub --no-fatal-infos
+      - name: Run tests
+        run: flutter test --no-pub
+      - name: Build iOS without code signing
+        run: flutter build ios --release --no-codesign
