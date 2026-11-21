@@ -162,6 +162,33 @@ class PreferencesManager(context: Context) {
         get() = prefs.getString(KEY_AUDIO_LANGUAGE_TAG, "") ?: ""
         set(value) = prefs.edit().putString(KEY_AUDIO_LANGUAGE_TAG, value).apply()
 
+
+    /** Active task context is stored separately for each signed-in account. */
+    fun isSpecificTaskEnabled(userId: String): Boolean =
+        userId.isNotBlank() && prefs.getBoolean("specific_task_enabled_$userId", false)
+
+    fun specificTaskTitle(userId: String): String =
+        if (userId.isBlank()) "" else prefs.getString("specific_task_title_$userId", "").orEmpty()
+
+    fun specificTaskDescription(userId: String): String =
+        if (userId.isBlank()) "" else prefs.getString("specific_task_description_$userId", "").orEmpty()
+
+    fun saveSpecificTask(userId: String, title: String, description: String) {
+        require(userId.isNotBlank()) { "A signed-in account is required to save a task." }
+        require(title.trim().isNotEmpty()) { "Enter a task or subject title." }
+        prefs.edit()
+            .putBoolean("specific_task_enabled_$userId", true)
+            .putString("specific_task_title_$userId", title.trim().take(120))
+            .putString("specific_task_description_$userId", description.trim().take(6000))
+            .apply()
+    }
+
+    fun disableSpecificTask(userId: String) {
+        if (userId.isNotBlank()) {
+            prefs.edit().putBoolean("specific_task_enabled_$userId", false).apply()
+        }
+    }
+
     var autoMonitorIntervalMs: Long
         get() = prefs.getLong(KEY_AUTO_MONITOR_INTERVAL, 2200L).coerceIn(1500L, 10000L)
         set(value) = prefs.edit().putLong(KEY_AUTO_MONITOR_INTERVAL, value.coerceIn(1500L, 10000L)).apply()
