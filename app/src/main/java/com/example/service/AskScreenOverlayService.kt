@@ -67,9 +67,9 @@ class AskScreenOverlayService : Service() {
         const val ACTION_AUTO_RESUME = "com.example.action.AUTO_RESUME"
         const val ACTION_AUTO_STOP = "com.example.action.AUTO_STOP"
 
-        /** Reapply secure-window flags after the user changes Classroom Privacy Mode. */
-        fun refreshPrivacyMode() {
-            instance?.applyPrivacyModeToWindows()
+        /** Reapply secure-window flags after the user changes Invisible Presentation Mode. */
+        fun refreshInvisiblePresentationMode() {
+            instance?.applyInvisiblePresentationModeToWindows()
         }
 
         private var instance: AskScreenOverlayService? = null
@@ -261,7 +261,7 @@ class AskScreenOverlayService : Service() {
         return START_STICKY
     }
 
-    private fun privacySecureFlag(): Int = if (prefs.isClassroomPrivacyMode) {
+    private fun invisiblePresentationSecureFlag(): Int = if (prefs.isInvisiblePresentationMode) {
         WindowManager.LayoutParams.FLAG_SECURE
     } else 0
 
