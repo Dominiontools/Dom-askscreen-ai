@@ -8,7 +8,10 @@ import 'chat/chat_screen.dart';
 import 'network/ask_screen_api.dart';
 import 'services/ask_screen_service.dart';
 
-const _askScreenEndpoint = String.fromEnvironment('ASK_SCREEN_ENDPOINT');
+const _askScreenEndpoint = String.fromEnvironment(
+  'ASK_SCREEN_ENDPOINT',
+  defaultValue: 'https://domaskscreenai.netlify.app/.netlify/functions/ask-screen',
+);
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
