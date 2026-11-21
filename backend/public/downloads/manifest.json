@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "appName": "DOM AskScreen AI",
+  "platforms": {
+    "android": {
+      "status": "preparing",
+      "label": "Android package is not yet published",
+      "buttonLabel": "Android download coming soon",
+      "url": null
+    },
+    "ios": {
+      "status": "preparing",
+      "label": "Apple signing and TestFlight distribution are still required",
+      "buttonLabel": "iOS testing setup in progress",
+      "url": null
+    },
+    "windows": {
+      "status": "preparing",
+      "label": "Windows build passed; public installer packaging and testing remain",
+      "buttonLabel": "Windows installer coming soon",
+      "url": null
+    }
+  }
+}
