@@ -9,6 +9,8 @@ class FakeAskScreenService implements AskScreenService {
   FakeAskScreenService(this.status);
 
   final Map<String, dynamic> status;
+  String? lastMode;
+  Map<String, String>? lastTaskContext;
 
   @override
   AskScreenApi get api => throw UnimplementedError();
@@ -28,7 +30,55 @@ class FakeAskScreenService implements AskScreenService {
     List<Map<String, dynamic>> images = const [],
     List<Map<String, dynamic>> files = const [],
     Map<String, dynamic>? audio,
-  }) async => 'Test answer';
+    String mode = 'NORMAL',
+    Map<String, String>? taskContext,
+  }) async {
+    lastMode = mode;
+    lastTaskContext = taskContext;
+    return 'Test answer';
+  }
+
+  testWidgets('starts in Normal AI mode', (tester) async {
+    await openChat(tester, {});
+    expect(find.text('Normal AI'), findsWidgets);
+    expect(find.text('What would you like help with today?'), findsOneWidget);
+  });
+
+  testWidgets('activates a specific task and sends its context', (tester) async {
+    final service = FakeAskScreenService({});
+    await tester.pumpWidget(MaterialApp(
+      home: ChatScreen(service: service, onSignOut: () async {}),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Specific Task').first);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'For example: Fibonacci Test'), 'Fibonacci Test');
+    await tester.tap(find.text('Activate task'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Specific Task: Fibonacci Test'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).last, 'What is the Fibonacci sequence?');
+    await tester.tap(find.byTooltip('Send message'));
+    await tester.pumpAndSettle();
+
+    expect(service.lastMode, 'SPECIFIC_TASK');
+    expect(service.lastTaskContext?['title'], 'Fibonacci Test');
+    expect(find.text('Test answer'), findsOneWidget);
+  });
+
+  testWidgets('returns to Normal AI mode', (tester) async {
+    await openChat(tester, {});
+    await tester.tap(find.text('Specific Task').first);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'For example: Fibonacci Test'), 'Fibonacci');
+    await tester.tap(find.text('Activate task'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Normal AI').first);
+    await tester.pumpAndSettle();
+    expect(find.text('What would you like help with today?'), findsOneWidget);
+  });
+
 }
 
 void main() {
