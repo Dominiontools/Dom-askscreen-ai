@@ -58,7 +58,7 @@ void main() {
     expect(answer, 'Hello from DOM AI');
     expect(transport.lastMethod, 'POST');
     expect(transport.lastUri, endpoint);
-    expect(transport.lastHeaders?['Authorization'], 'Bearer firebase-id-token');
+    expect(transport.lastHeaders?['authorization'], 'Bearer firebase-id-token');
     final body = jsonDecode(transport.lastBody!) as Map<String, dynamic>;
     expect(body['prompt'], 'Explain photosynthesis');
     expect(body['queryType'], 'SCREEN');
@@ -76,7 +76,7 @@ void main() {
 
     expect(transport.lastMethod, 'GET');
     expect(transport.lastUri!.path, endsWith('/account-status'));
-    expect(transport.lastHeaders?['Authorization'], 'Bearer firebase-id-token');
+    expect(transport.lastHeaders?['authorization'], 'Bearer firebase-id-token');
     expect(status['email'], 'user@example.com');
   });
 
