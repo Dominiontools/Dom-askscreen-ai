@@ -54,6 +54,15 @@ private data class AdminTicketRow(val id:String,val date:String,val email:String
 private data class AdminAuditRow(val action:String,val targetEmail:String,val adminEmail:String,val detail:String,val date:String)
 private data class AdminPriceRow(val id:String,val name:String,val category:String,val monthlyPriceCents:Int,val priceText:String)
 private data class AdminActivityRow(val email:String,val feature:String,val outcome:String,val code:String,val provider:String,val requestId:String,val date:String)
+private data class AdminReleaseRow(val versionName:String,val versionCode:Long,val releaseNotes:String,val publishedAt:String)
+private fun nextReleaseName(current:String):String {
+    val parts = current.split(".").toMutableList()
+    val last = parts.lastOrNull()?.toIntOrNull()
+    return if (last != null) {
+        parts[parts.lastIndex] = (last + 1).toString()
+        parts.joinToString(".")
+    } else "$current.1"
+}
 
 @Composable
 fun AdminScreen(onBack: () -> Unit) {
@@ -61,6 +70,13 @@ fun AdminScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val http = remember { OkHttpClient() }
     val context = LocalContext.current
+    val installedVersion = remember {
+        runCatching {
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            val code = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
+            (info.versionName ?: "1.1.2") to code
+        }.getOrDefault("1.1.2" to 5L)
+    }
     var email by remember { mutableStateOf("") }
     var adminAccessCode by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -86,8 +102,10 @@ fun AdminScreen(onBack: () -> Unit) {
     var trialUsers by remember { mutableIntStateOf(0) }
     var disabledUsers by remember { mutableIntStateOf(0) }
     var loaded by remember { mutableStateOf(false) }
-    var releaseVersionCode by remember { mutableStateOf("4") }
-    var releaseVersionName by remember { mutableStateOf("1.1.1") }
+    var releaseVersionCode by remember { mutableStateOf((installedVersion.second + 1L).toString()) }
+    var releaseVersionName by remember { mutableStateOf(nextReleaseName(installedVersion.first)) }
+    var currentPublishedRelease by remember { mutableStateOf("No release has been published yet.") }
+    var releaseHistory by remember { mutableStateOf<List<AdminReleaseRow>>(emptyList()) }
     var releaseNotes by remember { mutableStateOf("") }
     var selectedApkUri by remember { mutableStateOf<Uri?>(null) }
     var selectedApkName by remember { mutableStateOf("") }
@@ -302,6 +320,26 @@ fun AdminScreen(onBack: () -> Unit) {
             }
         }
         loadSettings(token)
+        val releaseEndpoint = configured.removeSuffix("/ask-screen") + "/app-update?admin=1"
+        val releaseListing = withContext(Dispatchers.IO) {
+            val request = Request.Builder().url(releaseEndpoint).header("Authorization", "Bearer $token").get().build()
+            http.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                val json = try { JSONObject(body) } catch (_:Exception) { JSONObject() }
+                if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "Could not load published app releases." })
+                json
+            }
+        }
+        val currentRelease = releaseListing.optJSONObject("currentRelease")
+        currentPublishedRelease = if (currentRelease == null) "No release has been published yet." else
+            "Version ${currentRelease.optString("versionName")} (code ${currentRelease.optLong("versionCode")})"
+        val historyArray = releaseListing.optJSONArray("releases")
+        releaseHistory = buildList {
+            if (historyArray != null) for (i in 0 until historyArray.length()) {
+                val item = historyArray.optJSONObject(i) ?: continue
+                add(AdminReleaseRow(item.optString("versionName"), item.optLong("versionCode"), item.optString("releaseNotes"), dateLabel(item.optString("publishedAt"))))
+            }
+        }
         loaded = true
     }
 
@@ -644,9 +682,17 @@ fun AdminScreen(onBack: () -> Unit) {
             Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(16.dp)) {
                 Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                     Text("App Update Centre",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
+                    Text("Installed app: ${installedVersion.first} (code ${installedVersion.second})",color=ElectricCyan,fontSize=11.sp,fontWeight=FontWeight.SemiBold)
+                    Text("Currently published: $currentPublishedRelease",color=Color.White,fontSize=12.sp,fontWeight=FontWeight.SemiBold)
+                    if (releaseHistory.isNotEmpty()) {
+                        Text("Published release history",color=Slate300,fontSize=11.sp,fontWeight=FontWeight.SemiBold)
+                        releaseHistory.forEach { release ->
+                            Text("• ${release.versionName} (code ${release.versionCode}) — ${release.publishedAt}",color=Slate400,fontSize=10.sp)
+                        }
+                    }
                     Text("Select the signed APK directly from this device. It uploads securely to the app's Firebase Storage bucket; you do not need to create a GitHub Release or paste a link.",color=Slate400,fontSize=11.sp)
-                    OutlinedTextField(value=releaseVersionName,onValueChange={releaseVersionName=it.take(40)},label={Text("Version name (example: 1.1)")},singleLine=true,modifier=Modifier.fillMaxWidth())
-                    OutlinedTextField(value=releaseVersionCode,onValueChange={releaseVersionCode=it.filter(Char::isDigit).take(9)},label={Text("Version code (must increase each release)")},singleLine=true,modifier=Modifier.fillMaxWidth())
+                    OutlinedTextField(value=releaseVersionName,onValueChange={releaseVersionName=it.take(40)},label={Text("Version name (next: ${nextReleaseName(installedVersion.first)})")},singleLine=true,modifier=Modifier.fillMaxWidth())
+                    OutlinedTextField(value=releaseVersionCode,onValueChange={releaseVersionCode=it.filter(Char::isDigit).take(9)},label={Text("Version code (next: ${installedVersion.second + 1L})")},singleLine=true,modifier=Modifier.fillMaxWidth())
                     OutlinedButton(onClick={apkPicker.launch(arrayOf("application/vnd.android.package-archive","application/octet-stream"))},enabled=!busy,modifier=Modifier.fillMaxWidth()) {
                         Text(if(selectedApkName.isBlank()) "Choose APK from this device" else "Choose a different APK")
                     }
