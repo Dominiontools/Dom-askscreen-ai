@@ -1,0 +1,111 @@
+name: Build Windows installer
+
+on:
+  push:
+    branches:
+      - feature/flutter-cross-platform-foundation
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/build-windows-installer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-installer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Resolve packages
+        run: flutter pub get
+
+      - name: Analyze shared application
+        run: flutter analyze lib test --no-pub --no-fatal-infos
+
+      - name: Run application tests
+        run: flutter test --no-pub
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Create installer script
+        shell: pwsh
+        run: |
+          $script = @'
+          #define MyAppName "DOM AskScreen AI"
+          #define MyAppVersion "1.1.4"
+          #define MyAppExeName "dom_askscreen_ai.exe"
+
+          [Setup]
+          AppId={{B3B10F65-9F1D-4D22-9B31-6DAB8D8F1A44}
+          AppName={#MyAppName}
+          AppVersion={#MyAppVersion}
+          AppPublisher=Dominion
+          DefaultDirName={autopf}\DOM AskScreen AI
+          DefaultGroupName=DOM AskScreen AI
+          OutputDir=..\installer-output
+          OutputBaseFilename=DOM-AskScreen-AI-Setup-1.1.4
+          Compression=lzma2
+          SolidCompression=yes
+          WizardStyle=modern
+          PrivilegesRequired=lowest
+          ArchitecturesAllowed=x64
+          ArchitecturesInstallIn64BitMode=x64
+          UninstallDisplayIcon={app}\{#MyAppExeName}
+
+          [Files]
+          Source: "build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
+
+          [Icons]
+          Name: "{autoprograms}\DOM AskScreen AI"; Filename: "{app}\{#MyAppExeName}"
+          Name: "{autodesktop}\DOM AskScreen AI"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+
+          [Tasks]
+          Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
+
+          [Run]
+          Filename: "{app}\{#MyAppExeName}"; Description: "Launch DOM AskScreen AI"; Flags: postinstall nowait skipifsilent
+          '@
+          Set-Content -Path installer.iss -Value $script -Encoding UTF8
+
+      - name: Compile single-file Windows installer
+        shell: pwsh
+        run: |
+          $iscc = "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { throw "Inno Setup compiler not found at $iscc" }
+          & $iscc installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $installer = Join-Path (Resolve-Path ..\installer-output) "DOM-AskScreen-AI-Setup-1.1.4.exe"
+          if (!(Test-Path $installer)) { throw "Installer output was not created" }
+          Get-Item $installer | Format-List Name,Length,FullName
+
+      - name: Upload one-file Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: dom-askscreen-ai-windows-installer
+          path: installer-output/DOM-AskScreen-AI-Setup-1.1.4.exe
+          if-no-files-found: error
+          retention-days: 7
