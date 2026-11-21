@@ -40,11 +40,7 @@ class IoApiTransport implements ApiTransport {
     response.headers.forEach((name, values) {
       responseHeaders[name.toLowerCase()] = values.join(', ');
     });
-    return ApiHttpResponse(
-      statusCode: response.statusCode,
-      body: responseBody,
-      headers: responseHeaders,
-    );
+    return ApiHttpResponse(statusCode: response.statusCode, body: responseBody, headers: responseHeaders);
   }
 
   void close() => _client.close(force: true);
@@ -91,6 +87,16 @@ class AskScreenApi {
     return endpoint.replace(query: null, fragment: null);
   }
 
+  static void _requireToken(String idToken) {
+    if (idToken.trim().isEmpty) {
+      throw const AskScreenApiException(
+        message: 'Please sign in again to continue.',
+        statusCode: 401,
+        code: 'AUTH_REQUIRED',
+      );
+    }
+  }
+
   Uri get _accountStatusUri => _endpoint.replace(
         path: _endpoint.path.replaceFirst(RegExp(r'/ask-screen/?$'), '/account-status'),
         query: null,
@@ -107,6 +113,7 @@ class AskScreenApi {
     List<Map<String, dynamic>> files = const [],
     Map<String, dynamic>? audio,
   }) async {
+    _requireToken(idToken);
     if (prompt.trim().isEmpty) {
       throw const AskScreenApiException(message: 'Please enter a question.');
     }
@@ -141,6 +148,7 @@ class AskScreenApi {
   }
 
   Future<Map<String, dynamic>> getAccountStatus({required String idToken}) async {
+    _requireToken(idToken);
     final response = await _transport.send(
       uri: _accountStatusUri,
       method: 'GET',
@@ -169,9 +177,7 @@ class AskScreenApi {
   AskScreenApiException _apiError(ApiHttpResponse response, Map<String, dynamic> data) {
     final code = data['code']?.toString();
     final requestId = data['requestId']?.toString() ?? response.headers['x-request-id'];
-    final retry = int.tryParse(
-      data['retryAfterSeconds']?.toString() ?? response.headers['retry-after'] ?? '',
-    );
+    final retry = int.tryParse(data['retryAfterSeconds']?.toString() ?? response.headers['retry-after'] ?? '');
     final message = switch (code) {
       'AUTH_REQUIRED' || 'INVALID_AUTH_TOKEN' => 'Please sign in again to continue.',
       'SUBSCRIPTION_REQUIRED' => 'Your free-use allowance has been used. A subscription is required to continue.',
