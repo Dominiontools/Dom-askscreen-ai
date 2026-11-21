@@ -4,11 +4,14 @@ publish_to: "none"
 version: 1.0.0+1
 
 environment:
-  sdk: ">=3.4.0 <4.0.0"
+  sdk: ">=3.12.0 <4.0.0"
+  flutter: ">=3.44.0"
 
 dependencies:
   flutter:
     sdk: flutter
+  firebase_core: ^5.2.0
+  firebase_auth: ^7.1.0
 
 dev_dependencies:
   flutter_test:
