@@ -13,7 +13,10 @@ class WindowsAuthRepository implements AuthSession {
     FlutterSecureStorage? storage,
     HttpClient? client,
   })  : _storage = storage ?? const FlutterSecureStorage(),
-        _client = client ?? HttpClient();
+        _client = client ?? (HttpClient()..connectionTimeout = const Duration(seconds: 12));
+
+  static const _operationTimeout = Duration(seconds: 15);
+  static const _storageTimeout = Duration(seconds: 8);
 
   static const _apiKey = 'AIzaSyA_mckfSTP3d0tSsIqxR9a2jjF6vV6N6go';
   static const _refreshKey = 'firebase_refresh_token';
@@ -41,16 +44,30 @@ class WindowsAuthRepository implements AuthSession {
   Future<void> initialize() async {
     if (_initialized) return;
     _initialized = true;
-    _refreshToken = await _storage.read(key: _refreshKey);
-    if (_refreshToken == null || _refreshToken!.isEmpty) {
-      _authChanges.add(null);
-      return;
-    }
     try {
+      _refreshToken = await _storage
+          .read(key: _refreshKey)
+          .timeout(_storageTimeout);
+      if (_refreshToken == null || _refreshToken!.isEmpty) {
+        _authChanges.add(null);
+        return;
+      }
       await _refreshIdToken();
       await reloadCurrentUser();
     } catch (_) {
-      await _clearSession();
+      // A slow/unavailable network or Windows credential store must never
+      // leave the desktop app on its startup spinner indefinitely. Start with
+      // a signed-out session so the user can sign in again.
+      _idToken = null;
+      _refreshToken = null;
+      _tokenExpiresAt = null;
+      _user = null;
+      try {
+        await _storage.delete(key: _refreshKey).timeout(_storageTimeout);
+      } catch (_) {
+        // The next successful sign-in will replace the stored token.
+      }
+      _authChanges.add(null);
     }
   }
 
@@ -151,11 +168,11 @@ class WindowsAuthRepository implements AuthSession {
       throw const AuthRepositoryException('AUTH_REQUIRED', 'Please sign in again.');
     }
     final uri = Uri.https(_tokenHost, '/v1/token', {'key': _apiKey});
-    final request = await _client.postUrl(uri);
+    final request = await _client.postUrl(uri).timeout(_operationTimeout);
     request.headers.contentType = ContentType('application', 'x-www-form-urlencoded');
     request.write('grant_type=refresh_token&refresh_token=${Uri.encodeQueryComponent(refresh)}');
-    final response = await request.close();
-    final body = await utf8.decoder.bind(response).join();
+    final response = await request.close().timeout(_operationTimeout);
+    final body = await utf8.decoder.bind(response).join().timeout(_operationTimeout);
     final data = _decode(body);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw _firebaseError(data);
@@ -164,7 +181,7 @@ class WindowsAuthRepository implements AuthSession {
     _refreshToken = (data['refresh_token'] as String?) ?? refresh;
     final expiresIn = int.tryParse(data['expires_in']?.toString() ?? '') ?? 3600;
     _tokenExpiresAt = DateTime.now().add(Duration(seconds: expiresIn));
-    await _storage.write(key: _refreshKey, value: _refreshToken);
+    await _storage.write(key: _refreshKey, value: _refreshToken).timeout(_storageTimeout);
     if (_idToken == null || _idToken!.isEmpty) {
       throw const AuthRepositoryException('TOKEN_UNAVAILABLE', 'Firebase did not return a sign-in token.');
     }
@@ -193,7 +210,7 @@ class WindowsAuthRepository implements AuthSession {
     request.headers.contentType = ContentType.json;
     request.write(jsonEncode(payload));
     final response = await request.close();
-    final data = _decode(await utf8.decoder.bind(response).join());
+    final data = _decode(await utf8.decoder.bind(response).join().timeout(_operationTimeout));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw _firebaseError(data);
     }
@@ -236,7 +253,7 @@ class WindowsAuthRepository implements AuthSession {
     _refreshToken = null;
     _tokenExpiresAt = null;
     _user = null;
-    await _storage.delete(key: _refreshKey);
+    await _storage.delete(key: _refreshKey).timeout(_storageTimeout);
     _authChanges.add(null);
   }
 
