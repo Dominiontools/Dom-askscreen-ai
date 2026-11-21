@@ -20,7 +20,7 @@ async function run() {
   assert.equal(taskPayload.mode, 'SPECIFIC_TASK');
   assert.equal(taskPayload.taskContext.title, 'Fibonacci Test');
   assert.match(_test.systemInstructionFor(taskPayload), /ACTIVE SPECIFIC TASK: Fibonacci Test/);
-  assert.match(_test.systemInstructionFor(taskPayload), /do not need to list possible questions/i);
+  assert.match(_test.systemInstructionFor(taskPayload), /does not need to list possible questions/i);
 
   const previous = {
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
