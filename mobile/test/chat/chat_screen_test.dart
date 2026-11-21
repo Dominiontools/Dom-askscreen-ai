@@ -142,6 +142,17 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Specific Task: Fibonacci Test'), findsOneWidget);
+
+    await tester.pumpWidget(MaterialApp(
+      home: ChatScreen(
+        service: service,
+        onSignOut: () async {},
+        accountId: 'account-two',
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('What would you like help with today?'), findsOneWidget);
+    expect(find.text('Specific Task: Fibonacci Test'), findsNothing);
   });
 
   testWidgets('returns to Normal AI mode', (tester) async {
