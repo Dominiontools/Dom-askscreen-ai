@@ -61,7 +61,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        applyClassroomPrivacyFlag()
+        applyInvisiblePresentationMode()
 
         com.example.util.configureAppCheck(this, intent)
         enableEdgeToEdge()
@@ -204,7 +204,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun applyClassroomPrivacyFlag() {
-        val secure = AskScreenApp.instance.preferencesManager.isClassroomPrivacyMode
+        val secure = AskScreenApp.instance.preferencesManager.isInvisiblePresentationMode
         if (secure) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
     }
