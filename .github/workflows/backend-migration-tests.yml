@@ -5,6 +5,7 @@ on:
     branches:
       - migration/netlify-modern-functions
       - fix/ai-response-speed-and-vision-fallback
+      - feature/flutter-cross-platform-foundation
   pull_request:
     branches:
       - fix/full-platform-functionality
