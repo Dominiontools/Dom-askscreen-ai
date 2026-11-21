@@ -96,7 +96,7 @@ fun SettingsScreen() {
                             if (enabled) activityWindow.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
                             else activityWindow.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
                         }
-                        AskScreenOverlayService.refreshPrivacyMode()
+                        AskScreenOverlayService.refreshInvisiblePresentationMode()
                         Toast.makeText(context, if (enabled) "Invisible Presentation Mode is on." else "Invisible Presentation Mode is off.", Toast.LENGTH_SHORT).show()
                     },
                     colors = SwitchDefaults.colors(checkedTrackColor = ElectricCyan)
