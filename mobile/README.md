@@ -49,8 +49,11 @@ The shared UI must clearly communicate platform limitations instead of showing c
 - Account status is read from the sibling `account-status` function using authenticated `GET`; subscription and usage decisions remain server-authoritative.
 - `lib/network/ask_screen_api.dart` implements this transport contract behind an injectable transport so it can be tested without production credentials.
 - `lib/auth/auth_repository.dart` now wraps the existing Firebase Authentication operations: sign-in, account creation, email verification, password reset, sign-out and Firebase ID-token retrieval.
-- Firebase initialization is deliberately pending generated platform options. See `FIREBASE_SETUP.md`; the app must use the existing Firebase project and must not invent a second project.
-- The auth repository must only be constructed after Firebase initialization. The app UI is not yet wired to it.
+- `lib/auth/auth_screen.dart` now provides sign-in, account creation, password reset and resend-verification UI.
+- `lib/chat/chat_screen.dart` now provides the first shared text-chat surface and sends prompts through `AskScreenService`.
+- `lib/main.dart` now initializes Firebase, observes the existing Firebase auth state, gates unverified accounts, and routes verified users to chat. It displays a setup message if Firebase or the AI endpoint is not configured.
+- The AI function URL is supplied at build time through `--dart-define=ASK_SCREEN_ENDPOINT=<full-https-function-url>`; do not guess the production Netlify domain. See `FIREBASE_SETUP.md`.
+- Firebase platform registration and generated options still require an authorized Firebase account. The current bootstrap uses native default Firebase configuration; complete the platform setup before device builds.
 
 ## Suggested structure as migration grows
 
@@ -70,7 +73,7 @@ The shared UI must clearly communicate platform limitations instead of showing c
 
 ## Current status
 
-The platform capability map, authenticated backend client, Firebase authentication repository and unit tests are in place. GitHub Actions is running Flutter formatting, static analysis and tests; check the branch's Actions results for the latest outcome. Firebase native configuration and app sign-in UI are not yet connected, so this is not a functional customer app and must not be distributed.
+The platform capability map, authenticated backend client, Firebase authentication repository, sign-in UI, initial text-chat UI and app routing are now present on the isolated Flutter branch. Flutter formatting, static analysis and tests still need a confirmed successful CI run. Firebase platform configuration, native platform scaffolding, feature parity and real-device testing remain outstanding. This is not ready for customer distribution.
 
 ## Validation gates
 
