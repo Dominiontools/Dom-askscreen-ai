@@ -5,7 +5,7 @@ import '../services/ask_screen_service.dart';
 
 /// Shared typed-chat surface for Normal AI and Specific Task modes.
 /// Screen, microphone and attachment inputs are not connected in this Flutter UI yet.
-/// Task details are session-local until account-scoped persistence is added.
+/// Task details are stored locally under the signed-in account's preference keys.
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key, required this.service, required this.onSignOut, this.accountId = ''});
 
