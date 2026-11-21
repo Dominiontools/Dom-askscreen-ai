@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.AskScreenApp
+import com.google.firebase.auth.FirebaseAuth
 import com.example.service.AskScreenOverlayService
 import com.example.service.ScreenCaptureActivity
 import com.example.ui.theme.*
@@ -52,6 +53,16 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val prefs = remember { AskScreenApp.instance.preferencesManager }
+    val signedInUserId = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+    var specificTaskEnabled by remember(signedInUserId) {
+        mutableStateOf(prefs.isSpecificTaskEnabled(signedInUserId))
+    }
+    var taskTitle by remember(signedInUserId) {
+        mutableStateOf(prefs.specificTaskTitle(signedInUserId))
+    }
+    var taskDescription by remember(signedInUserId) {
+        mutableStateOf(prefs.specificTaskDescription(signedInUserId))
+    }
     val http = remember { OkHttpClient() }
     var announcement by remember { mutableStateOf("") }
 
@@ -234,6 +245,79 @@ fun HomeScreen(
                 Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                     Text("ANNOUNCEMENT",color=ElectricCyan,fontSize=10.sp,fontWeight=FontWeight.Bold,letterSpacing=1.sp)
                     Text(announcement,color=Color.White,fontSize=13.sp,lineHeight=19.sp)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Account-scoped task context also applies to native screen and microphone requests.
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            color = Slate900,
+            border = BorderStroke(1.dp, if (specificTaskEnabled) ElectricCyan else Slate800)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("AI MODE", color = ElectricCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            if (specificTaskEnabled) "Specific Task: $taskTitle" else "Normal AI",
+                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Switch(
+                        checked = specificTaskEnabled,
+                        enabled = signedInUserId.isNotBlank() && (specificTaskEnabled || taskTitle.isNotBlank()),
+                        onCheckedChange = { enabled ->
+                            if (enabled) prefs.saveSpecificTask(signedInUserId, taskTitle, taskDescription)
+                            else prefs.disableSpecificTask(signedInUserId)
+                            specificTaskEnabled = enabled
+                        }
+                    )
+                }
+                OutlinedTextField(
+                    value = taskTitle,
+                    onValueChange = { taskTitle = it.take(120) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Specific task or subject") },
+                    placeholder = { Text("For example: Fibonacci Test") },
+                    singleLine = true,
+                    enabled = signedInUserId.isNotBlank()
+                )
+                OutlinedTextField(
+                    value = taskDescription,
+                    onValueChange = { taskDescription = it.take(6000) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Extra details (optional)") },
+                    placeholder = { Text("Add instructions or reference context. No question list is needed.") },
+                    minLines = 2,
+                    maxLines = 4,
+                    enabled = signedInUserId.isNotBlank()
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (signedInUserId.isBlank())
+                            "Sign in to use account-specific task context."
+                        else
+                            "This context is used for typed, screen-capture and microphone questions.",
+                        modifier = Modifier.weight(1f),
+                        color = Slate300,
+                        fontSize = 11.sp
+                    )
+                    TextButton(
+                        enabled = signedInUserId.isNotBlank() && taskTitle.isNotBlank(),
+                        onClick = {
+                            prefs.saveSpecificTask(signedInUserId, taskTitle, taskDescription)
+                            specificTaskEnabled = true
+                            Toast.makeText(context, "Specific task activated", Toast.LENGTH_SHORT).show()
+                        }
+                    ) { Text("Save task") }
                 }
             }
         }
