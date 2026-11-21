@@ -46,7 +46,7 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final history = _messages
           .take(_messages.length - 1)
-          .map((m) => {'role': m.fromUser ? 'user' : 'assistant', 'content': m.text})
+          .map((m) => {'role': m.fromUser ? 'user' : 'assistant', 'text': m.text})
           .toList();
       final answer = await widget.service.ask(prompt: prompt, history: history);
       if (mounted) setState(() => _messages.add(_ChatMessage(answer, fromUser: false)));
