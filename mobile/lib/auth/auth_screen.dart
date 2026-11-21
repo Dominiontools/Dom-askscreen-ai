@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import 'auth_repository.dart';
 import 'auth_session.dart';
 
 /// Shared sign-in and registration screen for Firebase-backed platform adapters.
