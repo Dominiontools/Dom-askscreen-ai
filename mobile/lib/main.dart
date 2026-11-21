@@ -108,7 +108,7 @@ class _AuthenticatedAppState extends State<_AuthenticatedApp> {
           if (_configurationError != null) {
             return _SetupErrorScreen(message: _configurationError!);
           }
-          return ChatScreen(service: _service!, onSignOut: _auth.signOut);
+          return ChatScreen(service: _service!, onSignOut: _auth.signOut, accountId: user.uid);
         },
       );
 }
