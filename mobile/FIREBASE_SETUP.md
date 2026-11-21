@@ -20,17 +20,20 @@ The configuration command requires an authorized Firebase account. Confirm that 
 
 The FlutterFire CLI generates `lib/firebase_options.dart` and native configuration files. Review the generated files and ensure the app identifiers match the intended platform registrations. Do not commit service-account JSON files, private keys or other server credentials.
 
-## Initialize Firebase
+## Initialize Firebase and configure the AI endpoint
 
-After the generated options file exists, initialize Firebase before constructing `AuthRepository`:
+The current Flutter entry point calls `Firebase.initializeApp()` before creating the authentication repository. Ensure the native Firebase configuration files are present for the platform being built. After FlutterFire generates `lib/firebase_options.dart`, update the bootstrap to pass `DefaultFirebaseOptions.currentPlatform` if the selected platform requires explicit options; do not invent or copy credentials from another Firebase project.
 
-```dart
-await Firebase.initializeApp(
-  options: DefaultFirebaseOptions.currentPlatform,
-);
+Use the same Firebase Authentication project and Email/Password provider as the existing Android app. The shared app acquires Firebase ID tokens from the signed-in user and passes them to the existing Netlify API. It must not access protected Firestore account records directly or implement its own subscription decisions.
+
+The app also requires the full HTTPS URL of the existing Netlify `ask-screen` function at build time. Supply it as a Dart define; the exact deployed site hostname must be confirmed from the existing deployment rather than guessed:
+
+```bash
+flutter build apk --debug \\
+  --dart-define=ASK_SCREEN_ENDPOINT=https://YOUR_EXISTING_NETLIFY_HOST/.netlify/functions/ask-screen
 ```
 
-Use the same Firebase Authentication project and Email/Password provider as the existing Android app. The shared app must acquire Firebase ID tokens from the signed-in user and pass them to the existing Netlify API. It must not access protected Firestore account records directly or implement its own subscription decisions.
+Replace the placeholder with the actual production function URL. The same define is used for iOS and Windows builds. Do not put provider API keys or other secrets in this value.
 
 ## Important
 
