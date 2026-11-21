@@ -48,14 +48,16 @@ The shared UI must clearly communicate platform limitations instead of showing c
 - Successful AI responses contain `success: true` and an `answer` string. Backend error codes such as `AUTH_REQUIRED`, `SUBSCRIPTION_REQUIRED`, `RATE_LIMITED`, `FEATURE_DISABLED` and `UPSTREAM_UNAVAILABLE` are mapped to typed client errors.
 - Account status is read from the sibling `account-status` function using authenticated `GET`; subscription and usage decisions remain server-authoritative.
 - `lib/network/ask_screen_api.dart` implements this transport contract behind an injectable transport so it can be tested without production credentials.
-- Firebase sign-in/token acquisition is not yet wired to the Flutter UI. The caller must supply a fresh Firebase ID token; never persist or hardcode one.
+- `lib/auth/auth_repository.dart` now wraps the existing Firebase Authentication operations: sign-in, account creation, email verification, password reset, sign-out and Firebase ID-token retrieval.
+- Firebase initialization is deliberately pending generated platform options. See `FIREBASE_SETUP.md`; the app must use the existing Firebase project and must not invent a second project.
+- The auth repository must only be constructed after Firebase initialization. The app UI is not yet wired to it.
 
 ## Suggested structure as migration grows
 
 - lib/app/: app root, theme and navigation
 - lib/core/config/: environment and endpoint configuration
 - lib/network/: authenticated API client and safe error mapping
-- lib/core/auth/: Firebase authentication integration
+- lib/auth/: Firebase authentication integration
 - lib/features/chat/: AI conversation and response UI
 - lib/features/work_centre/: catalogue and implemented workspaces
 - lib/features/admin/: admin UI backed by existing protected endpoints
@@ -68,13 +70,14 @@ The shared UI must clearly communicate platform limitations instead of showing c
 
 ## Current status
 
-The platform capability map and shared API client are in place with unit tests authored. Automated Flutter validation is configured in GitHub Actions but has not yet been confirmed passing. The Flutter shell is not yet connected to Firebase Authentication, so it is not a functional customer app and must not be distributed.
+The platform capability map, authenticated backend client, Firebase authentication repository and unit tests are in place. GitHub Actions is running Flutter formatting, static analysis and tests; check the branch's Actions results for the latest outcome. Firebase native configuration and app sign-in UI are not yet connected, so this is not a functional customer app and must not be distributed.
 
 ## Validation gates
 
 Before replacing the Android app or preparing iOS/Windows releases:
 
 - Pass Flutter formatting, analysis and unit tests.
+- Generate and verify Firebase options for Android, iOS and Windows using `FIREBASE_SETUP.md`.
 - Build and test Flutter on Android, iOS and Windows.
 - Verify Firebase sign-in against the existing project.
 - Verify AI requests use the existing backend and preserve authenticated identity.
