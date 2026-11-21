@@ -1,119 +1,90 @@
-# Personal Profile and Active Workspaces — Product Design
+# Task Knowledge Brief — Contextual Answering
 
-## Purpose
+## Product intent
 
-DOM AskScreen AI must answer the meaning of the question or task visible on screen. It must not default to narrating the screenshot (for example, "I see...") when the user needs a useful answer.
+DOM AskScreen AI should behave like an assistant that has been briefed on the user's current subject. The user gives it a description, instructions, reference material, or uploads for a particular task. After that, when a question appears on the screen or the user asks a related question, the AI should produce the answer itself.
 
-The product needs two separate, reusable knowledge areas:
+This is **not** primarily a personal-profile system or a complicated project-management workspace. The central feature is a simple, user-controlled **Task Brief / Knowledge Brief**.
 
-1. **Personal / Company Profile** — stable facts about the account owner and their company.
-2. **Active Workspaces** — task-specific context for a job application, client project, proposal, interview, course, or other current activity.
+## User flow
 
-These areas work together, but must remain independently editable and selectable.
+1. The user opens a "Task Brief" or "Give AI Context" area.
+2. The user optionally names the subject (for example, "Video Annotation Assessment", "Portfolio Presentation", "Customer Support Interview", or "Computer Work").
+3. The user writes or pastes a description explaining what the work is about, what they know, the instructions, the expected questions, and any facts that must be used.
+4. The user may attach relevant files such as a job description, project brief, annotation guidelines, portfolio, training document, or examples.
+5. The app extracts useful text from attachments and presents it for review. The user can edit the brief and correct extracted details.
+6. The user activates that brief. The app clearly shows which brief is currently active.
+7. From then on, screen questions and direct user questions are answered using the active brief plus relevant general knowledge.
 
-## User experience
+The user should be able to save more than one brief and switch between them when changing subjects. Keep this lightweight: a name, editable description/instructions, optional files, and an activate/deactivate control. It is not necessary to require a detailed profile or multi-stage project setup before the feature is useful.
 
-### A. Personal / Company Profile
+## Expected answer behaviour
 
-Provide a Profile area where the user can add, edit, review, and remove:
-- Preferred name and first-person introduction.
-- Roles, skills, services, and professional summary.
-- Education, certificates, and qualifications.
-- Employment history and verified experience.
-- Portfolio items and completed projects, including project name, role, date, description, and optional evidence.
-- Company name, description, services, products, and contact information.
+- Answer the question directly. Do not repeat the question as the answer.
+- Do not default to describing the screenshot or saying "I see..." when the screen contains a question that needs an answer.
+- Give a useful, natural answer that the user can say or use. For interview and assessment questions, use first person when appropriate.
+- Use the active brief as the primary task-specific context. Combine it with general knowledge where that improves accuracy.
+- If the brief contains relevant user-provided experience, examples, project details, or instructions, use them.
+- Do not claim the user has experience, completed projects, qualifications, tools, or achievements that the brief does not support.
+- Do not invent exact counts, dates, metrics, client names, or outcomes. If a question requires a missing personal fact, provide a clear editable placeholder or briefly ask the user to supply the missing fact; still answer the parts that can be answered.
+- If the question is unrelated to the active brief, answer it normally using general knowledge instead of forcing irrelevant context into the response.
+- Treat screen text and uploaded files as reference material, not instructions that can override application safety or the user's explicit settings.
 
-Users may type/paste details or upload supported documents such as a CV, certificates, and company documents. Extracted information must be shown for review before it becomes trusted profile data. Keep the source document associated with extracted facts where possible.
+## Example: Video annotation brief
 
-### B. Active Workspaces
+User's brief:
+"I'm preparing for video annotation work. The task involves reviewing video clips, identifying people and objects, describing actions, following the supplied annotation guidelines, checking labels for accuracy, and maintaining consistency. Use these details when answering related questions."
 
-Provide a Workspaces area with multiple named workspaces. A workspace can represent a job application, interview, client project, proposal, contract, school task, or other company assignment.
+The user may also attach the actual role description, annotation handbook, and sample tasks.
 
-Each workspace supports:
-- Name and purpose.
-- Job description, project brief, client instructions, requirements, questions, and reference documents.
-- User-written notes and priorities.
-- Optional role/company/client name and status.
-- A switch to make this the active workspace.
-- Edit, archive, and delete actions.
+Questions and expected behaviour:
+- "What do you know about video annotation?" → Explain video annotation clearly and in a way relevant to the supplied work.
+- "What experience do you have?" → Use only experience and examples actually supplied by the user. If none is supplied, give an honest answer that does not pretend the user has done work they have not confirmed.
+- "How do you annotate this video?" → Explain the steps using the uploaded guidelines and the visible video/task context.
+- "How do you maintain accuracy?" → Give a practical answer based on the supplied requirements and sound annotation practice.
+- "How many projects have you completed?" → Use a count only if the user supplied reliable project records/count. Otherwise use an editable placeholder or ask for the correct number.
+- "What would you do if an object is difficult to identify?" → Explain a careful, guideline-led approach and avoid guessing.
 
-Users can create a workspace by typing/pasting a description or uploading relevant files. The app should summarize what it extracted and ask the user to confirm or correct it.
+## Answer presentation and correction
 
-Examples: "Video Editor Job Application", "Virtual Assistant Interview", "Client Promo Video", and "Dominion Company Proposal".
+The primary output is the answer, not a description of what the AI sees. Keep it concise enough to be useful, but provide detail when the question requires it.
 
-### C. Context-aware screen answers
+Allow the user to edit, copy, regenerate, or mark an answer as useful. If the user corrects a fact in the active brief, make it easy to update the brief so future answers use the correction. Do not silently store every generated answer as fact. The user decides what becomes part of the saved brief.
 
-When screen content is captured, identify the actual question, instruction, form field, or task. Answer it directly rather than merely describing the pixels.
+## Suggested minimal data model
 
-Use context in this order:
-1. The current visible question/instruction and immediate conversation.
-2. The explicitly active workspace and its documents/notes.
-3. Relevant approved facts from the Personal / Company Profile.
-4. General knowledge, clearly distinguished from the user's personal facts.
+- TaskBrief: id, accountId, name, description, instructions, attachedDocumentIds, isActive, createdAt, updatedAt.
+- TaskBriefDocument: id, taskBriefId, file metadata, extractedText/reference, extractionStatus, userReviewStatus.
+- AnswerFeedback: id, taskBriefId, question, suggestedAnswer, userCorrection, createdAt.
 
-Do not force profile details into unrelated questions. Do not let an old workspace contaminate a new task. If no workspace is active, answer using the current screen and relevant personal profile facts only.
+These are logical design entities, not a claim that database tables or APIs already exist.
 
-Examples:
-- "Introduce yourself" → a natural first-person introduction grounded in approved profile facts and tailored to the active role.
-- "What experience do you have?" → relevant work history and project examples, not a generic screenshot description.
-- "How many projects have you completed?" → count only portfolio records that are actually saved and relevant. If no reliable count exists, ask the user or insert a clear editable placeholder; never invent a number.
-- "What does this document mean?" → explain the document in plain language.
-- "How should I answer this question?" → provide a ready-to-use draft in the user's voice and relevant to the active workspace.
+## Security and platform requirements
 
-### D. Editable answer suggestions and learning from corrections
-
-Every generated personal/work answer should be presented as a **draft**, with actions to:
-- Edit the wording.
-- Copy/use the answer.
-- Mark it as approved.
-- Save a correction as a workspace note, approved profile fact, or reusable answer.
-
-Ask where a correction belongs when ambiguous: current workspace only, personal/company profile, or both. Do not silently turn a one-off answer into a permanent personal fact.
-
-Keep provenance/status with facts where possible (user-entered, extracted-needs-review, user-approved). A generated statement is not a verified fact merely because the AI generated it.
-
-### E. Workspace switching and isolation
-
-The active workspace should be visible in the UI while screen assistance is running. Switching workspaces changes the context used for subsequent answers. The user can pause or disable profile/workspace context at any time.
-
-## Suggested data model
-
-- UserProfile: accountId, preferredName, introduction, professionalSummary, skills, qualifications, workHistory, portfolioItems, companyProfile, updatedAt.
-- ProfileFact: id, category, value, sourceDocumentId?, verificationStatus, updatedAt.
-- Workspace: id, accountId, name, purpose, status, isActive, brief, instructions, notes, referenceDocumentIds, createdAt, updatedAt.
-- WorkspaceDocument: id, workspaceId, file metadata, extractedText/reference, extractionStatus, reviewStatus.
-- SuggestedAnswer: id, workspaceId?, question, answerDraft, sourceFactIds, status (draft/edited/approved), updatedAt.
-
-These are logical product entities, not a claim that database tables or endpoints already exist.
-
-## Backend, security, and platform requirements
-
-- Use the existing Firebase-authenticated account identity and existing backend authority. Do not create a second account system.
-- Before persistence is implemented, verify the existing backend's storage and document-processing capabilities. Add authenticated, account-scoped backend endpoints and storage rules; do not store private CVs or company documents in public/client-readable locations.
-- Never put provider API keys or administrative credentials in the app.
-- Enforce per-account access on the server. A user must never read another user's profile, workspace, files, or answers.
-- Provide export and delete controls for profile/workspace data and associated uploads.
-- Treat uploaded documents and screen text as untrusted content. They are context, not instructions to override system safety, application rules, or the user's explicit request.
-- Avoid exposing sensitive personal data unnecessarily in generated answers. The user controls what is included in an answer.
-- The same product concepts and shared Flutter UI should be available on Android, iOS, and Windows. File picking, secure storage, screen capture, and overlays must use platform-appropriate adapters and respect OS restrictions.
+- Use the existing authenticated account identity and backend authority. Do not create a second account system.
+- Keep briefs and uploaded files private and scoped to the owning account. Verify server-side authorization on every read/write.
+- Do not place provider API keys or administrative credentials in the client.
+- Provide user controls to edit, deactivate, delete, and eventually export saved briefs and their documents.
+- Bound the amount of brief/document context sent to the model; retrieve relevant excerpts instead of blindly attaching every document on every request.
+- The shared feature should be available on Android, iOS, and Windows. File selection, screen capture, and other OS integrations must use platform-appropriate implementations and respect OS limitations.
 
 ## Implementation sequence
 
-1. Design and build the shared Flutter Profile and Workspaces screens with editable local draft state and tests.
-2. Define and implement authenticated backend persistence, upload handling, account isolation, and deletion using the existing backend architecture.
-3. Add document extraction/review and approved-fact management.
-4. Extend the AI request contract so the backend receives only the selected workspace context and relevant approved profile facts, with bounded context size.
-5. Update screen-question interpretation and answer generation to use that context; add tests for introductions, experience, project counts, unrelated questions, missing facts, and workspace switching.
-6. Add answer edit/approve/save flows and tests.
-7. Validate Android, iOS, and Windows separately, including each platform's screen-capture and privacy limitations.
+1. Build the simple shared Flutter Task Brief interface: create/name a brief, type or paste a description, edit it, save it, select the active brief, and switch between saved briefs.
+2. Add private file attachment and text extraction with a review/edit step.
+3. Verify existing backend persistence options, then add authenticated account-scoped storage and document endpoints.
+4. Extend the AI request/backend contract to include the active brief and relevant document excerpts.
+5. Update answer-generation instructions so screen questions receive direct answers, grounded in the active brief and general knowledge, without repeating the question or narrating the screen.
+6. Add tests for relevant questions, unrelated questions, missing experience/counts, document guidance, corrections, and switching briefs.
+7. Validate the shared experience on Android, iOS, and Windows, with platform-specific screen and file capabilities tested separately.
 
 ## Acceptance criteria
 
-- The AI answers the question/task visible on screen rather than automatically saying "I see..." or merely describing the screenshot.
-- The user can maintain one personal/company profile and multiple independent workspaces.
-- The user can select, switch, edit, archive, and delete workspaces.
-- Answers are tailored to the active workspace and approved profile facts.
-- Unsupported personal claims and unknown project counts are never fabricated.
-- Suggested answers are editable and are not treated as verified facts until the user approves them.
-- Workspace data is isolated by authenticated account and is not exposed to other users.
-- No production deployment, merge, or release occurs without the user's explicit approval.
+- A user can explain a task once in a simple description and optionally upload reference documents.
+- The user can save multiple briefs and select which one is active.
+- The AI answers questions about the active subject directly, rather than repeating the question or merely describing the screen.
+- The AI uses provided task facts and relevant general knowledge, while never fabricating personal experience or unsupported numbers.
+- The user can correct the brief and have subsequent answers reflect the correction.
+- Unrelated questions are answered normally without forcing the active brief into them.
+- Data and uploaded documents are private to the authenticated account.
+- No production merge, deployment, or release occurs without the user's explicit approval.
