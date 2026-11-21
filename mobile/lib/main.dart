@@ -1,9 +1,11 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'auth/auth_repository.dart';
 import 'auth/auth_screen.dart';
+import 'auth/auth_session.dart';
+import 'auth/windows_auth_repository.dart';
 import 'chat/chat_screen.dart';
 import 'network/ask_screen_api.dart';
 import 'services/ask_screen_service.dart';
@@ -13,14 +15,18 @@ const _askScreenEndpoint = String.fromEnvironment(
   defaultValue: 'https://domaskscreenai.netlify.app/.netlify/functions/ask-screen',
 );
 
+Future<void> _initializePlatform() async {
+  if (defaultTargetPlatform == TargetPlatform.windows) return;
+  await Firebase.initializeApp();
+}
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(DomAskScreenApp(initialization: Firebase.initializeApp()));
+  runApp(const DomAskScreenApp());
 }
 
 class DomAskScreenApp extends StatelessWidget {
-  const DomAskScreenApp({super.key, required this.initialization});
-  final Future<FirebaseApp> initialization;
+  const DomAskScreenApp({super.key});
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -37,8 +43,8 @@ class DomAskScreenApp extends StatelessWidget {
           ),
           useMaterial3: true,
         ),
-        home: FutureBuilder<FirebaseApp>(
-          future: initialization,
+        home: FutureBuilder<void>(
+          future: _initializePlatform(),
           builder: (context, snapshot) {
             if (snapshot.connectionState != ConnectionState.done) {
               return const _LoadingScreen();
@@ -64,14 +70,18 @@ class _AuthenticatedApp extends StatefulWidget {
 }
 
 class _AuthenticatedAppState extends State<_AuthenticatedApp> {
-  late final AuthRepository _auth;
+  late final AuthSession _auth;
+  late final Future<void> _authInitialization;
   late final AskScreenService? _service;
   String? _configurationError;
 
   @override
   void initState() {
     super.initState();
-    _auth = AuthRepository();
+    _auth = defaultTargetPlatform == TargetPlatform.windows
+        ? WindowsAuthRepository()
+        : AuthRepository();
+    _authInitialization = _auth.initialize();
     if (_askScreenEndpoint.isEmpty) {
       _configurationError = 'The AI endpoint is not configured. Set '
           '--dart-define=ASK_SCREEN_ENDPOINT to the existing HTTPS Netlify '
@@ -91,24 +101,39 @@ class _AuthenticatedAppState extends State<_AuthenticatedApp> {
   }
 
   @override
-  Widget build(BuildContext context) => StreamBuilder<User?>(
-        stream: _auth.authStateChanges,
-        initialData: _auth.currentUser,
-        builder: (context, snapshot) {
-          final user = snapshot.data;
-          if (snapshot.connectionState == ConnectionState.waiting && user == null) {
+  Widget build(BuildContext context) => FutureBuilder<void>(
+        future: _authInitialization,
+        builder: (context, initialization) {
+          if (initialization.connectionState != ConnectionState.done) {
             return const _LoadingScreen();
           }
-          if (user == null || !user.emailVerified) {
-            return AuthScreen(
-              repository: _auth,
-              onSignedIn: (_) => setState(() {}),
-            );
+          if (initialization.hasError) {
+            return _SetupErrorScreen(message: 'Could not restore your sign-in: ${initialization.error}');
           }
-          if (_configurationError != null) {
-            return _SetupErrorScreen(message: _configurationError!);
-          }
-          return ChatScreen(service: _service!, onSignOut: _auth.signOut, accountId: user.uid);
+          return StreamBuilder<AppUser?>(
+            stream: _auth.authStateChanges,
+            initialData: _auth.currentUser,
+            builder: (context, snapshot) {
+              final user = snapshot.data;
+              if (snapshot.connectionState == ConnectionState.waiting && user == null) {
+                return const _LoadingScreen();
+              }
+              if (user == null || !user.emailVerified) {
+                return AuthScreen(
+                  repository: _auth,
+                  onSignedIn: (_) => setState(() {}),
+                );
+              }
+              if (_configurationError != null) {
+                return _SetupErrorScreen(message: _configurationError!);
+              }
+              return ChatScreen(
+                service: _service!,
+                onSignOut: _auth.signOut,
+                accountId: user.uid,
+              );
+            },
+          );
         },
       );
 }
