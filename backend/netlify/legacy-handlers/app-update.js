@@ -153,6 +153,7 @@ async function publishUploadedApk(admin, db, decoded, body) {
     publishedAt: admin.firestore.FieldValue.serverTimestamp()
   };
   await db.collection('askScreenAppReleases').doc('current').set(release);
+  await db.collection('askScreenAppReleaseHistory').doc(String(release.versionCode)).set(release);
   await sessionRef.update({ status: 'published', publishedAt: admin.firestore.FieldValue.serverTimestamp() });
   await db.collection('askScreenAdminAuditLogs').add({
     action: 'app_update_published', targetEmail: 'DOM Ask AI release',
@@ -174,14 +175,25 @@ exports.handler = async event => {
     const db = admin.firestore();
     if (event.httpMethod === 'GET') {
       const release = await latestRelease(db);
+      const releaseSummary = item => item && item.published === true ? {
+        versionCode: item.versionCode, versionName: item.versionName,
+        releaseNotes: item.releaseNotes || '', packageName: 'com.dominion.askscreenai',
+        sizeBytes: item.sizeBytes || 0, sha256: item.sha256 || '',
+        downloadUrl: item.downloadUrl,
+        publishedAt: item.publishedAt?.toDate ? item.publishedAt.toDate().toISOString() : null
+      } : null;
+      const isAdminListing = event.queryStringParameters?.admin === '1';
+      if (isAdminListing) {
+        const decoded = verifyAdminSession(event);
+        if (!adminEmail(decoded)) return json(403, { error: 'This verified account is not authorized to view app releases.' });
+        const historySnapshot = await db.collection('askScreenAppReleaseHistory').orderBy('publishedAt', 'desc').limit(20).get();
+        const releases = historySnapshot.docs.map(doc => ({ id: doc.id, ...releaseSummary(doc.data()) })).filter(item => item && item.versionCode);
+        const currentRelease = releaseSummary(release);
+        if (currentRelease && !releases.some(item => Number(item.versionCode) === Number(currentRelease.versionCode))) releases.unshift({ id: 'current', ...currentRelease });
+        return json(200, { updateAvailable: Boolean(currentRelease), currentRelease, releases });
+      }
       if (!release || release.published !== true) return json(200, { updateAvailable: false, release: null });
-      return json(200, { updateAvailable: true, release: {
-        versionCode: release.versionCode, versionName: release.versionName,
-        releaseNotes: release.releaseNotes, packageName: 'com.dominion.askscreenai',
-        sizeBytes: release.sizeBytes || 0, sha256: release.sha256 || '',
-        downloadUrl: release.downloadUrl,
-        publishedAt: release.publishedAt?.toDate ? release.publishedAt.toDate().toISOString() : null
-      } });
+      return json(200, { updateAvailable: true, release: releaseSummary(release) });
     }
     const decoded = verifyAdminSession(event);
     const email = adminEmail(decoded);
@@ -218,6 +230,7 @@ exports.handler = async event => {
       downloadUrl, sizeBytes, sha256, published: true, publishedBy: email, publishedByUid: decoded.uid,
       publishedAt: admin.firestore.FieldValue.serverTimestamp() };
     await db.collection('askScreenAppReleases').doc('current').set(release);
+    await db.collection('askScreenAppReleaseHistory').doc(String(release.versionCode)).set(release);
     await db.collection('askScreenAdminAuditLogs').add({ action: 'app_update_published',
       targetEmail: 'DOM Ask AI release', adminUid: decoded.uid, adminEmail: email,
       status: 'published', versionCode, versionName, createdAt: admin.firestore.FieldValue.serverTimestamp() });
