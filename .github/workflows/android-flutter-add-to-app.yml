@@ -99,20 +99,11 @@ jobs:
 
           settings = Path("settings.gradle.kts")
           text = settings.read_text()
-          plugin_marker = "pluginManagement {"
-          if plugin_marker not in text:
-              raise SystemExit("Plugin management block was not found.")
-          kotlin_resolution = """pluginManagement {
-            resolutionStrategy {
-              eachPlugin {
-                if (requested.id.id.startsWith("org.jetbrains.kotlin")) {
-                  useVersion("2.4.0")
-                }
-              }
-            }
-          """
-          if 'useVersion("2.4.0")' not in text:
-              text = text.replace(plugin_marker, kotlin_resolution, 1)
+          # Align the host's temporary CI Kotlin plugin version with the Firebase SDK metadata.
+          catalog = Path("gradle/libs.versions.toml")
+          catalog_text = catalog.read_text()
+          catalog_text = catalog_text.replace('kotlin = "2.2.10"', 'kotlin = "2.4.0"')
+          catalog.write_text(catalog_text)
 
           marker = "repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)"
           if marker not in text:
