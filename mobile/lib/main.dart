@@ -1,91 +1,148 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
-import 'platform/platform_profile.dart';
+
+import 'auth/auth_repository.dart';
+import 'auth/auth_screen.dart';
+import 'chat/chat_screen.dart';
+import 'network/ask_screen_api.dart';
+import 'services/ask_screen_service.dart';
+
+const _askScreenEndpoint = String.fromEnvironment('ASK_SCREEN_ENDPOINT');
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const DomAskScreenApp());
+  runApp(DomAskScreenApp(initialization: Firebase.initializeApp()));
 }
 
 class DomAskScreenApp extends StatelessWidget {
-  const DomAskScreenApp({super.key});
+  const DomAskScreenApp({super.key, required this.initialization});
+  final Future<FirebaseApp> initialization;
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'DOM AskScreen AI',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF3157D5),
-          brightness: Brightness.light,
+  Widget build(BuildContext context) => MaterialApp(
+        title: 'DOM AskScreen AI',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF3157D5)),
+          useMaterial3: true,
         ),
-        useMaterial3: true,
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF7894FF),
-          brightness: Brightness.dark,
+        darkTheme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xFF7894FF),
+            brightness: Brightness.dark,
+          ),
+          useMaterial3: true,
         ),
-      ),
-      home: const MigrationFoundationScreen(),
-    );
-  }
+        home: FutureBuilder<FirebaseApp>(
+          future: initialization,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const _LoadingScreen();
+            }
+            if (snapshot.hasError) {
+              return _SetupErrorScreen(
+                message: 'Firebase is not configured for this platform yet. '
+                    'Complete mobile/FIREBASE_SETUP.md and rebuild. '
+                    'Details: ${snapshot.error}',
+              );
+            }
+            return const _AuthenticatedApp();
+          },
+        ),
+      );
 }
 
-class MigrationFoundationScreen extends StatelessWidget {
-  const MigrationFoundationScreen({super.key});
+class _AuthenticatedApp extends StatefulWidget {
+  const _AuthenticatedApp();
 
   @override
-  Widget build(BuildContext context) {
-    final profile = PlatformProfile.detect(
-      target: kIsWeb ? null : defaultTargetPlatform,
-    );
-    final platformName = switch (profile.platform) {
-      DomPlatform.android => 'Android',
-      DomPlatform.ios => 'iOS',
-      DomPlatform.windows => 'Windows',
-      DomPlatform.macos => 'macOS',
-      DomPlatform.linux => 'Linux',
-      DomPlatform.web => 'Web preview',
-      DomPlatform.other => 'Other platform',
-    };
+  State<_AuthenticatedApp> createState() => _AuthenticatedAppState();
+}
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('DOM AskScreen AI')),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 620),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.auto_awesome, size: 44),
-                const SizedBox(height: 20),
-                const Text(
-                  'One app. Three platforms.',
-                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
-                Text('Detected platform: $platformName'),
-                const SizedBox(height: 12),
-                Text(profile.screenPrivacyDescription),
-                const SizedBox(height: 20),
-                const Text(
-                  'The shared Flutter foundation is being prepared for '
-                  'Android, iOS and Windows. Existing AI, accounts, '
-                  'subscriptions, Work Centre, Admin Centre and device '
-                  'features will be connected in staged migrations. '
-                  'This foundation is not yet connected to production '
-                  'services, and the existing Android app remains untouched.',
-                ),
-              ],
+class _AuthenticatedAppState extends State<_AuthenticatedApp> {
+  late final AuthRepository _auth;
+  late final AskScreenService? _service;
+  String? _configurationError;
+
+  @override
+  void initState() {
+    super.initState();
+    _auth = AuthRepository();
+    if (_askScreenEndpoint.isEmpty) {
+      _configurationError = 'The AI endpoint is not configured. Set '
+          '--dart-define=ASK_SCREEN_ENDPOINT to the existing HTTPS Netlify '
+          'function URL ending in /ask-screen.';
+      _service = null;
+    } else {
+      try {
+        _service = AskScreenService(
+          api: AskScreenApi(askScreenEndpoint: Uri.parse(_askScreenEndpoint)),
+          tokens: _auth,
+        );
+      } catch (error) {
+        _configurationError = 'The AI endpoint configuration is invalid: $error';
+        _service = null;
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => StreamBuilder<User?>(
+        stream: _auth.authStateChanges,
+        initialData: _auth.currentUser,
+        builder: (context, snapshot) {
+          final user = snapshot.data;
+          if (snapshot.connectionState == ConnectionState.waiting && user == null) {
+            return const _LoadingScreen();
+          }
+          if (user == null || !user.emailVerified) {
+            return AuthScreen(
+              repository: _auth,
+              onSignedIn: (_) => setState(() {}),
+            );
+          }
+          if (_configurationError != null) {
+            return _SetupErrorScreen(message: _configurationError!);
+          }
+          return ChatScreen(service: _service!, onSignOut: _auth.signOut);
+        },
+      );
+}
+
+class _LoadingScreen extends StatelessWidget {
+  const _LoadingScreen();
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+}
+
+class _SetupErrorScreen extends StatelessWidget {
+  const _SetupErrorScreen({required this.message});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.settings_suggest_outlined, size: 48),
+                  const SizedBox(height: 16),
+                  Text('Setup required',
+                      style: Theme.of(context).textTheme.headlineSmall),
+                  const SizedBox(height: 12),
+                  SelectableText(message, textAlign: TextAlign.center),
+                ],
+              ),
             ),
           ),
         ),
-      ),
-    );
-  }
+      );
 }
