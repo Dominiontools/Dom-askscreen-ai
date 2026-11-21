@@ -8,6 +8,7 @@ import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -78,12 +79,13 @@ class MainActivity : ComponentActivity() {
                 val updateScope = rememberCoroutineScope()
                 var dismissedUpdateVersionCode by remember { mutableStateOf("") }
                 LaunchedEffect(showAdminScreen) {
-                    if (!showAdminScreen) {
+                    while (!showAdminScreen) {
                         AskScreenApp.instance.preferencesManager.refreshBackendUrl()
                         val latest = loadSelfHostedUpdate()
                         if (latest != null && latest["versionCode"] != dismissedUpdateVersionCode) {
                             availableUpdate = latest
                         }
+                        delay(60_000L)
                     }
                 }
                 val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
