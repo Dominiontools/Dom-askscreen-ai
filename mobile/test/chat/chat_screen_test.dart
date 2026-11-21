@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dom_askscreen_ai/auth/id_token_provider.dart';
 import 'package:dom_askscreen_ai/chat/chat_screen.dart';
 import 'package:dom_askscreen_ai/network/ask_screen_api.dart';
@@ -102,6 +103,45 @@ void main() {
     expect(service.lastMode, 'SPECIFIC_TASK');
     expect(service.lastTaskContext?['title'], 'Fibonacci Test');
     expect(find.text('Test answer'), findsOneWidget);
+  });
+
+
+  testWidgets('restores the active task for the same signed-in account', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final service = FakeAskScreenService({});
+
+    await tester.pumpWidget(MaterialApp(
+      home: ChatScreen(
+        service: service,
+        onSignOut: () async {},
+        accountId: 'account-one',
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Specific Task').first);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byWidgetPredicate((widget) =>
+          widget is TextField &&
+          widget.decoration?.hintText == 'For example: Fibonacci Test'),
+      'Fibonacci Test',
+    );
+    await tester.tap(find.text('Activate task'));
+    await tester.pumpAndSettle();
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(MaterialApp(
+      home: ChatScreen(
+        service: service,
+        onSignOut: () async {},
+        accountId: 'account-one',
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Specific Task: Fibonacci Test'), findsOneWidget);
   });
 
   testWidgets('returns to Normal AI mode', (tester) async {
