@@ -45,8 +45,8 @@ async function run() {
   for (const [key, value] of Object.entries(oldVisionEnv)) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;
   }
-  assert.equal(askScreenTests.PROVIDER_TIMEOUT_MS, 25_000);
-  assert.equal(askScreenTests.ROUTER_DEADLINE_MS, 52_000);
+  assert.equal(askScreenTests.PROVIDER_TIMEOUT_MS, 8_000);
+  assert.equal(askScreenTests.ROUTER_DEADLINE_MS, 18_000);
   console.log('PASS OpenRouter image/video-frame vision fallback and timeout configuration');
   const oldAdminCode = process.env.ADMIN_ACCESS_CODE;
   const oldAdminEmails = process.env.ADMIN_EMAILS;

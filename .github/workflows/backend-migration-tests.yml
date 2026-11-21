@@ -1,9 +1,10 @@
-name: Backend migration tests
+name: Backend migration tests (AI failover repair)
 
 on:
   push:
     branches:
       - migration/netlify-modern-functions
+      - fix/ai-response-speed-and-vision-fallback
   pull_request:
     branches:
       - fix/full-platform-functionality

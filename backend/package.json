@@ -4,7 +4,7 @@
   "description": "Secure Netlify serverless backend for AskScreen AI",
   "main": "netlify/legacy-handlers/ask-screen.js",
   "scripts": {
-    "test": "node test.js && node delete-account.test.js && node google-oauth.test.js && node google-workspace.test.js"
+    "test": "node test.js && node delete-account.test.js && node google-oauth.test.js && node google-workspace.test.js && node router-failover.test.js"
   },
   "dependencies": {
     "firebase-admin": "^13.5.0",
