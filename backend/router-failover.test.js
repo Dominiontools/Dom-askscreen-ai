@@ -4,8 +4,8 @@ const assert = require('node:assert/strict');
 const { routeRequest, _test } = require('./netlify/legacy-handlers/ask-screen');
 
 async function run() {
-  assert.equal(_test.PROVIDER_TIMEOUT_MS, 10_000);
-  assert.equal(_test.ROUTER_DEADLINE_MS, 24_000);
+  assert.equal(_test.PROVIDER_TIMEOUT_MS, 8_000);
+  assert.equal(_test.ROUTER_DEADLINE_MS, 18_000);
 
   const previous = {
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
