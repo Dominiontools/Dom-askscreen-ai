@@ -75,7 +75,7 @@ exports.handler = async event => {
     if (existing.exists) return json(409, { error: 'This transaction hash has already been submitted. Contact support if you believe this is an error.' });
     await ref.create({
       provider: 'USDT_MANUAL',
-      uid: null,
+      uid: decoded.uid,
       email,
       productId,
       productName: pricedProduct.name,

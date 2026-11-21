@@ -7,6 +7,25 @@ function json(statusCode, data) {
     'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Admin-Access-Code',
     'Cache-Control': 'no-store' }, body: JSON.stringify(data) };
 }
+async function findPaymentCustomer(auth, payment) {
+  let customer = null;
+  const submittedUid = typeof payment.uid === 'string' ? payment.uid.trim() : '';
+  if (submittedUid) {
+    try { customer = await auth.getUser(submittedUid); }
+    catch (lookupError) {
+      if (lookupError.code !== 'auth/user-not-found') throw lookupError;
+    }
+  }
+  if (!customer && payment.email) {
+    try { customer = await auth.getUserByEmail(String(payment.email).trim().toLowerCase()); }
+    catch (lookupError) {
+      if (lookupError.code !== 'auth/user-not-found') throw lookupError;
+    }
+  }
+  return customer && customer.emailVerified ? customer : null;
+}
+exports._test = { findPaymentCustomer };
+
 let adminPromise;
 async function getAdmin() {
   if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) throw new Error('AUTH_NOT_CONFIGURED');
@@ -43,10 +62,7 @@ exports.handler = async event => {
     if (action === 'approve') {
       const product = DEFAULT_PRODUCTS.find(item => item.id === payment.productId && (item.id === 'core' || item.independent === true));
       if (!product) return json(400, { error: 'The payment does not reference a valid subscription product.' });
-      let customer = null;
-      try { customer = await admin.auth().getUserByEmail(String(payment.email || '')); }
-      catch (lookupError) { if (lookupError.code !== 'auth/user-not-found') throw lookupError; }
-      const verifiedCustomer = customer && customer.emailVerified ? customer : null;
+      const verifiedCustomer = await findPaymentCustomer(admin.auth(), payment);
       const now = admin.firestore.FieldValue.serverTimestamp();
       const accountRef = verifiedCustomer ? db.collection('askScreenAccounts').doc(verifiedCustomer.uid) : null;
       let periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);

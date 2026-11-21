@@ -54,6 +54,15 @@ private data class AdminTicketRow(val id:String,val date:String,val email:String
 private data class AdminAuditRow(val action:String,val targetEmail:String,val adminEmail:String,val detail:String,val date:String)
 private data class AdminPriceRow(val id:String,val name:String,val category:String,val monthlyPriceCents:Int,val priceText:String)
 private data class AdminActivityRow(val email:String,val feature:String,val outcome:String,val code:String,val provider:String,val requestId:String,val date:String)
+private data class AdminReleaseRow(val versionName:String,val versionCode:Long,val releaseNotes:String,val publishedAt:String)
+private fun nextReleaseName(current:String):String {
+    val parts = current.split(".").toMutableList()
+    val last = parts.lastOrNull()?.toIntOrNull()
+    return if (last != null) {
+        parts[parts.lastIndex] = (last + 1).toString()
+        parts.joinToString(".")
+    } else "$current.1"
+}
 
 @Composable
 fun AdminScreen(onBack: () -> Unit) {
@@ -61,6 +70,13 @@ fun AdminScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val http = remember { OkHttpClient() }
     val context = LocalContext.current
+    val installedVersion = remember {
+        runCatching {
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            val code = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
+            (info.versionName ?: "1.1.2") to code
+        }.getOrDefault("1.1.2" to 5L)
+    }
     var email by remember { mutableStateOf("") }
     var adminAccessCode by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -86,9 +102,11 @@ fun AdminScreen(onBack: () -> Unit) {
     var trialUsers by remember { mutableIntStateOf(0) }
     var disabledUsers by remember { mutableIntStateOf(0) }
     var loaded by remember { mutableStateOf(false) }
-    var releaseVersionCode by remember { mutableStateOf("4") }
-    var releaseVersionName by remember { mutableStateOf("1.1.1") }
-    var releaseNotes by remember { mutableStateOf("") }
+    var releaseVersionCode by remember { mutableStateOf((installedVersion.second + 1L).toString()) }
+    var releaseVersionName by remember { mutableStateOf(nextReleaseName(installedVersion.first)) }
+    var currentPublishedRelease by remember { mutableStateOf("No release has been published yet.") }
+    var releaseHistory by remember { mutableStateOf<List<AdminReleaseRow>>(emptyList()) }
+    var releaseNotes by remember { mutableStateOf("Classroom Privacy Mode, payment approval fixes, and a more reliable in-app update flow.") }
     var selectedApkUri by remember { mutableStateOf<Uri?>(null) }
     var selectedApkName by remember { mutableStateOf("") }
     var selectedApkSize by remember { mutableLongStateOf(0L) }
@@ -107,6 +125,29 @@ fun AdminScreen(onBack: () -> Unit) {
                 }
             }
             releaseMessage = null
+            scope.launch {
+                try {
+                    val detected = withContext(Dispatchers.IO) {
+                        val temp = File.createTempFile("dom-askscreen-version-", ".apk", context.cacheDir)
+                        try {
+                            context.contentResolver.openInputStream(uri)?.use { input ->
+                                FileOutputStream(temp).use { output -> input.copyTo(output) }
+                            } ?: throw IllegalStateException("The selected APK could not be opened.")
+                            val info = context.packageManager.getPackageArchiveInfo(temp.absolutePath, 0)
+                                ?: throw IllegalArgumentException("Android could not read this APK.")
+                            if (info.packageName != "com.dominion.askscreenai") throw IllegalArgumentException("This is not the DOM Ask AI APK.")
+                            val code = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
+                            val name = info.versionName?.trim().orEmpty()
+                            if (code < 2L || name.isBlank()) throw IllegalArgumentException("The APK version details are invalid.")
+                            name to code
+                        } finally { temp.delete() }
+                    }
+                    releaseVersionName = detected.first
+                    releaseVersionCode = detected.second.toString()
+                } catch (e: Exception) {
+                    releaseMessage = e.message ?: "Could not read the APK version."
+                }
+            }
         }
     }
     var grantDialogOpen by remember { mutableStateOf(false) }
@@ -302,6 +343,26 @@ fun AdminScreen(onBack: () -> Unit) {
             }
         }
         loadSettings(token)
+        val releaseEndpoint = configured.removeSuffix("/ask-screen") + "/app-update?admin=1"
+        val releaseListing = withContext(Dispatchers.IO) {
+            val request = Request.Builder().url(releaseEndpoint).header("Authorization", "Bearer $token").get().build()
+            http.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                val json = try { JSONObject(body) } catch (_:Exception) { JSONObject() }
+                if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "Could not load published app releases." })
+                json
+            }
+        }
+        val currentRelease = releaseListing.optJSONObject("currentRelease")
+        currentPublishedRelease = if (currentRelease == null) "No release has been published yet." else
+            "Version ${currentRelease.optString("versionName")} (code ${currentRelease.optLong("versionCode")})"
+        val historyArray = releaseListing.optJSONArray("releases")
+        releaseHistory = buildList {
+            if (historyArray != null) for (i in 0 until historyArray.length()) {
+                val item = historyArray.optJSONObject(i) ?: continue
+                add(AdminReleaseRow(item.optString("versionName"), item.optLong("versionCode"), item.optString("releaseNotes"), dateLabel(item.optString("publishedAt"))))
+            }
+        }
         loaded = true
     }
 
@@ -395,10 +456,6 @@ fun AdminScreen(onBack: () -> Unit) {
     }
 
     suspend fun publishApk() {
-        val versionCode = releaseVersionCode.toIntOrNull()
-            ?: throw IllegalArgumentException("Version code must be a whole number.")
-        if (versionCode < 2) throw IllegalArgumentException("Version code must be at least 2.")
-        if (releaseVersionName.isBlank()) throw IllegalArgumentException("Enter the version name.")
         val selectedUri = selectedApkUri ?: throw IllegalArgumentException("Choose the signed APK from this device.")
         if (!selectedApkName.lowercase(Locale.US).endsWith(".apk")) throw IllegalArgumentException("Choose a file ending in .apk.")
         val configured = prefs.backendUrl.trim().trimEnd('/')
@@ -406,7 +463,7 @@ fun AdminScreen(onBack: () -> Unit) {
         val endpoint = configured.removeSuffix("/ask-screen") + "/app-update"
         val tempApk = File.createTempFile("dom-askscreen-release-", ".apk", context.cacheDir)
         try {
-            val sizeAndHash = withContext(Dispatchers.IO) {
+            val apkDetails = withContext(Dispatchers.IO) {
                 context.contentResolver.openInputStream(selectedUri)?.use { input ->
                     FileOutputStream(tempApk).use { output -> input.copyTo(output) }
                 } ?: throw IllegalStateException("The selected APK could not be opened.")
@@ -416,8 +473,12 @@ fun AdminScreen(onBack: () -> Unit) {
                     throw IllegalArgumentException("This APK is not the DOM Ask AI app package.")
                 }
                 val apkVersionCode = if (Build.VERSION.SDK_INT >= 28) archiveInfo.longVersionCode else archiveInfo.versionCode.toLong()
-                if (apkVersionCode != versionCode.toLong()) {
-                    throw IllegalArgumentException("The selected APK version code is $apkVersionCode, but you entered $versionCode. Make them match.")
+                val apkVersionName = archiveInfo.versionName?.trim().orEmpty()
+                if (apkVersionCode < 2L || apkVersionCode > Int.MAX_VALUE.toLong()) {
+                    throw IllegalArgumentException("The selected APK has an invalid Android version code.")
+                }
+                if (apkVersionName.isBlank() || apkVersionName.length > 40) {
+                    throw IllegalArgumentException("The selected APK has an invalid version name.")
                 }
                 val size = tempApk.length()
                 if (size <= 0L || size > 300L * 1024L * 1024L) {
@@ -433,15 +494,19 @@ fun AdminScreen(onBack: () -> Unit) {
                     }
                 }
                 val checksum = digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
-                size to checksum
+                Triple(size, checksum, apkVersionCode to apkVersionName)
             }
+            val versionCode = apkDetails.third.first.toInt()
+            val versionName = apkDetails.third.second
+            releaseVersionCode = versionCode.toString()
+            releaseVersionName = versionName
             val preparePayload = JSONObject()
                 .put("action", "prepare_upload")
                 .put("versionCode", versionCode)
-                .put("versionName", releaseVersionName.trim())
+                .put("versionName", versionName)
                 .put("releaseNotes", releaseNotes.trim())
-                .put("sizeBytes", sizeAndHash.first)
-                .put("sha256", sizeAndHash.second)
+                .put("sizeBytes", apkDetails.first)
+                .put("sha256", apkDetails.second)
             val prepared = withContext(Dispatchers.IO) {
                 val request = Request.Builder().url(endpoint).header("Authorization", "Bearer $idToken")
                     .post(preparePayload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
@@ -474,10 +539,15 @@ fun AdminScreen(onBack: () -> Unit) {
                     if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "The APK uploaded, but publishing failed." })
                 }
             }
-            releaseMessage = "Version ${releaseVersionName.trim()} has been uploaded and published. Customer apps can now check for this update."
+            releaseMessage = "Version ${versionName} (code ${versionCode}) has been uploaded and published. Customer apps can now check for this update."
             selectedApkUri = null
             selectedApkName = ""
             selectedApkSize = 0L
+            try {
+                loadData(idToken)
+            } catch (refreshError: Exception) {
+                releaseMessage = "Version ${versionName} (code ${versionCode}) is published. The release list will refresh on the next Admin Centre refresh."
+            }
         } finally {
             tempApk.delete()
         }
@@ -644,9 +714,17 @@ fun AdminScreen(onBack: () -> Unit) {
             Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(16.dp)) {
                 Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                     Text("App Update Centre",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
+                    Text("Installed app: ${installedVersion.first} (code ${installedVersion.second})",color=ElectricCyan,fontSize=11.sp,fontWeight=FontWeight.SemiBold)
+                    Text("Currently published: $currentPublishedRelease",color=Color.White,fontSize=12.sp,fontWeight=FontWeight.SemiBold)
+                    if (releaseHistory.isNotEmpty()) {
+                        Text("Published release history",color=Slate300,fontSize=11.sp,fontWeight=FontWeight.SemiBold)
+                        releaseHistory.forEach { release ->
+                            Text("• ${release.versionName} (code ${release.versionCode}) — ${release.publishedAt}",color=Slate400,fontSize=10.sp)
+                        }
+                    }
                     Text("Select the signed APK directly from this device. It uploads securely to the app's Firebase Storage bucket; you do not need to create a GitHub Release or paste a link.",color=Slate400,fontSize=11.sp)
-                    OutlinedTextField(value=releaseVersionName,onValueChange={releaseVersionName=it.take(40)},label={Text("Version name (example: 1.1)")},singleLine=true,modifier=Modifier.fillMaxWidth())
-                    OutlinedTextField(value=releaseVersionCode,onValueChange={releaseVersionCode=it.filter(Char::isDigit).take(9)},label={Text("Version code (must increase each release)")},singleLine=true,modifier=Modifier.fillMaxWidth())
+                    Text("APK version: $releaseVersionName (code $releaseVersionCode)",color=Slate300,fontSize=11.sp)
+                    Text("The version name and version code are read directly from the selected APK before upload, so the release listing always matches the file.",color=Slate400,fontSize=10.sp)
                     OutlinedButton(onClick={apkPicker.launch(arrayOf("application/vnd.android.package-archive","application/octet-stream"))},enabled=!busy,modifier=Modifier.fillMaxWidth()) {
                         Text(if(selectedApkName.isBlank()) "Choose APK from this device" else "Choose a different APK")
                     }

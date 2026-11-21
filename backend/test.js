@@ -14,7 +14,7 @@ const { handler: supportHandler } = require('./netlify/legacy-handlers/support-t
 const { handler: supportAdminHandler } = require('./netlify/legacy-handlers/support-admin');
 const { handler: accountStatusHandler } = require('./netlify/legacy-handlers/account-status');
 const { handler: cryptoPaymentsHandler, _test: cryptoPaymentTests } = require('./netlify/legacy-handlers/crypto-payments');
-const { handler: adminCryptoPaymentsHandler } = require('./netlify/legacy-handlers/admin-crypto-payments');
+const { handler: adminCryptoPaymentsHandler, _test: adminCryptoPaymentTests } = require('./netlify/legacy-handlers/admin-crypto-payments');
 const { DEFAULT_PRODUCTS, normalizeCatalog, calculateBundle } = require('./pricing-catalog');
 const { evaluateProductSubscription, summarizeProductSubscriptions } = require('./product-subscriptions');
 const adminAuthTests = require('./netlify/legacy-handlers/admin-auth');
@@ -67,6 +67,28 @@ async function run() {
   assert.equal(adminLoginWrongMethod.statusCode, 405);
   if (oldAdminEmails === undefined) delete process.env.ADMIN_EMAILS; else process.env.ADMIN_EMAILS = oldAdminEmails;
   console.log('PASS administrator access-code and signed-session validation');
+
+  let lookedUpUid = '';
+  let lookedUpEmail = '';
+  const paymentCustomer = await adminCryptoPaymentTests.findPaymentCustomer({
+    getUser: async uid => { lookedUpUid = uid; return { uid, email: 'customer@example.com', emailVerified: true }; },
+    getUserByEmail: async email => { lookedUpEmail = email; return { uid: 'email-fallback', email, emailVerified: true }; }
+  }, { uid: 'firebase-customer-uid', email: 'CUSTOMER@example.com' });
+  assert.equal(paymentCustomer.uid, 'firebase-customer-uid');
+  assert.equal(lookedUpUid, 'firebase-customer-uid');
+  assert.equal(lookedUpEmail, '', 'Approval must prefer the authenticated UID saved at payment submission');
+  const fallbackCustomer = await adminCryptoPaymentTests.findPaymentCustomer({
+    getUser: async () => { const error = new Error('not found'); error.code = 'auth/user-not-found'; throw error; },
+    getUserByEmail: async email => ({ uid: 'email-fallback', email, emailVerified: true })
+  }, { uid: 'old-or-missing-uid', email: 'CUSTOMER@example.com' });
+  assert.equal(fallbackCustomer.uid, 'email-fallback');
+  assert.equal(fallbackCustomer.email, 'customer@example.com');
+  const unverifiedCustomer = await adminCryptoPaymentTests.findPaymentCustomer({
+    getUser: async uid => ({ uid, email: 'customer@example.com', emailVerified: false }),
+    getUserByEmail: async () => { throw new Error('email fallback must not override an unverified UID'); }
+  }, { uid: 'unverified-uid', email: 'customer@example.com' });
+  assert.equal(unverifiedCustomer, null);
+  console.log('PASS payment approval resolves the submitting Firebase account by UID with safe email fallback');
 
   assert.equal(workServiceTests.PRODUCTS.has('email_management'), false);
   assert.equal(workServiceTests.PRODUCTS.has('core'), false);

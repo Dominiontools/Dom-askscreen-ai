@@ -77,6 +77,36 @@ fun SettingsScreen() {
 
         Spacer(modifier = Modifier.height(12.dp))
 
+        SettingsCard(title = "Classroom Privacy Mode", icon = Icons.Default.Security) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Hide AskScreen during supported screen sharing", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Turn on before sharing your phone. Turn off to make AskScreen visible again.", fontSize = 11.sp, color = Slate400, lineHeight = 16.sp)
+                }
+                Switch(
+                    checked = isClassroomPrivacyMode,
+                    onCheckedChange = { enabled ->
+                        isClassroomPrivacyMode = enabled
+                        prefs.isClassroomPrivacyMode = enabled
+                        (context as? Activity)?.window?.let { activityWindow ->
+                            if (enabled) activityWindow.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                            else activityWindow.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                        }
+                        AskScreenOverlayService.refreshPrivacyMode()
+                        Toast.makeText(context, if (enabled) "Classroom Privacy Mode is on." else "Classroom Privacy Mode is off.", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = SwitchDefaults.colors(checkedTrackColor = ElectricCyan)
+                )
+            }
+            Text("Protected content may appear black or blocked to viewers. Other phone content and notifications are not hidden.", fontSize = 10.sp, color = Slate400, lineHeight = 15.sp)
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         // 1. BUBBLE CUSTOMIZATION
         SettingsCard(title = "Floating AI Bubble Customization", icon = Icons.Default.Circle) {
             Text("Bubble Size", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Medium)
@@ -316,37 +346,12 @@ fun SettingsScreen() {
 
         // 5. PRIVACY & SAFETY
         SettingsCard(title = "Privacy & Safety", icon = Icons.Default.Security) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Classroom Privacy Mode", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "Protects the app and floating AI windows from supported screen sharing, screen recording and screenshots. You can still see and use them on your phone.",
-                        fontSize = 11.sp, color = Slate400, lineHeight = 16.sp
-                    )
-                }
-                Switch(
-                    checked = isClassroomPrivacyMode,
-                    onCheckedChange = { enabled ->
-                        isClassroomPrivacyMode = enabled
-                        prefs.isClassroomPrivacyMode = enabled
-                        (context as? Activity)?.window?.let { activityWindow ->
-                            if (enabled) activityWindow.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
-                            else activityWindow.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
-                        }
-                        AskScreenOverlayService.refreshPrivacyMode()
-                        Toast.makeText(
-                            context,
-                            if (enabled) "Classroom Privacy Mode is on." else "Classroom Privacy Mode is off.",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    },
-                    colors = SwitchDefaults.colors(checkedTrackColor = ElectricCyan)
-                )
-            }
+            Text(
+                if (isClassroomPrivacyMode) "Classroom Privacy Mode is ON." else "Classroom Privacy Mode is OFF.",
+                fontSize = 12.sp,
+                color = if (isClassroomPrivacyMode) ElectricCyan else Slate400,
+                fontWeight = FontWeight.SemiBold
+            )
             Spacer(modifier = Modifier.height(10.dp))
             Text(
                 "Screen-sharing apps and Android devices differ. Protected areas may appear black or blocked to viewers; notifications and other device content are not hidden by this setting.",

@@ -8,6 +8,7 @@ import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -76,9 +77,32 @@ class MainActivity : ComponentActivity() {
                 var updateBusy by remember { mutableStateOf(false) }
                 var updateError by remember { mutableStateOf<String?>(null) }
                 val updateScope = rememberCoroutineScope()
-                LaunchedEffect(Unit) {
-                    AskScreenApp.instance.preferencesManager.refreshBackendUrl()
-                    availableUpdate = loadSelfHostedUpdate()
+                var dismissedUpdateVersionCode by remember { mutableStateOf("") }
+                LaunchedEffect(showAdminScreen) {
+                    while (!showAdminScreen) {
+                        AskScreenApp.instance.preferencesManager.refreshBackendUrl()
+                        val latest = loadSelfHostedUpdate()
+                        if (latest != null && latest["versionCode"] != dismissedUpdateVersionCode) {
+                            availableUpdate = latest
+                        }
+                        delay(60_000L)
+                    }
+                }
+                val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+                DisposableEffect(lifecycleOwner, showAdminScreen) {
+                    val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                        if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME && !showAdminScreen) {
+                            updateScope.launch {
+                                AskScreenApp.instance.preferencesManager.refreshBackendUrl()
+                                val latest = loadSelfHostedUpdate()
+                                if (latest != null && latest["versionCode"] != dismissedUpdateVersionCode) {
+                                    availableUpdate = latest
+                                }
+                            }
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
                 }
 
                 if (showAdminScreen) {
@@ -166,7 +190,7 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         dismissButton = {
-                            TextButton(onClick = { availableUpdate = null }) { Text("Later") }
+                            TextButton(onClick = { dismissedUpdateVersionCode = release["versionCode"].orEmpty(); availableUpdate = null }) { Text("Later") }
                         }
                     )
                 }
@@ -193,10 +217,11 @@ class MainActivity : ComponentActivity() {
                 uri.encodedPath.orEmpty().startsWith("/Dominiontools/Dom-askscreen-ai/releases/download/") &&
                 uri.encodedPath.orEmpty().lowercase().endsWith(".apk")
             val segments = uri.pathSegments
+            val bucket = segments.getOrNull(2).orEmpty()
             val firebaseStorage = uri.host == "firebasestorage.googleapis.com" &&
                 segments.size == 5 &&
                 segments[0] == "v0" && segments[1] == "b" &&
-                segments[2] == "gen-lang-client-0417033738.firebasestorage.app" &&
+                (bucket.endsWith(".firebasestorage.app") || bucket.endsWith(".appspot.com")) &&
                 segments[3] == "o" &&
                 segments[4].startsWith("app-releases/") &&
                 segments[4].lowercase().endsWith(".apk") &&
@@ -270,6 +295,17 @@ class MainActivity : ComponentActivity() {
                 val actualSha256 = digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
                 if (actualSha256 != expectedSha256) throw IllegalStateException("APK SHA-256 integrity check failed. Please try again.")
             }
+            val expectedVersionCode = release["versionCode"]?.toLongOrNull()
+                ?: throw IllegalStateException("The published update has an invalid version number.")
+            val archiveInfo = packageManager.getPackageArchiveInfo(apk.absolutePath, 0)
+                ?: throw IllegalStateException("Android could not read the downloaded APK.")
+            if (archiveInfo.packageName != packageName) {
+                throw IllegalStateException("The downloaded file is not the DOM AskScreen AI app.")
+            }
+            val archiveVersionCode = if (Build.VERSION.SDK_INT >= 28) archiveInfo.longVersionCode else archiveInfo.versionCode.toLong()
+            if (archiveVersionCode != expectedVersionCode) {
+                throw IllegalStateException("The downloaded APK version does not match the published update. Please contact support.")
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
                 withContext(Dispatchers.Main) {
                     startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
@@ -279,11 +315,19 @@ class MainActivity : ComponentActivity() {
             }
             withContext(Dispatchers.Main) {
                 val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", apk)
-                val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                val installIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
                     setDataAndType(uri, "application/vnd.android.package-archive")
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-                startActivity(installIntent)
+                try {
+                    startActivity(installIntent)
+                } catch (_: android.content.ActivityNotFoundException) {
+                    val fallbackIntent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(uri, "application/vnd.android.package-archive")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(fallbackIntent)
+                }
             }
         }
     }
