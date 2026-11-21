@@ -91,7 +91,13 @@ class AskScreenRepository(private val context: Context) {
                 queryType = queryType, images = images, audioBase64 = audioBase64,
                 audioMimeType = audioMimeType, files = files, chatHistory = chatHistory,
                 idToken = user.getIdToken(false).await().token
-                    ?: throw Exception("Could not verify your account. Please sign in again.")
+                    ?: throw Exception("Could not verify your account. Please sign in again."),
+                taskContext = if (prefs.isSpecificTaskEnabled(user.uid)) {
+                    mapOf(
+                        "title" to prefs.specificTaskTitle(user.uid),
+                        "description" to prefs.specificTaskDescription(user.uid)
+                    ).takeIf { it["title"].orEmpty().isNotBlank() }
+                } else null
             )
             val modelUsed = selectedModel
 
@@ -188,12 +194,22 @@ class AskScreenRepository(private val context: Context) {
         audioMimeType: String?,
         files: List<MediaItem>,
         chatHistory: List<ChatMessage>,
-        idToken: String?
+        idToken: String?,
+        taskContext: Map<String, String>? = null
     ): String {
         val rootJson = JSONObject()
         rootJson.put("prompt", prompt)
         rootJson.put("model", model)
         rootJson.put("queryType", queryType.name)
+        if (taskContext != null) {
+            rootJson.put("mode", "SPECIFIC_TASK")
+            rootJson.put("taskContext", JSONObject().apply {
+                put("title", taskContext["title"].orEmpty().take(120))
+                put("description", taskContext["description"].orEmpty().take(6000))
+            })
+        } else {
+            rootJson.put("mode", "NORMAL")
+        }
 
         val imagesArray = JSONArray()
         for (img in images) {
