@@ -23,3 +23,14 @@ abstract interface class AuthSession implements IdTokenProvider {
   Future<void> reloadCurrentUser();
   Future<void> signOut();
 }
+
+/// Safe, user-facing authentication failure shared by platform adapters.
+class AuthRepositoryException implements Exception {
+  const AuthRepositoryException(this.code, this.message);
+
+  final String code;
+  final String message;
+
+  @override
+  String toString() => message;
+}
