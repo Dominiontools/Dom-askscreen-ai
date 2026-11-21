@@ -1,0 +1,51 @@
+name: Generate Flutter iOS and Windows scaffolding
+
+on:
+  push:
+    branches:
+      - feature/flutter-cross-platform-foundation
+    paths:
+      - 'mobile/pubspec.yaml'
+      - '.github/workflows/flutter-platform-scaffolding.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: flutter-platform-scaffolding
+  cancel-in-progress: false
+
+jobs:
+  generate-platform-projects:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out development branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/flutter-cross-platform-foundation
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate native iOS and Windows project folders
+        working-directory: mobile
+        run: |
+          flutter --version
+          flutter create --platforms=ios,windows --project-name dom_askscreen_ai --org com.dominion.askscreenai .
+
+      - name: Commit generated platform scaffolding
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mobile/ios mobile/windows
+          if git diff --cached --quiet; then
+            echo "No platform scaffolding changes were needed."
+            exit 0
+          fi
+          git commit -m "Generate Flutter iOS and Windows platform scaffolding"
+          git push origin HEAD:feature/flutter-cross-platform-foundation
