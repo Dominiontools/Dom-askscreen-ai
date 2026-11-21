@@ -44,8 +44,19 @@ exports.handler = async event => {
       const product = DEFAULT_PRODUCTS.find(item => item.id === payment.productId && (item.id === 'core' || item.independent === true));
       if (!product) return json(400, { error: 'The payment does not reference a valid subscription product.' });
       let customer = null;
-      try { customer = await admin.auth().getUserByEmail(String(payment.email || '')); }
-      catch (lookupError) { if (lookupError.code !== 'auth/user-not-found') throw lookupError; }
+      const submittedUid = typeof payment.uid === 'string' ? payment.uid.trim() : '';
+      if (submittedUid) {
+        try { customer = await admin.auth().getUser(submittedUid); }
+        catch (lookupError) {
+          if (lookupError.code !== 'auth/user-not-found') throw lookupError;
+        }
+      }
+      if (!customer && payment.email) {
+        try { customer = await admin.auth().getUserByEmail(String(payment.email).trim().toLowerCase()); }
+        catch (lookupError) {
+          if (lookupError.code !== 'auth/user-not-found') throw lookupError;
+        }
+      }
       const verifiedCustomer = customer && customer.emailVerified ? customer : null;
       const now = admin.firestore.FieldValue.serverTimestamp();
       const accountRef = verifiedCustomer ? db.collection('askScreenAccounts').doc(verifiedCustomer.uid) : null;
