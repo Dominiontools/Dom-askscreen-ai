@@ -1,0 +1,35 @@
+name: Universal download page checks
+
+on:
+  push:
+    branches:
+      - feature/flutter-cross-platform-foundation
+    paths:
+      - 'backend/public/downloads/**'
+      - 'docs/UNIVERSAL_DOWNLOAD_PAGE.md'
+      - '.github/workflows/download-page-checks.yml'
+  pull_request:
+    paths:
+      - 'backend/public/downloads/**'
+      - 'docs/UNIVERSAL_DOWNLOAD_PAGE.md'
+      - '.github/workflows/download-page-checks.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-download-page:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Validate platform manifest
+        run: |
+          node -e "const fs=require('fs'); const p='backend/public/downloads/manifest.json'; const m=JSON.parse(fs.readFileSync(p,'utf8')); for (const k of ['android','ios','windows']) { if (!m.platforms?.[k]) throw new Error('Missing platform: '+k); const x=m.platforms[k]; if (x.status === 'available' && (!x.url || !/^https:\/\//.test(x.url))) throw new Error('Available platform needs a verified HTTPS URL: '+k); if (x.status !== 'available' && x.url) throw new Error('Unavailable platform must not expose a download URL: '+k); } console.log('Download manifest is valid.');"
+      - name: Check download page
+        run: |
+          test -s backend/public/downloads/index.html
+          grep -q 'manifest.json' backend/public/downloads/index.html
+          grep -q 'data-platform="android"' backend/public/downloads/index.html
+          grep -q 'data-platform="ios"' backend/public/downloads/index.html
+          grep -q 'data-platform="windows"' backend/public/downloads/index.html
