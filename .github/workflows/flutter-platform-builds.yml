@@ -45,6 +45,13 @@ jobs:
         run: flutter test --no-pub
       - name: Build Windows application
         run: flutter build windows --release
+      - name: Upload Windows test build
+        uses: actions/upload-artifact@v4
+        with:
+          name: dom-askscreen-ai-windows-test-build
+          path: mobile/build/windows/x64/runner/Release/
+          if-no-files-found: error
+          retention-days: 7
 
   ios-build:
     runs-on: macos-latest
