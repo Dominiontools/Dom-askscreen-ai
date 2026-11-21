@@ -152,4 +152,4 @@ jobs:
           PY
 
       - name: Build existing Android host with Flutter module
-        run: gradle :app:assembleDebug --no-daemon --stacktrace
+        run: gradle :app:assembleDebug --no-daemon --no-configuration-cache --stacktrace
