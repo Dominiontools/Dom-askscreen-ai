@@ -44,10 +44,29 @@ class _ChatScreenState extends State<ChatScreen> {
     _loadSavedTask();
   }
 
+  @override
+  void didUpdateWidget(covariant ChatScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.accountId != widget.accountId) {
+      setState(() {
+        _messages.clear();
+        _taskTitle = '';
+        _taskDescription = '';
+        _specificTaskMode = false;
+        _error = null;
+        _accountStatus = null;
+      });
+      _loadSavedTask();
+      _loadAccountStatus();
+    }
+  }
+
   Future<void> _loadSavedTask() async {
-    if (widget.accountId.trim().isEmpty) return;
+    final accountId = widget.accountId;
+    if (accountId.trim().isEmpty) return;
     final preferences = await SharedPreferences.getInstance();
-    final key = 'specific_task_${widget.accountId}_';
+    if (!mounted || accountId != widget.accountId) return;
+    final key = 'specific_task_${accountId}_';
     final title = preferences.getString('${key}title') ?? '';
     final description = preferences.getString('${key}description') ?? '';
     final enabled = preferences.getBool('${key}enabled') ?? false;
@@ -60,12 +79,15 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _saveTaskState({required bool enabled}) async {
-    if (widget.accountId.trim().isEmpty) return;
+    final accountId = widget.accountId;
+    if (accountId.trim().isEmpty) return;
+    final title = _taskTitle;
+    final description = _taskDescription;
     final preferences = await SharedPreferences.getInstance();
-    final key = 'specific_task_${widget.accountId}_';
-    await preferences.setString('${key}title', _taskTitle);
-    await preferences.setString('${key}description', _taskDescription);
-    await preferences.setBool('${key}enabled', enabled && _taskTitle.isNotEmpty);
+    final key = 'specific_task_${accountId}_';
+    await preferences.setString('${key}title', title);
+    await preferences.setString('${key}description', description);
+    await preferences.setBool('${key}enabled', enabled && title.isNotEmpty);
   }
 
   Future<void> _loadAccountStatus() async {
