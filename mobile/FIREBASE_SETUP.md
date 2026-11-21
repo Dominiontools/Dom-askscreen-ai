@@ -35,3 +35,20 @@ The Flutter app now defaults to the same existing HTTPS backend endpoint already
 - Keep usage, free-trial eligibility, subscription entitlements and admin authorization enforced by the Netlify backend.
 - Windows and iOS registration must be completed before those platform builds can be run against the real Firebase project.
 - Do not merge or deploy the Flutter application as a replacement until Android, iOS and Windows builds and real-device authentication/API tests pass.
+
+## Windows desktop authentication
+
+The Windows client uses Firebase Authentication's HTTPS REST API because the FlutterFire Authentication plugin does not provide the Windows desktop implementation required by this app. It uses the same Firebase project, Email/Password provider and existing user records as Android and iOS.
+
+The Web app registration supplies the Firebase client API key and project configuration. The API key is client configuration, not a service-account secret. The Windows REST adapter currently uses the Web API key for project `gen-lang-client-0417033738`; restrict that key in Google Cloud API restrictions to the Firebase Authentication / Identity Toolkit APIs where supported. Never add a Firebase Admin service-account key to the desktop app.
+
+Windows stores only the Firebase refresh token through `flutter_secure_storage`. The package encrypts stored values and uses Windows Credential Manager to protect its encryption key. Short-lived ID tokens are refreshed when needed and sent only to the existing HTTPS Netlify backend. The backend remains responsible for verifying ID tokens, account status, usage, free-trial eligibility, subscriptions and admin permissions.
+
+Windows authentication supports:
+- Existing-account email/password sign-in.
+- New-account registration and verification email.
+- Resending the verification email and checking verification status.
+- Password reset email.
+- Secure persisted sessions and sign-out.
+
+For a Windows build, install the C++ ATL component with Visual Studio Build Tools as required by `flutter_secure_storage`. Real-device testing is still required before release.
