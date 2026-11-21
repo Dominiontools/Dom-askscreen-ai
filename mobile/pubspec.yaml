@@ -1,5 +1,5 @@
 name: dom_askscreen_ai
-description: Shared Android and iOS mobile application for DOM AskScreen AI.
+description: Shared Android, iOS and Windows application for DOM AskScreen AI.
 publish_to: "none"
 version: 1.0.0+1
 
