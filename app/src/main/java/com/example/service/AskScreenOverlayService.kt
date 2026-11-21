@@ -67,10 +67,13 @@ class AskScreenOverlayService : Service() {
         const val ACTION_AUTO_RESUME = "com.example.action.AUTO_RESUME"
         const val ACTION_AUTO_STOP = "com.example.action.AUTO_STOP"
 
-        /** Reapply secure-window flags after the user changes Invisible Presentation Mode. */
-        fun refreshInvisiblePresentationMode() {
-            instance?.applyInvisiblePresentationModeToWindows()
+        /** Reapply both privacy controls after the user changes either setting. */
+        fun refreshWindowProtection() {
+            instance?.applyWindowProtectionToWindows()
         }
+
+        /** Backward-compatible refresh entry point for Classroom Privacy Mode. */
+        fun refreshPrivacyMode() = refreshWindowProtection()
 
         private var instance: AskScreenOverlayService? = null
 
@@ -261,20 +264,32 @@ class AskScreenOverlayService : Service() {
         return START_STICKY
     }
 
-    private fun invisiblePresentationSecureFlag(): Int = if (prefs.isInvisiblePresentationMode) {
-        WindowManager.LayoutParams.FLAG_SECURE
-    } else 0
+    private fun shouldUseLegacySecureFlag(): Boolean =
+        prefs.isClassroomPrivacyMode ||
+            (prefs.isInvisiblePresentationMode && Build.VERSION.SDK_INT < 35)
 
-    private fun applyPrivacyModeToWindows() {
+    private fun privacySecureFlag(): Int =
+        if (shouldUseLegacySecureFlag()) WindowManager.LayoutParams.FLAG_SECURE else 0
+
+    private fun applyWindowProtectionToWindows() {
         fun update(view: View?, params: WindowManager.LayoutParams?) {
             if (view == null || params == null) return
-            params.flags = if (prefs.isClassroomPrivacyMode) {
+
+            if (Build.VERSION.SDK_INT >= 35) {
+                view.setContentSensitivity(
+                    if (prefs.isInvisiblePresentationMode) View.CONTENT_SENSITIVITY_SENSITIVE
+                    else View.CONTENT_SENSITIVITY_NOT_SENSITIVE
+                )
+            }
+
+            params.flags = if (shouldUseLegacySecureFlag()) {
                 params.flags or WindowManager.LayoutParams.FLAG_SECURE
             } else {
                 params.flags and WindowManager.LayoutParams.FLAG_SECURE.inv()
             }
             runCatching { windowManager.updateViewLayout(view, params) }
         }
+
         update(bubbleView, bubbleLayoutParams)
         update(quickMenuComposeView, quickMenuLayoutParams)
         update(answerWindowView, answerWindowLayoutParams)
