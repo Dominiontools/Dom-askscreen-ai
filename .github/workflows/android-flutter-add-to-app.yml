@@ -111,13 +111,13 @@ jobs:
           if marker not in text:
               raise SystemExit("Dependency resolution management block was not found.")
           start = text.index(marker)
-          repo_marker = "    google()\\n    mavenCentral()"
+          repo_marker = "    google()\n    mavenCentral()"
           repo_index = text.find(repo_marker, start)
           if repo_index < 0:
               raise SystemExit("Expected dependency repositories were not found.")
           text = text[:repo_index] + text[repo_index:].replace(
               repo_marker,
-              "    google()\\n    mavenCentral()\\n    maven(\\\"https://storage.googleapis.com/download.flutter.io\\\")",
+              "    google()\n    mavenCentral()\n    maven(\\\"https://storage.googleapis.com/download.flutter.io\\\")",
               1,
           )
           if 'ci_flutter_module/.android/include_flutter.groovy' not in text:
