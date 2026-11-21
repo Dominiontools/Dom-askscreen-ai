@@ -112,6 +112,8 @@ class AskScreenApi {
     List<Map<String, dynamic>> images = const [],
     List<Map<String, dynamic>> files = const [],
     Map<String, dynamic>? audio,
+    String mode = 'NORMAL',
+    Map<String, String>? taskContext,
   }) async {
     _requireToken(idToken);
     if (prompt.trim().isEmpty) {
@@ -125,6 +127,8 @@ class AskScreenApi {
       'images': images,
       'files': files,
       if (audio != null) 'audio': audio,
+      'mode': mode,
+      if (mode == 'SPECIFIC_TASK' && taskContext != null) 'taskContext': taskContext,
     };
     final response = await _transport.send(
       uri: _endpoint,
