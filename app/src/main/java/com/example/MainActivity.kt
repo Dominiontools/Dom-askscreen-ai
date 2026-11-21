@@ -61,7 +61,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        applyClassroomPrivacyFlag()
+        refreshWindowProtection()
 
         com.example.util.configureAppCheck(this, intent)
         enableEdgeToEdge()
@@ -200,13 +200,23 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        applyClassroomPrivacyFlag()
+        refreshWindowProtection()
     }
 
-    private fun applyClassroomPrivacyFlag() {
-        val secure = AskScreenApp.instance.preferencesManager.isClassroomPrivacyMode
-        if (secure) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+    fun refreshWindowProtection() {
+        val prefs = AskScreenApp.instance.preferencesManager
+        val useLegacySecureFlag = prefs.isClassroomPrivacyMode ||
+            (prefs.isInvisiblePresentationMode && android.os.Build.VERSION.SDK_INT < 35)
+
+        if (useLegacySecureFlag) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+
+        if (android.os.Build.VERSION.SDK_INT >= 35) {
+            window.decorView.setContentSensitivity(
+                if (prefs.isInvisiblePresentationMode) android.view.View.CONTENT_SENSITIVITY_SENSITIVE
+                else android.view.View.CONTENT_SENSITIVITY_NOT_SENSITIVE
+            )
+        }
     }
 
     private fun isTrustedUpdateUrl(rawUrl: String): Boolean {
