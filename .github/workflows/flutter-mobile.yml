@@ -12,6 +12,10 @@ on:
       - 'mobile/**'
       - '.github/workflows/flutter-mobile.yml'
 
+concurrency:
+  group: flutter-foundation-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
