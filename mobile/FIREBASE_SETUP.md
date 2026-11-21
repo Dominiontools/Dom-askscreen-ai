@@ -26,14 +26,7 @@ The current Flutter entry point calls `Firebase.initializeApp()` before creating
 
 Use the same Firebase Authentication project and Email/Password provider as the existing Android app. The shared app acquires Firebase ID tokens from the signed-in user and passes them to the existing Netlify API. It must not access protected Firestore account records directly or implement its own subscription decisions.
 
-The app also requires the full HTTPS URL of the existing Netlify `ask-screen` function at build time. Supply it as a Dart define; the exact deployed site hostname must be confirmed from the existing deployment rather than guessed:
-
-```bash
-flutter build apk --debug \\
-  --dart-define=ASK_SCREEN_ENDPOINT=https://YOUR_EXISTING_NETLIFY_HOST/.netlify/functions/ask-screen
-```
-
-Replace the placeholder with the actual production function URL. The same define is used for iOS and Windows builds. Do not put provider API keys or other secrets in this value.
+The Flutter app now defaults to the same existing HTTPS backend endpoint already configured in the native Android app: `https://domaskscreenai.netlify.app/.netlify/functions/ask-screen`. You can override it at build time with `--dart-define=ASK_SCREEN_ENDPOINT=...` if the centrally configured endpoint changes. Do not put provider API keys or other secrets in this value.
 
 ## Important
 
