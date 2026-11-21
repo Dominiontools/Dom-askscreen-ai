@@ -26,6 +26,44 @@ class _ChatScreenState extends State<ChatScreen> {
   final List<_ChatMessage> _messages = [];
   bool _sending = false;
   String? _error;
+  Map<String, dynamic>? _accountStatus;
+  bool _loadingAccountStatus = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAccountStatus();
+  }
+
+  Future<void> _loadAccountStatus() async {
+    if (_loadingAccountStatus) return;
+    setState(() => _loadingAccountStatus = true);
+    try {
+      final status = await widget.service.accountStatus();
+      if (mounted) setState(() => _accountStatus = status);
+    } catch (_) {
+      // Account status is supplementary; a temporary status failure must not
+      // prevent the user from using the AI chat.
+    } finally {
+      if (mounted) setState(() => _loadingAccountStatus = false);
+    }
+  }
+
+  String _accountSummary() {
+    final status = _accountStatus;
+    if (status == null) return 'Checking account and usage…';
+    final subscription = status['subscription'];
+    final trial = status['trial'];
+    final paid = subscription is Map && subscription['status'] == 'active';
+    if (paid) return 'Subscription active';
+    if (trial is Map && trial['eligible'] == true) {
+      final remaining = trial['screenRemaining'];
+      return remaining == null
+          ? 'Free trial available'
+          : 'Free screen answers remaining: $remaining';
+    }
+    return 'No active subscription';
+  }
 
   @override
   void dispose() {
@@ -66,11 +104,32 @@ class _ChatScreenState extends State<ChatScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('DOM AskScreen AI'),
-        actions: [IconButton(tooltip: 'Sign out', onPressed: widget.onSignOut,
-          icon: const Icon(Icons.logout))],
+        actions: [
+          IconButton(
+            tooltip: 'Refresh account status',
+            onPressed: _loadingAccountStatus ? null : _loadAccountStatus,
+            icon: _loadingAccountStatus
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.refresh),
+          ),
+          IconButton(tooltip: 'Sign out', onPressed: widget.onSignOut,
+            icon: const Icon(Icons.logout)),
+        ],
       ),
       body: Column(
         children: [
+          if (_accountStatus != null || _loadingAccountStatus)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              child: Card(
+                child: ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.account_circle_outlined),
+                  title: const Text('Account and usage'),
+                  subtitle: Text(_accountSummary()),
+                ),
+              ),
+            ),
           Expanded(
             child: _messages.isEmpty
                 ? const Center(child: Padding(
