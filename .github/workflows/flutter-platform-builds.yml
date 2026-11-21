@@ -40,7 +40,7 @@ jobs:
       - name: Resolve packages
         run: flutter pub get
       - name: Analyze
-        run: flutter analyze --no-pub --no-fatal-infos
+        run: flutter analyze lib test --no-pub --no-fatal-infos
       - name: Run tests
         run: flutter test --no-pub
       - name: Build Windows application
@@ -62,7 +62,7 @@ jobs:
       - name: Resolve packages
         run: flutter pub get
       - name: Analyze
-        run: flutter analyze --no-pub --no-fatal-infos
+        run: flutter analyze lib test --no-pub --no-fatal-infos
       - name: Run tests
         run: flutter test --no-pub
       - name: Build iOS without code signing
