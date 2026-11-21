@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - migration/netlify-modern-functions
+      - fix/ai-response-speed-and-vision-fallback
   pull_request:
     branches:
       - fix/full-platform-functionality
