@@ -209,7 +209,7 @@ class WindowsAuthRepository implements AuthSession {
     final request = await _client.postUrl(uri);
     request.headers.contentType = ContentType.json;
     request.write(jsonEncode(payload));
-    final response = await request.close();
+    final response = await request.close().timeout(_operationTimeout);
     final data = _decode(await utf8.decoder.bind(response).join().timeout(_operationTimeout));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw _firebaseError(data);
