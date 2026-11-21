@@ -543,6 +543,11 @@ fun AdminScreen(onBack: () -> Unit) {
             selectedApkUri = null
             selectedApkName = ""
             selectedApkSize = 0L
+            try {
+                loadData(idToken)
+            } catch (refreshError: Exception) {
+                releaseMessage = "Version ${versionName} (code ${versionCode}) is published. The release list will refresh on the next Admin Centre refresh."
+            }
         } finally {
             tempApk.delete()
         }
