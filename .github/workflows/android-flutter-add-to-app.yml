@@ -135,6 +135,19 @@ jobs:
               )
           settings.write_text(text)
 
+          # Kotlin DSL plugin scripts in Flutter add-to-app plugin projects need
+          # the Flutter Gradle plugin on the host buildscript classpath so the
+          # flutter.compileSdkVersion accessor is visible at script compile time.
+          root_build = Path("build.gradle.kts")
+          root_text = root_build.read_text()
+          flutter_plugin_declaration = '  id("dev.flutter.flutter-gradle-plugin") version "1.0.0" apply false'
+          if "dev.flutter.flutter-gradle-plugin" not in root_text:
+              marker = "plugins {"
+              if marker not in root_text:
+                  raise SystemExit("Root Gradle plugins block was not found.")
+              root_text = root_text.replace(marker, marker + "\\n" + flutter_plugin_declaration, 1)
+          root_build.write_text(root_text)
+
           app = Path("app/build.gradle.kts")
           text = app.read_text()
           text = text.replace(
