@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../services/ask_screen_service.dart';
 
-/// Shared AI chat surface for Normal AI and Specific Task modes.
+/// Shared typed-chat surface for Normal AI and Specific Task modes.
+/// Screen, microphone and attachment inputs are not connected in this Flutter UI yet.
 /// Task details are session-local until account-scoped persistence is added.
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key, required this.service, required this.onSignOut});
@@ -284,7 +285,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       padding: const EdgeInsets.all(24),
                       child: Text(
                         _specificTaskMode
-                            ? 'Ready to help with $_taskTitle. Ask a question or capture one from your screen.'
+                            ? 'Ready to help with $_taskTitle. Type your question below.'
                             : 'What would you like help with today?',
                         textAlign: TextAlign.center,
                       ),
