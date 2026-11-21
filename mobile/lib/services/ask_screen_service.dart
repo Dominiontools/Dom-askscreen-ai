@@ -16,6 +16,8 @@ class AskScreenService {
     List<Map<String, dynamic>> images = const [],
     List<Map<String, dynamic>> files = const [],
     Map<String, dynamic>? audio,
+    String mode = 'NORMAL',
+    Map<String, String>? taskContext,
   }) async {
     final idToken = await tokens.requireIdToken();
     return api.ask(
@@ -27,6 +29,8 @@ class AskScreenService {
       images: images,
       files: files,
       audio: audio,
+      mode: mode,
+      taskContext: taskContext,
     );
   }
 
