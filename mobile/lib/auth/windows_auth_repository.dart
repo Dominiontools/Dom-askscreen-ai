@@ -43,7 +43,10 @@ class WindowsAuthRepository implements AuthSession {
     if (_initialized) return;
     _initialized = true;
     _refreshToken = await _storage.read(key: _refreshKey);
-    if (_refreshToken == null || _refreshToken!.isEmpty) return;
+    if (_refreshToken == null || _refreshToken!.isEmpty) {
+      _authChanges.add(null);
+      return;
+    }
     try {
       await _refreshIdToken();
       await reloadCurrentUser();
