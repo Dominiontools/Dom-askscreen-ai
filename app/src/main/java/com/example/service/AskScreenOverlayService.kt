@@ -754,10 +754,11 @@ class AskScreenOverlayService : Service() {
             sessionMessages.value = sessionMessages.value + userMsg
 
             val answerStyle = "Reply in exactly one of these formats. The very first thing in your reply must be the tag. " +
-                "[OBJ] = multiple-choice question(s). After the tag give ONLY the correct option for each question, one per line, as 'A. option text', in screen order. No explanation at all. " +
-                "[THEORY] = a question that needs a written answer (theory, essay, short answer, fill in the blank). After the tag give ONLY the direct answer, straight to the point, nothing else. " +
-                "[INFO] = anything else. After the tag start with 'I see: ' and say briefly what is on the screen, then answer any question or task you notice. " +
-                "Do not guess unreadable text."
+                "[OBJ] = multiple-choice question(s). After the tag give the correct option for each question, one per line, as 'A. option text', in screen order. Add a brief explanation only when the user asks for one. " +
+                "[THEORY] = a question that needs a written answer (theory, interview, essay, short answer, or fill in the blank). After the tag give a natural, useful, ready-to-say answer that directly responds to the question. " +
+                "[INFO] = screen content that is not a multiple-choice or written question. Do NOT begin with 'I see' or merely describe the screenshot. Interpret what the visible content is about, explain its purpose or meaning, and help with the task the screen implies. If it is an app or settings page, explain the relevant options and what the user can do. If it contains useful information, summarize the key points. If it contains a question or instruction, answer or follow it directly. " +
+                "When a question asks about the account owner personally (for example, 'introduce yourself', 'your background', or 'your experience'), answer in the first person using only the owner's saved profile or documents supplied in the conversation. Never invent qualifications, employers, dates, or experience; if the needed profile detail is unavailable, say what is missing or ask the owner to add it. " +
+                "Use the screenshot as context, not as a reason to produce a generic visual description. Do not guess unreadable text or claim to have clicked, selected, or submitted anything."
             val prompt = if (onlyIfQuestion) {
                 "Check this changed screen for a new visible question or learning task. If there is no new question or actionable task, reply exactly NO_NEW_QUESTION. Otherwise: $answerStyle"
             } else if (regionCrop != null) {
