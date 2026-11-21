@@ -65,7 +65,7 @@ The AI should understand questions about what video annotation is, how to annota
 ## Technical and security requirements
 
 - Reuse the existing authenticated account and backend authority. Do not create a second user database or put AI provider keys in the client.
-- Keep task briefs and uploaded files private and scoped to the owning account; enforce authorization server-side.
+- Keep task briefs and uploaded files private and scoped to the owning account; enforce authorization server-side. The current Flutter task title, description, and active flag are stored locally under keys derived from the signed-in account ID. They are not cloud-synced between devices; do not store passwords, API keys, or other secrets in task details. Cross-device task sync requires an authenticated backend storage feature.
 - Bound the amount of task/document context sent to the model and retrieve relevant excerpts instead of blindly attaching every document to every request.
 - Extend the existing AI request/backend contract in a backward-compatible way to convey the active mode, task title, description, and relevant reference excerpts. Do not send unsupported fields until the backend accepts and uses them.
 - Normal AI requests must continue to work when no task is active.
