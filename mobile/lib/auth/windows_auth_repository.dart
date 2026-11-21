@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-import 'auth_repository.dart';
 import 'auth_session.dart';
 
 /// Firebase Authentication REST client for Windows desktop.
