@@ -1,49 +1,60 @@
 import 'package:firebase_auth/firebase_auth.dart';
 
-import 'id_token_provider.dart';
+import 'auth_session.dart';
 
-class AuthRepositoryException implements Exception {
-  const AuthRepositoryException(this.code, this.message);
-
-  final String code;
-  final String message;
-
-  @override
-  String toString() => message;
-}
-
-/// Uses the existing Firebase Authentication project and user identities.
-/// Firebase must be initialized with the app's platform options before use.
-class AuthRepository implements IdTokenProvider {
+/// Firebase Auth adapter used by the existing Android and iOS clients.
+class AuthRepository implements AuthSession {
   AuthRepository({FirebaseAuth? firebaseAuth})
       : _auth = firebaseAuth ?? FirebaseAuth.instance;
 
   final FirebaseAuth _auth;
 
-  User? get currentUser => _auth.currentUser;
-  Stream<User?> get authStateChanges => _auth.authStateChanges();
+  AppUser? _mapUser(User? user) => user == null
+      ? null
+      : AppUser(
+          uid: user.uid,
+          email: user.email ?? '',
+          emailVerified: user.emailVerified,
+        );
 
-  Future<UserCredential> signIn({required String email, required String password}) async {
+  @override
+  AppUser? get currentUser => _mapUser(_auth.currentUser);
+
+  @override
+  Stream<AppUser?> get authStateChanges =>
+      _auth.authStateChanges().map(_mapUser);
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<AppUser> signIn({required String email, required String password}) async {
     try {
-      return await _auth.signInWithEmailAndPassword(email: email.trim(), password: password);
+      final credential = await _auth.signInWithEmailAndPassword(
+        email: email.trim(),
+        password: password,
+      );
+      return _mapUser(credential.user)!;
     } on FirebaseAuthException catch (error) {
       throw _mapFirebaseError(error);
     }
   }
 
-  Future<UserCredential> createAccount({required String email, required String password}) async {
+  @override
+  Future<AppUser> createAccount({required String email, required String password}) async {
     try {
       final credential = await _auth.createUserWithEmailAndPassword(
         email: email.trim(),
         password: password,
       );
       await credential.user?.sendEmailVerification();
-      return credential;
+      return _mapUser(credential.user)!;
     } on FirebaseAuthException catch (error) {
       throw _mapFirebaseError(error);
     }
   }
 
+  @override
   Future<void> sendPasswordReset({required String email}) async {
     try {
       await _auth.sendPasswordResetEmail(email: email.trim());
@@ -52,6 +63,7 @@ class AuthRepository implements IdTokenProvider {
     }
   }
 
+  @override
   Future<void> resendEmailVerification() async {
     final user = _auth.currentUser;
     if (user == null) {
@@ -59,6 +71,15 @@ class AuthRepository implements IdTokenProvider {
     }
     try {
       await user.sendEmailVerification();
+    } on FirebaseAuthException catch (error) {
+      throw _mapFirebaseError(error);
+    }
+  }
+
+  @override
+  Future<void> reloadCurrentUser() async {
+    try {
+      await _auth.currentUser?.reload();
     } on FirebaseAuthException catch (error) {
       throw _mapFirebaseError(error);
     }
@@ -84,6 +105,7 @@ class AuthRepository implements IdTokenProvider {
     }
   }
 
+  @override
   Future<void> signOut() => _auth.signOut();
 
   AuthRepositoryException _mapFirebaseError(FirebaseAuthException error) {
