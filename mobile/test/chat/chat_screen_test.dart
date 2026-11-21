@@ -37,6 +37,43 @@ class FakeAskScreenService implements AskScreenService {
     lastTaskContext = taskContext;
     return 'Test answer';
   }
+}
+
+void main() {
+  Future<void> openChat(WidgetTester tester, Map<String, dynamic> status) async {
+    await tester.pumpWidget(MaterialApp(
+      home: ChatScreen(
+        service: FakeAskScreenService(status),
+        onSignOut: () async {},
+      ),
+    ));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('shows active subscription from backend account status', (tester) async {
+    await openChat(tester, {
+      'subscription': {'status': 'active'},
+      'trial': {'eligible': false, 'screenRemaining': 0},
+    });
+    expect(find.text('Account and usage'), findsOneWidget);
+    expect(find.text('Subscription active'), findsOneWidget);
+  });
+
+  testWidgets('shows remaining free screen answers from backend account status', (tester) async {
+    await openChat(tester, {
+      'subscription': {'status': 'inactive'},
+      'trial': {'eligible': true, 'screenRemaining': 2},
+    });
+    expect(find.text('Free screen answers remaining: 2'), findsOneWidget);
+  });
+
+  testWidgets('shows no active subscription when trial is unavailable', (tester) async {
+    await openChat(tester, {
+      'subscription': {'status': 'inactive'},
+      'trial': {'eligible': false, 'screenRemaining': 0},
+    });
+    expect(find.text('No active subscription'), findsOneWidget);
+  });
 
   testWidgets('starts in Normal AI mode', (tester) async {
     await openChat(tester, {});
@@ -77,46 +114,5 @@ class FakeAskScreenService implements AskScreenService {
     await tester.tap(find.text('Normal AI').first);
     await tester.pumpAndSettle();
     expect(find.text('What would you like help with today?'), findsOneWidget);
-  });
-
-}
-
-void main() {
-  Future<void> openChat(WidgetTester tester, Map<String, dynamic> status) async {
-    await tester.pumpWidget(MaterialApp(
-      home: ChatScreen(
-        service: FakeAskScreenService(status),
-        onSignOut: () async {},
-      ),
-    ));
-    await tester.pumpAndSettle();
-  }
-
-  testWidgets('shows active subscription from backend account status', (tester) async {
-    await openChat(tester, {
-      'subscription': {'status': 'active'},
-      'trial': {'eligible': false, 'screenRemaining': 0},
-    });
-
-    expect(find.text('Account and usage'), findsOneWidget);
-    expect(find.text('Subscription active'), findsOneWidget);
-  });
-
-  testWidgets('shows remaining free screen answers from backend account status', (tester) async {
-    await openChat(tester, {
-      'subscription': {'status': 'inactive'},
-      'trial': {'eligible': true, 'screenRemaining': 2},
-    });
-
-    expect(find.text('Free screen answers remaining: 2'), findsOneWidget);
-  });
-
-  testWidgets('shows no active subscription when trial is unavailable', (tester) async {
-    await openChat(tester, {
-      'subscription': {'status': 'inactive'},
-      'trial': {'eligible': false, 'screenRemaining': 0},
-    });
-
-    expect(find.text('No active subscription'), findsOneWidget);
   });
 }
