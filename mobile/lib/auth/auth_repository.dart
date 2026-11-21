@@ -1,5 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 
+import 'id_token_provider.dart';
+
 class AuthRepositoryException implements Exception {
   const AuthRepositoryException(this.code, this.message);
 
@@ -12,7 +14,7 @@ class AuthRepositoryException implements Exception {
 
 /// Uses the existing Firebase Authentication project and user identities.
 /// Firebase must be initialized with the app's platform options before use.
-class AuthRepository {
+class AuthRepository implements IdTokenProvider {
   AuthRepository({FirebaseAuth? firebaseAuth})
       : _auth = firebaseAuth ?? FirebaseAuth.instance;
 
@@ -21,24 +23,15 @@ class AuthRepository {
   User? get currentUser => _auth.currentUser;
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
-  Future<UserCredential> signIn({
-    required String email,
-    required String password,
-  }) async {
+  Future<UserCredential> signIn({required String email, required String password}) async {
     try {
-      return await _auth.signInWithEmailAndPassword(
-        email: email.trim(),
-        password: password,
-      );
+      return await _auth.signInWithEmailAndPassword(email: email.trim(), password: password);
     } on FirebaseAuthException catch (error) {
       throw _mapFirebaseError(error);
     }
   }
 
-  Future<UserCredential> createAccount({
-    required String email,
-    required String password,
-  }) async {
+  Future<UserCredential> createAccount({required String email, required String password}) async {
     try {
       final credential = await _auth.createUserWithEmailAndPassword(
         email: email.trim(),
@@ -71,6 +64,7 @@ class AuthRepository {
     }
   }
 
+  @override
   Future<String> requireIdToken({bool forceRefresh = false}) async {
     final user = _auth.currentUser;
     if (user == null) {
