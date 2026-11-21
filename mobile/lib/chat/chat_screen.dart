@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/ask_screen_service.dart';
 
@@ -6,10 +7,11 @@ import '../services/ask_screen_service.dart';
 /// Screen, microphone and attachment inputs are not connected in this Flutter UI yet.
 /// Task details are session-local until account-scoped persistence is added.
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, required this.service, required this.onSignOut});
+  const ChatScreen({super.key, required this.service, required this.onSignOut, this.accountId = ''});
 
   final AskScreenService service;
   final Future<void> Function() onSignOut;
+  final String accountId;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -39,6 +41,31 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _loadAccountStatus();
+    _loadSavedTask();
+  }
+
+  Future<void> _loadSavedTask() async {
+    if (widget.accountId.trim().isEmpty) return;
+    final preferences = await SharedPreferences.getInstance();
+    final key = 'specific_task_${widget.accountId}_';
+    final title = preferences.getString('${key}title') ?? '';
+    final description = preferences.getString('${key}description') ?? '';
+    final enabled = preferences.getBool('${key}enabled') ?? false;
+    if (!mounted) return;
+    setState(() {
+      _taskTitle = title;
+      _taskDescription = description;
+      _specificTaskMode = enabled && title.isNotEmpty;
+    });
+  }
+
+  Future<void> _saveTaskState({required bool enabled}) async {
+    if (widget.accountId.trim().isEmpty) return;
+    final preferences = await SharedPreferences.getInstance();
+    final key = 'specific_task_${widget.accountId}_';
+    await preferences.setString('${key}title', _taskTitle);
+    await preferences.setString('${key}description', _taskDescription);
+    await preferences.setBool('${key}enabled', enabled && _taskTitle.isNotEmpty);
   }
 
   Future<void> _loadAccountStatus() async {
@@ -138,6 +165,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _specificTaskMode = true;
       _error = null;
     });
+    await _saveTaskState(enabled: true);
   }
 
   Future<void> _chooseMode(bool specific) async {
@@ -146,9 +174,11 @@ class _ChatScreenState extends State<ChatScreen> {
         await _editTask();
       } else {
         setState(() => _specificTaskMode = true);
+        await _saveTaskState(enabled: true);
       }
     } else {
       setState(() => _specificTaskMode = false);
+      await _saveTaskState(enabled: false);
     }
   }
 
