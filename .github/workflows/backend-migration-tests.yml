@@ -1,4 +1,4 @@
-name: Backend migration tests
+name: Backend migration tests (AI failover repair)
 
 on:
   push:
