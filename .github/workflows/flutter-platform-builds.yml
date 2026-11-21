@@ -1,5 +1,7 @@
 name: Flutter iOS and Windows build checks
 
+# Validates the committed native platform scaffolding as well as shared Dart code.
+
 on:
   push:
     branches:
