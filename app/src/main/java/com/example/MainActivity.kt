@@ -314,7 +314,7 @@ class MainActivity : ComponentActivity() {
             withContext(Dispatchers.Main) {
                 val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", apk)
                 val installIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
-                    data = uri
+                    setDataAndType(uri, "application/vnd.android.package-archive")
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 try {
