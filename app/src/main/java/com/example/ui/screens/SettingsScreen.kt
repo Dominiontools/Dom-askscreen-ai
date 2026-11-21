@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.app.Activity
 import android.widget.Toast
 import android.content.Intent
 import android.net.Uri
@@ -27,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.AskScreenApp
+import com.example.service.AskScreenOverlayService
 import com.example.data.model.WindowSizePreset
 import com.example.ui.theme.*
 import kotlinx.coroutines.Dispatchers
@@ -44,7 +46,6 @@ fun SettingsScreen() {
 
     var bubbleSize by remember { mutableIntStateOf(prefs.bubbleSizeDp) }
     var bubbleOpacity by remember { mutableIntStateOf(prefs.bubbleOpacityPercent) }
-    var backendUrl by remember { mutableStateOf(prefs.backendUrl) }
     var apiKeyOverride by remember { mutableStateOf(prefs.apiKeyOverride) }
     var selectedModel by remember { mutableStateOf(prefs.geminiModel) }
     var selectedPreset by remember { mutableStateOf(prefs.windowPreset) }
@@ -54,6 +55,7 @@ fun SettingsScreen() {
     var isAutoSubmit by remember { mutableStateOf(prefs.isAutoSubmitEnabled) }
     var monitorInterval by remember { mutableFloatStateOf(prefs.autoMonitorIntervalMs.toFloat() / 1000f) }
     var audioLanguageTag by remember { mutableStateOf(prefs.audioLanguageTag) }
+    var isClassroomPrivacyMode by remember { mutableStateOf(prefs.isClassroomPrivacyMode) }
 
     var isTestingConnection by remember { mutableStateOf(false) }
 
@@ -74,6 +76,36 @@ fun SettingsScreen() {
         )
 
         Spacer(modifier = Modifier.height(12.dp))
+
+        SettingsCard(title = "Classroom Privacy Mode", icon = Icons.Default.Security) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Hide AskScreen during supported screen sharing", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Turn on before sharing your phone. Turn off to make AskScreen visible again.", fontSize = 11.sp, color = Slate400, lineHeight = 16.sp)
+                }
+                Switch(
+                    checked = isClassroomPrivacyMode,
+                    onCheckedChange = { enabled ->
+                        isClassroomPrivacyMode = enabled
+                        prefs.isClassroomPrivacyMode = enabled
+                        (context as? Activity)?.window?.let { activityWindow ->
+                            if (enabled) activityWindow.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                            else activityWindow.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                        }
+                        AskScreenOverlayService.refreshPrivacyMode()
+                        Toast.makeText(context, if (enabled) "Classroom Privacy Mode is on." else "Classroom Privacy Mode is off.", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = SwitchDefaults.colors(checkedTrackColor = ElectricCyan)
+                )
+            }
+            Text("Protected content may appear black or blocked to viewers. Other phone content and notifications are not hidden.", fontSize = 10.sp, color = Slate400, lineHeight = 15.sp)
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         // 1. BUBBLE CUSTOMIZATION
         SettingsCard(title = "Floating AI Bubble Customization", icon = Icons.Default.Circle) {
@@ -192,36 +224,7 @@ fun SettingsScreen() {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 3. AI BACKEND (only the link is needed; the AI keys live on the backend)
-        SettingsCard(title = "AI Backend", icon = Icons.Default.Cloud) {
-            Text("Backend link", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Medium)
-            Text(
-                "Paste your Netlify ask-screen function URL here, ending in /ask-screen. The app uses this same backend link for account usage and secure admin monitoring.",
-                fontSize = 11.sp,
-                color = Slate400
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-
-            OutlinedTextField(
-                value = backendUrl,
-                onValueChange = {
-                    backendUrl = it
-                    prefs.backendUrl = it.trim()
-                },
-                placeholder = { Text("https://your-site.netlify.app/.netlify/functions/ask-screen", fontSize = 11.sp, color = Slate600) },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = ElectricCyan,
-                    unfocusedBorderColor = Slate700,
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White
-                ),
-                singleLine = true
-            )
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
+        // Backend connection is centrally managed by the administrator.
 
         // 4. VOICE & TTS
         SettingsCard(title = "Voice & Text-To-Speech", icon = Icons.Default.VolumeUp) {
@@ -343,6 +346,18 @@ fun SettingsScreen() {
 
         // 5. PRIVACY & SAFETY
         SettingsCard(title = "Privacy & Safety", icon = Icons.Default.Security) {
+            Text(
+                if (isClassroomPrivacyMode) "Classroom Privacy Mode is ON." else "Classroom Privacy Mode is OFF.",
+                fontSize = 12.sp,
+                color = if (isClassroomPrivacyMode) ElectricCyan else Slate400,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                "Screen-sharing apps and Android devices differ. Protected areas may appear black or blocked to viewers; notifications and other device content are not hidden by this setting.",
+                fontSize = 10.sp, color = Slate400, lineHeight = 15.sp
+            )
+            Spacer(modifier = Modifier.height(12.dp))
             Text(
                 text = "• Screen and microphone capture are user-started and remain active only while the session is running.\n" +
                         "• Android may block capture of secure, DRM-protected, or otherwise restricted screens.\n" +

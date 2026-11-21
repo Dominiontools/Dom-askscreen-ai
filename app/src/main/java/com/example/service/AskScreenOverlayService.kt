@@ -67,6 +67,11 @@ class AskScreenOverlayService : Service() {
         const val ACTION_AUTO_RESUME = "com.example.action.AUTO_RESUME"
         const val ACTION_AUTO_STOP = "com.example.action.AUTO_STOP"
 
+        /** Reapply secure-window flags after the user changes Classroom Privacy Mode. */
+        fun refreshPrivacyMode() {
+            instance?.applyPrivacyModeToWindows()
+        }
+
         private var instance: AskScreenOverlayService? = null
 
         fun onMediaProjectionGranted(context: Context, resultCode: Int, data: Intent, action: String) {
@@ -256,6 +261,26 @@ class AskScreenOverlayService : Service() {
         return START_STICKY
     }
 
+    private fun privacySecureFlag(): Int = if (prefs.isClassroomPrivacyMode) {
+        WindowManager.LayoutParams.FLAG_SECURE
+    } else 0
+
+    private fun applyPrivacyModeToWindows() {
+        fun update(view: View?, params: WindowManager.LayoutParams?) {
+            if (view == null || params == null) return
+            params.flags = if (prefs.isClassroomPrivacyMode) {
+                params.flags or WindowManager.LayoutParams.FLAG_SECURE
+            } else {
+                params.flags and WindowManager.LayoutParams.FLAG_SECURE.inv()
+            }
+            runCatching { windowManager.updateViewLayout(view, params) }
+        }
+        update(bubbleView, bubbleLayoutParams)
+        update(quickMenuComposeView, quickMenuLayoutParams)
+        update(answerWindowView, answerWindowLayoutParams)
+        update(regionOverlayView, regionOverlayView?.layoutParams as? WindowManager.LayoutParams)
+    }
+
     private fun createFloatingBubble() {
         if (bubbleView != null) return
 
@@ -268,7 +293,7 @@ class AskScreenOverlayService : Service() {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or privacySecureFlag(),
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -321,7 +346,7 @@ class AskScreenOverlayService : Service() {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or privacySecureFlag(),
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -426,7 +451,7 @@ class AskScreenOverlayService : Service() {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                     WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or privacySecureFlag(),
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -1037,7 +1062,7 @@ Instructions:
                             val message = error.message.orEmpty()
                             liveCaptions.value = when {
                                 message.startsWith("SUBSCRIPTION_REQUIRED") ->
-                                    "Your two free transcription uses are finished. Subscribe to continue."
+                                    "Your free transcription uses are finished. The subscription page is opening; choose DOM AI Core in Account to continue."
                                 message.startsWith("SIGN_IN_REQUIRED") ->
                                     "Please sign in to continue transcription."
                                 else -> "Transcription could not be verified. Please check your connection and try again."
@@ -1094,7 +1119,7 @@ Instructions:
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or privacySecureFlag(),
             PixelFormat.TRANSLUCENT
         )
 

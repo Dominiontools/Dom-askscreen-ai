@@ -63,11 +63,11 @@ exports.handler = async event => {
             if (!freshSnapshot.exists) continue;
             const payment = freshSnapshot.data();
             if (payment.status !== 'approved' || payment.claimRequired !== true) continue;
-            const product = DEFAULT_PRODUCTS.find(item => item.id === payment.productId && item.independent === true);
+            const product = DEFAULT_PRODUCTS.find(item => item.id === payment.productId && (item.id === 'core' || item.independent === true));
             if (!product || !payment.entitlementExpiresAt || typeof payment.entitlementExpiresAt.toDate !== 'function') continue;
             const expiry = payment.entitlementExpiresAt.toDate();
             if (expiry.getTime() <= Date.now()) continue;
-            const existing = currentSubscriptions[product.id];
+            const existing = product.id === 'core' ? (accountFresh.exists ? accountFresh.data().subscription : null) : currentSubscriptions[product.id];
             const existingExpiry = existing && existing.currentPeriodEnd && typeof existing.currentPeriodEnd.toDate === 'function'
               ? existing.currentPeriodEnd.toDate().getTime() : 0;
             if (existingExpiry > expiry.getTime()) continue;
@@ -79,8 +79,13 @@ exports.handler = async event => {
             };
           }
           if (Object.keys(claimed).length) {
+            const coreClaim = claimed.core;
+            const workClaims = { ...claimed };
+            delete workClaims.core;
             transaction.set(accountRef, {
-              productSubscriptions: { ...currentSubscriptions, ...claimed }, updatedAt: now
+              ...(coreClaim ? { subscription: coreClaim } : {}),
+              ...(Object.keys(workClaims).length ? { productSubscriptions: { ...currentSubscriptions, ...workClaims } } : {}),
+              updatedAt: now
             }, { merge: true });
             for (const [paymentDoc, freshSnapshot] of freshPayments) {
               if (freshSnapshot.exists && freshSnapshot.data().status === 'approved' && freshSnapshot.data().claimRequired === true &&
@@ -91,10 +96,29 @@ exports.handler = async event => {
           }
         });
         if (Object.keys(claimed).length) {
-          Object.assign(account.productSubscriptions || (account.productSubscriptions = {}), claimed);
+          if (claimed.core) account.subscription = claimed.core;
+          const workClaims = { ...claimed };
+          delete workClaims.core;
+          if (Object.keys(workClaims).length) Object.assign(account.productSubscriptions || (account.productSubscriptions = {}), workClaims);
         }
       }
     }
+    const paymentHistorySnapshot = authUser.email
+      ? await db.collection('askScreenPayments').where('email', '==', String(authUser.email).trim().toLowerCase()).limit(25).get()
+      : null;
+    const paymentHistory = paymentHistorySnapshot ? paymentHistorySnapshot.docs.map(doc => {
+      const payment = doc.data();
+      return {
+        id: doc.id,
+        productName: payment.productName || payment.productId || 'Subscription',
+        amount: payment.amount || '',
+        currency: payment.currency || 'USDT',
+        status: payment.status || 'unknown',
+        createdAt: payment.createdAt && typeof payment.createdAt.toDate === 'function'
+          ? payment.createdAt.toDate().toISOString() : null,
+        reviewNote: payment.reviewNote || ''
+      };
+    }).sort((a, b) => Date.parse(b.createdAt || '') - Date.parse(a.createdAt || '')).slice(0, 10) : [];
     const usage = account.usage || {};
     const subscription = account.subscription || {};
     const productSubscriptions = summarizeProductSubscriptions(account.productSubscriptions || {});
@@ -120,6 +144,7 @@ exports.handler = async event => {
       subscription: { status: paid ? 'active' : (subscription.status === 'active' ? 'expired' : (subscription.status || 'inactive')),
         currentPeriodEnd: end ? new Date(end).toISOString() : null },
       productSubscriptions,
+      paymentHistory,
       features: { screen: features.screen !== false, spoken: features.spoken !== false,
         transcription: features.transcription !== false }
     });

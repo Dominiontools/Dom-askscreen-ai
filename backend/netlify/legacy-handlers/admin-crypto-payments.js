@@ -1,12 +1,31 @@
 'use strict';
 
-const { verifyUser } = require('./ask-screen');
+const { verifyAdminSession } = require('./admin-auth');
 const { DEFAULT_PRODUCTS } = require('../../pricing-catalog');
 function json(statusCode, data) {
   return { statusCode, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Admin-Access-Code',
     'Cache-Control': 'no-store' }, body: JSON.stringify(data) };
 }
+async function findPaymentCustomer(auth, payment) {
+  let customer = null;
+  const submittedUid = typeof payment.uid === 'string' ? payment.uid.trim() : '';
+  if (submittedUid) {
+    try { customer = await auth.getUser(submittedUid); }
+    catch (lookupError) {
+      if (lookupError.code !== 'auth/user-not-found') throw lookupError;
+    }
+  }
+  if (!customer && payment.email) {
+    try { customer = await auth.getUserByEmail(String(payment.email).trim().toLowerCase()); }
+    catch (lookupError) {
+      if (lookupError.code !== 'auth/user-not-found') throw lookupError;
+    }
+  }
+  return customer && customer.emailVerified ? customer : null;
+}
+exports._test = { findPaymentCustomer };
+
 let adminPromise;
 async function getAdmin() {
   if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) throw new Error('AUTH_NOT_CONFIGURED');
@@ -23,7 +42,7 @@ exports.handler = async event => {
   if (!String(event.headers?.['content-type'] || event.headers?.['Content-Type'] || '').toLowerCase().includes('application/json')) return json(415, { error: 'Content-Type must be application/json.' });
   if (!event.body || Buffer.byteLength(event.body, 'utf8') > 5000) return json(413, { error: 'Request is too large.' });
   try {
-    const decoded = await verifyUser(event);
+    const decoded = verifyAdminSession(event);
     const email = String(decoded.email || '').trim().toLowerCase();
     const allowlist = (process.env.ADMIN_EMAILS || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
     if (decoded.email_verified !== true || !email || !allowlist.includes(email)) return json(403, { error: 'Only a verified administrator can review payments.' });
@@ -41,21 +60,13 @@ exports.handler = async event => {
     const payment = paymentSnap.data();
     if (payment.provider !== 'USDT_MANUAL' || payment.status !== 'pending') return json(409, { error: 'Only pending USDT payments can be reviewed.' });
     if (action === 'approve') {
-      const product = DEFAULT_PRODUCTS.find(item => item.id === payment.productId && item.independent === true);
-      if (!product) return json(400, { error: 'The payment does not reference a valid independent service.' });
-      let customer = null;
-      try { customer = await admin.auth().getUserByEmail(String(payment.email || '')); }
-      catch (lookupError) { if (lookupError.code !== 'auth/user-not-found') throw lookupError; }
-      const verifiedCustomer = customer && customer.emailVerified ? customer : null;
-      const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-      const expiresAt = admin.firestore.Timestamp.fromDate(periodEnd);
+      const product = DEFAULT_PRODUCTS.find(item => item.id === payment.productId && (item.id === 'core' || item.independent === true));
+      if (!product) return json(400, { error: 'The payment does not reference a valid subscription product.' });
+      const verifiedCustomer = await findPaymentCustomer(admin.auth(), payment);
       const now = admin.firestore.FieldValue.serverTimestamp();
       const accountRef = verifiedCustomer ? db.collection('askScreenAccounts').doc(verifiedCustomer.uid) : null;
-      const record = {
-        status: 'active', currentPeriodEnd: expiresAt, source: 'verified_usdt_payment',
-        paymentId, network: payment.network, transactionHash: payment.transactionHash,
-        verifiedByUid: decoded.uid, verifiedByEmail: email, verifiedAt: now, updatedAt: now
-      };
+      let periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      let expiresAt = admin.firestore.Timestamp.fromDate(periodEnd);
       await db.runTransaction(async transaction => {
         const current = await transaction.get(paymentRef);
         if (!current.exists || current.data().provider !== 'USDT_MANUAL' || current.data().status !== 'pending') {
@@ -63,13 +74,34 @@ exports.handler = async event => {
           conflict.code = 'PAYMENT_ALREADY_REVIEWED';
           throw conflict;
         }
+        const account = accountRef ? await transaction.get(accountRef) : null;
+        if (account && account.exists) {
+          const accountData = account.data();
+          const currentEntitlement = product.id === 'core'
+            ? accountData.subscription
+            : (accountData.productSubscriptions || {})[product.id];
+          const currentEnd = currentEntitlement && currentEntitlement.currentPeriodEnd &&
+            typeof currentEntitlement.currentPeriodEnd.toDate === 'function'
+            ? currentEntitlement.currentPeriodEnd.toDate().getTime() : 0;
+          const renewalBase = Math.max(Date.now(), currentEnd);
+          periodEnd = new Date(renewalBase + 30 * 24 * 60 * 60 * 1000);
+          expiresAt = admin.firestore.Timestamp.fromDate(periodEnd);
+        }
+        const record = {
+          status: 'active', currentPeriodEnd: expiresAt, source: 'verified_usdt_payment',
+          paymentId, network: payment.network, transactionHash: payment.transactionHash,
+          verifiedByUid: decoded.uid, verifiedByEmail: email, verifiedAt: now, updatedAt: now
+        };
         if (accountRef) {
-          const account = await transaction.get(accountRef);
-          const existing = account.exists ? account.data().productSubscriptions || {} : {};
-          transaction.set(accountRef, {
-            productSubscriptions: { ...existing, [product.id]: record },
-            updatedAt: now
-          }, { merge: true });
+          if (product.id === 'core') {
+            transaction.set(accountRef, { subscription: record, updatedAt: now }, { merge: true });
+          } else {
+            const existing = account && account.exists ? account.data().productSubscriptions || {} : {};
+            transaction.set(accountRef, {
+              productSubscriptions: { ...existing, [product.id]: record },
+              updatedAt: now
+            }, { merge: true });
+          }
         }
         transaction.update(paymentRef, {
           status: 'approved', uid: verifiedCustomer ? verifiedCustomer.uid : null,

@@ -42,6 +42,29 @@ import java.util.TimeZone
 
 private const val EMAIL_MANAGEMENT_URL = "https://fancy-swan-734af6.netlify.app"
 
+private val FALLBACK_WORK_PRODUCTS = listOf(
+    WorkCentreProduct("General Data Annotation AI", "data_annotation", 2900),
+    WorkCentreProduct("Image Annotation AI", "image_annotation", 2000),
+    WorkCentreProduct("Video Annotation AI", "video_annotation", 3500),
+    WorkCentreProduct("Audio Annotation AI", "audio_annotation", 2000),
+    WorkCentreProduct("Text Annotation AI", "text_annotation", 1800),
+    WorkCentreProduct("AI Training & Evaluation", "ai_training", 3000),
+    WorkCentreProduct("Virtual Assistant AI", "virtual_assistant", 3900),
+    WorkCentreProduct("Lead Generation AI", "lead_generation", 2900),
+    WorkCentreProduct("Customer Support AI", "customer_support", 2900),
+    WorkCentreProduct("Inventory Management AI", "inventory", 2500),
+    WorkCentreProduct("Purchasing & Procurement AI", "procurement", 2500),
+    WorkCentreProduct("Calendar & Scheduling AI", "calendar", 1500),
+    WorkCentreProduct("Spreadsheet & Document AI", "documents_spreadsheets", 2000),
+    WorkCentreProduct("Customer & CRM Management AI", "crm", 2900),
+    WorkCentreProduct("Project & Task Management AI", "project_tasks", 2000),
+    WorkCentreProduct("Business Administration AI", "business_admin", 2500),
+    WorkCentreProduct("Marketing & Social Media AI", "marketing_social", 2900),
+    WorkCentreProduct("Research Assistant AI", "research", 2000),
+    WorkCentreProduct("Translation & Transcription AI", "translation_transcription", 2000),
+    WorkCentreProduct("Technical Assistant AI", "technical_assistant", 3900)
+)
+
 private data class WalletNetwork(val id:String,val name:String,val address:String)
 
 private data class WorkCentreProduct(
@@ -91,10 +114,49 @@ fun WorkCentreScreen() {
     var paymentBusy by remember { mutableStateOf(false) }
     var paymentMessage by remember { mutableStateOf<String?>(null) }
     var products by remember { mutableStateOf<List<WorkCentreProduct>>(emptyList()) }
+    var liveCatalogueLoaded by remember { mutableStateOf(false) }
     var emailProduct by remember { mutableStateOf(WorkCentreProduct("DOM Email Management", "email_management", 2000)) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var accessError by remember { mutableStateOf<String?>(null) }
+    var openedWorkspace by remember { mutableStateOf<WorkCentreProduct?>(null) }
+    var googleConnected by remember { mutableStateOf(false) }
+    var googleEmail by remember { mutableStateOf<String?>(null) }
+    var googleBusy by remember { mutableStateOf(false) }
+    var googleMessage by remember { mutableStateOf<String?>(null) }
+    var googleToolsOpen by remember { mutableStateOf(false) }
+
+    suspend fun googleRequest(action: String, method: String): JSONObject {
+        val user = auth.currentUser ?: throw IllegalStateException("Sign in before connecting Google.")
+        val token = user.getIdToken(true).await().token
+            ?: throw IllegalStateException("Your sign-in could not be verified.")
+        val configured = prefs.backendUrl.trim().trimEnd('/')
+        if (!configured.endsWith("/ask-screen")) throw IllegalStateException("Set the AskScreen backend URL in Settings first.")
+        val endpoint = configured.removeSuffix("/ask-screen") + "/google-oauth?action=" + action
+        return withContext(Dispatchers.IO) {
+            val builder = Request.Builder().url(endpoint).header("Authorization", "Bearer " + token)
+            if (method == "GET") builder.get() else builder.post("{}".toRequestBody("application/json; charset=utf-8".toMediaType()))
+            http.newCall(builder.build()).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
+                if (!response.isSuccessful || !json.optBoolean("success")) throw IllegalStateException(json.optString("code").ifBlank { "Google connection request failed. Please try again." })
+                json
+            }
+        }
+    }
+
+    LaunchedEffect(auth.currentUser?.uid, prefs.backendUrl) {
+        if (auth.currentUser != null && prefs.backendUrl.trim().endsWith("/ask-screen")) {
+            googleBusy = true
+            try {
+                val status = googleRequest("status", "GET")
+                googleConnected = status.optBoolean("connected")
+                googleEmail = status.optString("email").takeIf { it.isNotBlank() && it != "null" }
+                googleMessage = null
+            } catch (e: Exception) { googleMessage = e.message ?: "Google connection status is unavailable." }
+            finally { googleBusy = false }
+        } else { googleConnected = false; googleEmail = null }
+    }
 
     LaunchedEffect(auth.currentUser?.uid, prefs.backendUrl) {
         loading = true
@@ -171,8 +233,12 @@ fun WorkCentreScreen() {
                 else if (id != "core") mapped.add(product)
             }
             products = mapped
+            liveCatalogueLoaded = true
         } catch (e: Exception) {
-            error = e.message ?: "Could not load Work Centre."
+            liveCatalogueLoaded = false
+            wallets = emptyList()
+            products = FALLBACK_WORK_PRODUCTS
+            error = e.message ?: "Live service settings are unavailable. Showing the service catalogue."
         } finally {
             loading = false
         }
@@ -233,6 +299,7 @@ fun WorkCentreScreen() {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text("DOM Email Management", color = Color.White, fontWeight = FontWeight.SemiBold)
                     Text("Open the separate Email Management System", color = Slate400, fontSize = 12.sp)
+                    TextButton(onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(EMAIL_MANAGEMENT_URL))) }.onFailure { paymentMessage = "Email Management website could not be opened." } }) { Text("Visit Email Management website") }
                     Text("USD " + String.format(Locale.US, "%.2f", emailProduct.priceCents / 100.0) + "/month", color = ElectricCyan, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     Text(workAccessLabel(emailProduct), color = if (emailProduct.status == "active") ElectricCyan else Slate400, fontSize = 11.sp)
                     if (emailProduct.status == "active" && auth.currentUser?.isEmailVerified == true) {
@@ -245,11 +312,57 @@ fun WorkCentreScreen() {
                             paymentEmail = auth.currentUser?.email.orEmpty()
                             paymentMessage = null
                             checkoutProduct = emailProduct
-                        }, enabled = !loading && wallets.isNotEmpty()) { Text("Pay with USDT") }
+                        }, enabled = !loading && liveCatalogueLoaded && wallets.isNotEmpty()) { Text("Pay with USDT") }
                         if (auth.currentUser == null) Text("After payment approval, register with this email and verify it to claim access.", color = Slate400, fontSize = 10.sp)
                     }
                 }
                 Icon(Icons.Default.OpenInNew, contentDescription = "Open email management", tint = ElectricCyan)
+            }
+        }
+
+        Card(colors = CardDefaults.cardColors(containerColor = Slate900), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("GOOGLE ACCOUNT CONNECTION", color = ElectricCyan, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text(if (googleConnected) "Connected" + (googleEmail?.let { " • " + it } ?: "") else "Connect Gmail and Google Calendar to enable account-based workspace actions.", color = if (googleConnected) ElectricCyan else Slate300, fontSize = 12.sp)
+                googleMessage?.let { Text(it, color = AmberWarning, fontSize = 11.sp) }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = {
+                        scope.launch {
+                            googleBusy = true; googleMessage = null
+                            try {
+                                if (googleConnected) {
+                                    googleRequest("disconnect", "POST"); googleConnected = false; googleEmail = null
+                                    googleMessage = "Google account disconnected."
+                                } else {
+                                    val started = googleRequest("start", "POST")
+                                    val authorizationUrl = started.optString("authorizationUrl")
+                                    if (authorizationUrl.isBlank()) throw IllegalStateException("Google did not return a connection link.")
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(authorizationUrl)))
+                                    googleMessage = "Complete Google permission approval in your browser, then return here and tap Refresh."
+                                }
+                            } catch (e: Exception) { googleMessage = e.message ?: "Google connection could not be updated." }
+                            finally { googleBusy = false }
+                        }
+                    }, enabled = !googleBusy && auth.currentUser != null, modifier = Modifier.weight(1f)) { Text(if (googleBusy) "Please wait…" else if (googleConnected) "Disconnect Google" else "Connect Google") }
+                    OutlinedButton(onClick = {
+                        scope.launch {
+                            googleBusy = true
+                            try {
+                                val status = googleRequest("status", "GET")
+                                googleConnected = status.optBoolean("connected")
+                                googleEmail = status.optString("email").takeIf { it.isNotBlank() && it != "null" }
+                                googleMessage = if (googleConnected) "Google connection verified." else "Google is not connected yet."
+                            } catch (e: Exception) { googleMessage = e.message ?: "Could not refresh Google status." }
+                            finally { googleBusy = false }
+                        }
+                    }, enabled = !googleBusy && auth.currentUser != null) { Text("Refresh") }
+                }
+                if (googleConnected) {
+                    Button(onClick = { googleToolsOpen = true }, enabled = !googleBusy, modifier = Modifier.fillMaxWidth()) {
+                        Text("Open Gmail & Calendar Tools")
+                    }
+                }
+                Text("Connecting alone does not send emails or create calendar events. Review and confirm each action inside the tools.", color = Slate400, fontSize = 10.sp)
             }
         }
 
@@ -267,13 +380,18 @@ fun WorkCentreScreen() {
                     Icon(Icons.Default.WorkOutline, contentDescription = null, tint = ElectricCyan)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(product.name, color = Color.White, fontWeight = FontWeight.Medium, fontSize = 13.sp)
-                        Text("Catalogue listing · workspace availability varies", color = Slate400, fontSize = 11.sp)
+                        Text(if (product.status == "active") "Your service workspace is ready to open" else "Subscribe to unlock this service workspace", color = Slate400, fontSize = 11.sp)
                         Text(
                             workAccessLabel(product),
                             color = if (product.status == "active") ElectricCyan else Slate400,
                             fontSize = 11.sp
                         )
-                        Button(onClick = { paymentEmail = auth.currentUser?.email.orEmpty(); paymentMessage = null; checkoutProduct = product }, enabled = !loading && wallets.isNotEmpty()) { Text("Pay with USDT") }
+                        Button(onClick = {
+                            if (product.status == "active" && auth.currentUser?.isEmailVerified == true) openedWorkspace = product
+                            else { paymentEmail = auth.currentUser?.email.orEmpty(); paymentMessage = null; checkoutProduct = product }
+                        }, enabled = !loading && liveCatalogueLoaded && (product.status == "active" && auth.currentUser?.isEmailVerified == true || wallets.isNotEmpty())) {
+                            Text(if (product.status == "active" && auth.currentUser?.isEmailVerified == true) "Open workspace" else "Pay with USDT")
+                        }
                     }
                     Text(
                         "USD " + String.format(Locale.US, "%.2f", product.priceCents / 100.0) + "/mo",
@@ -288,9 +406,13 @@ fun WorkCentreScreen() {
             color = AmberWarning, fontSize = 11.sp
         )
         Text(
-            "Prices are displayed for planning only. Paystack checkout is Coming Soon. An active access record is an administrator-managed entitlement only; it does not mean that the specialist workspace is already built or available inside this app. The specialist modules are still being developed.",
+            "Workspaces currently support AI-assisted text tasks with saved results. Image, audio and video uploads, external account connections and actions such as publishing or sending still require their dedicated integrations.",
             color = Slate400, fontSize = 11.sp
         )
+    }
+    if (googleToolsOpen) GoogleWorkspaceToolsDialog(onDismiss = { googleToolsOpen = false })
+    openedWorkspace?.let { product ->
+        WorkServiceWorkspaceDialog(productId = product.id, productName = product.name, onDismiss = { openedWorkspace = null })
     }
     checkoutProduct?.let { product ->
         val wallet = wallets.firstOrNull { it.id == paymentNetwork }

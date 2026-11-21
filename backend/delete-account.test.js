@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { handler } = require('./netlify/functions/delete-account');
+const { handler } = require('./netlify/legacy-handlers/delete-account');
 
 async function run() {
   const options = await handler({ httpMethod: 'OPTIONS', headers: {} });

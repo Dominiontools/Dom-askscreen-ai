@@ -2,11 +2,12 @@
   "name": "askscreen-backend",
   "version": "1.0.0",
   "description": "Secure Netlify serverless backend for AskScreen AI",
-  "main": "netlify/functions/ask-screen.js",
+  "main": "netlify/legacy-handlers/ask-screen.js",
   "scripts": {
-    "test": "node test.js && node delete-account.test.js"
+    "test": "node test.js && node delete-account.test.js && node google-oauth.test.js && node google-workspace.test.js && node router-failover.test.js"
   },
   "dependencies": {
-    "firebase-admin": "^13.5.0"
+    "firebase-admin": "^13.5.0",
+    "@netlify/aws-lambda-compat": "^2.0.3"
   }
 }

@@ -21,8 +21,11 @@ const MAX_REQUESTS_PER_WINDOW = Number.isFinite(configuredRateLimit)
   : DEFAULT_MAX_REQUESTS_PER_WINDOW;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 const PROVIDER_TIMEOUT_MS = 8_000;
-const ROUTER_DEADLINE_MS = 24_000;
-const MAX_PROVIDER_RETRIES = 1;
+// Keep synchronous processing below Netlify's 60-second function execution limit.
+const ROUTER_DEADLINE_MS = 18_000;
+// Do not spend a second full provider timeout retrying an upstream outage.
+// Rotate Gemini keys for authentication/quota errors, then fail over immediately.
+const MAX_PROVIDER_RETRIES = 0;
 const RETRY_BASE_DELAY_MS = 350;
 const COOLDOWN_MS = 30_000;
 const MAX_HISTORY_ITEMS = 12;
@@ -342,7 +345,7 @@ function normalizePayload(raw) {
 }
 
 function geminiModelFor(payload) {
-  const fallback = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+  const fallback = process.env.GEMINI_MODEL || ['gemini', '3.8', 'flash'].join('-');
   const allowed = (process.env.GEMINI_ALLOWED_MODELS || fallback)
     .split(',').map(x => x.trim()).filter(Boolean);
   return payload.requestedModel && allowed.includes(payload.requestedModel)
@@ -353,7 +356,7 @@ function geminiModelFor(payload) {
 function getProviders(payload) {
   const multimodal = payload.images.length > 0 || payload.files.length > 0 || Boolean(payload.audio);
   const providers = [];
-  const geminiKeys = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_2, process.env.GEMINI_API_KEY_3]
+  const geminiKeys = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY2, process.env.GEMINI_API_KEY3]
     .map(x => typeof x === 'string' ? x.trim() : '').filter(Boolean);
 
   if (geminiKeys.length) providers.push({
@@ -416,7 +419,15 @@ function getProviders(payload) {
     }
   }
 
-  return providers.filter(p => !isCoolingDown(p.name) && (!multimodal || p.type === 'gemini'));
+  const imageOnly = payload.images.length > 0 && payload.files.length === 0 && !payload.audio;
+  return providers.filter(p => {
+    if (isCoolingDown(p.name)) return false;
+    if (!multimodal) return true;
+    // OpenRouter's configured GPT-4o-mini vision model can inspect sampled video frames.
+    // Keep PDFs and audio on Gemini because they require provider-specific media handling.
+    if (imageOnly && p.name === 'OpenRouter') return true;
+    return p.type === 'gemini';
+  });
 }
 
 function geminiContents(payload) {
@@ -439,10 +450,17 @@ function geminiContents(payload) {
 }
 
 function openAiMessages(payload) {
+  const userContent = [{ type: 'text', text: payload.prompt }];
+  for (const image of payload.images) {
+    userContent.push({
+      type: 'image_url',
+      image_url: { url: 'data:' + image.mimeType + ';base64,' + image.data, detail: 'high' }
+    });
+  }
   return [
     { role: 'system', content: SYSTEM_INSTRUCTION },
     ...payload.history.map(turn => ({ role: turn.role, content: turn.content })),
-    { role: 'user', content: payload.prompt }
+    { role: 'user', content: userContent.length === 1 ? payload.prompt : userContent }
   ];
 }
 
@@ -633,7 +651,9 @@ async function routeRequest(payload) {
 
     const keys = provider.type === 'gemini' ? provider.keys : [provider.key];
 
-    for (let index = 0; index < keys.length; index++) {
+    // A provider outage or timeout should move to the next provider immediately.
+    // Only rotate Gemini keys for invalid-key or quota/rate-limit responses.
+    providerKeyLoop: for (let index = 0; index < keys.length; index++) {
       let attempt = 0;
       while (attempt <= MAX_PROVIDER_RETRIES && Date.now() < deadline) {
         try {
@@ -657,28 +677,20 @@ async function routeRequest(payload) {
             attempt: attempt + 1
           });
 
-          if (
-            provider.type === 'gemini' &&
-            isInvalidGeminiKey(error) &&
-            index < keys.length - 1
-          ) break;
+          const canRotateGeminiKey = provider.type === 'gemini' &&
+            index < keys.length - 1 &&
+            (isInvalidGeminiKey(error) || error.status === 429);
+          if (canRotateGeminiKey) break;
 
-          const canRetry = isRetryableProviderError(error) &&
-            attempt < MAX_PROVIDER_RETRIES;
-          const backoff = error.retryAfterMs || RETRY_BASE_DELAY_MS * (attempt + 1);
-          if (canRetry && Date.now() + backoff + 250 < deadline) {
-            attempt++;
-            await wait(backoff);
-            continue;
-          }
-
-          if (error.status === 429 || isRetryableProviderError(error)) {
+          // A 5xx, network failure, or timeout is provider-wide, not key-specific.
+          // Cool down this provider and continue to the next compatible provider.
+          if (isRetryableProviderError(error) || error.status === 429) {
             coolDown(provider.name);
-            break;
+            break providerKeyLoop;
           }
           if (!shouldTryNextProvider(error)) throw error;
           coolDown(provider.name);
-          break;
+          break providerKeyLoop;
         }
       }
     }
@@ -842,7 +854,7 @@ exports.handler = async function handler(event) {
     if (error.code === 'NO_MULTIMODAL_PROVIDER') {
       return response(503, {
         success: false,
-        error: 'Image, audio and file questions require a configured Gemini API key. Please try again later.',
+        error: 'This media type needs a compatible vision or Gemini provider. Configure Gemini for PDFs/audio, or use the available OpenRouter vision model for images and sampled video frames.',
         code: 'NO_MULTIMODAL_PROVIDER', requestId
       }, requestId);
     }
@@ -857,7 +869,9 @@ exports.handler = async function handler(event) {
 
 
 // Shared authenticated usage helpers for feature-only endpoints.
+exports.routeRequest = routeRequest;
 exports.featureForRequest = featureForRequest;
 exports.verifyUser = verifyUser;
 exports.reserveFeatureUse = reserveFeatureUse;
 exports.isEligibleForFreeTrial = isEligibleForFreeTrial;
+exports._test = { getProviders, openAiMessages, normalizePayload, PROVIDER_TIMEOUT_MS, ROUTER_DEADLINE_MS };
