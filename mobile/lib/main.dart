@@ -25,8 +25,21 @@ void main() {
   runApp(const DomAskScreenApp());
 }
 
-class DomAskScreenApp extends StatelessWidget {
+class DomAskScreenApp extends StatefulWidget {
   const DomAskScreenApp({super.key});
+
+  @override
+  State<DomAskScreenApp> createState() => _DomAskScreenAppState();
+}
+
+class _DomAskScreenAppState extends State<DomAskScreenApp> {
+  late final Future<void> _platformInitialization;
+
+  @override
+  void initState() {
+    super.initState();
+    _platformInitialization = _initializePlatform();
+  }
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -44,7 +57,7 @@ class DomAskScreenApp extends StatelessWidget {
           useMaterial3: true,
         ),
         home: FutureBuilder<void>(
-          future: _initializePlatform(),
+          future: _platformInitialization,
           builder: (context, snapshot) {
             if (snapshot.connectionState != ConnectionState.done) {
               return const _LoadingScreen();
