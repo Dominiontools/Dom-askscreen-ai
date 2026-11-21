@@ -335,6 +335,7 @@ class AskScreenOverlayService : Service() {
 
         try {
             windowManager.addView(bubble, params)
+            applyWindowProtectionToWindows()
             isBubbleVisible = true
         } catch (e: Exception) {
             Log.e("AskScreenOverlayService", "Failed to add floating bubble to WindowManager", e)
@@ -422,6 +423,7 @@ class AskScreenOverlayService : Service() {
 
         try {
             windowManager.addView(composeView, params)
+            applyWindowProtectionToWindows()
             isQuickMenuVisible = true
         } catch (e: Exception) {
             Log.e("AskScreenOverlayService", "Failed to add quick menu", e)
@@ -569,6 +571,7 @@ class AskScreenOverlayService : Service() {
 
         try {
             windowManager.addView(composeView, params)
+            applyWindowProtectionToWindows()
             isAnswerWindowVisible = true
         } catch (e: Exception) {
             Log.e("AskScreenOverlayService", "Failed to add answer window", e)
@@ -1152,6 +1155,7 @@ Instructions:
 
         try {
             windowManager.addView(overlay, params)
+            applyWindowProtectionToWindows()
         } catch (e: Exception) {
             Log.e("AskScreenOverlayService", "Failed to add region selection overlay", e)
         }
