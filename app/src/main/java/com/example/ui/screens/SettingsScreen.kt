@@ -55,7 +55,8 @@ fun SettingsScreen() {
     var isAutoSubmit by remember { mutableStateOf(prefs.isAutoSubmitEnabled) }
     var monitorInterval by remember { mutableFloatStateOf(prefs.autoMonitorIntervalMs.toFloat() / 1000f) }
     var audioLanguageTag by remember { mutableStateOf(prefs.audioLanguageTag) }
-    var isInvisiblePresentationMode by remember { mutableStateOf(prefs.isClassroomPrivacyMode) }
+    var isClassroomPrivacyMode by remember { mutableStateOf(prefs.isClassroomPrivacyMode) }
+    var isInvisiblePresentationMode by remember { mutableStateOf(prefs.isInvisiblePresentationMode) }
 
     var isTestingConnection by remember { mutableStateOf(false) }
 
@@ -77,32 +78,59 @@ fun SettingsScreen() {
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        SettingsCard(title = "Invisible Presentation Mode", icon = Icons.Default.Security) {
+        SettingsCard(title = "Classroom Privacy Mode", icon = Icons.Default.Security) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Keep AskScreen visible to you but hidden from supported screen sharing", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
-                    Text("Turn on before presenting or sharing your screen. Turn off to show AskScreen again.", fontSize = 11.sp, color = Slate400, lineHeight = 16.sp)
+                    Text("Hide AskScreen during supported screen sharing", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Turn on before sharing your phone. Turn off to make AskScreen visible again.", fontSize = 11.sp, color = Slate400, lineHeight = 16.sp)
                 }
                 Switch(
                     checked = isClassroomPrivacyMode,
                     onCheckedChange = { enabled ->
                         isClassroomPrivacyMode = enabled
                         prefs.isClassroomPrivacyMode = enabled
-                        (context as? Activity)?.window?.let { activityWindow ->
-                            if (enabled) activityWindow.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
-                            else activityWindow.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
-                        }
-                        AskScreenOverlayService.refreshInvisiblePresentationMode()
+                        (context as? com.example.MainActivity)?.refreshWindowProtection()
+                        AskScreenOverlayService.refreshWindowProtection()
+                        Toast.makeText(context, if (enabled) "Classroom Privacy Mode is on." else "Classroom Privacy Mode is off.", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = SwitchDefaults.colors(checkedTrackColor = ElectricCyan)
+                )
+            }
+            Text("Protected content may appear black or blocked to viewers. Other phone content and notifications are not hidden.", fontSize = 10.sp, color = Slate400, lineHeight = 15.sp)
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        SettingsCard(title = "Invisible Presentation Mode", icon = Icons.Default.PresentToAll) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Keep AskScreen windows private while the rest of your screen is presented", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Your assistant stays visible and usable on your phone. Viewers should see the other apps, not AskScreen.", fontSize = 11.sp, color = Slate400, lineHeight = 16.sp)
+                }
+                Switch(
+                    checked = isInvisiblePresentationMode,
+                    onCheckedChange = { enabled ->
+                        isInvisiblePresentationMode = enabled
+                        prefs.isInvisiblePresentationMode = enabled
+                        (context as? com.example.MainActivity)?.refreshWindowProtection()
+                        AskScreenOverlayService.refreshWindowProtection()
                         Toast.makeText(context, if (enabled) "Invisible Presentation Mode is on." else "Invisible Presentation Mode is off.", Toast.LENGTH_SHORT).show()
                     },
                     colors = SwitchDefaults.colors(checkedTrackColor = ElectricCyan)
                 )
             }
-            Text("AskScreen windows are protected using Android secure-window controls. Viewers may see a black or blocked area. Other apps and phone notifications are not hidden.", fontSize = 10.sp, color = Slate400, lineHeight = 15.sp)
+            Text(
+                "Android 15 and newer can mark each AskScreen window as sensitive during active screen sharing. Older Android versions use secure-window protection, which may also block screenshots. Other apps and notifications are not hidden.",
+                fontSize = 10.sp, color = Slate400, lineHeight = 15.sp
+            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -347,7 +375,7 @@ fun SettingsScreen() {
         // 5. PRIVACY & SAFETY
         SettingsCard(title = "Privacy & Safety", icon = Icons.Default.Security) {
             Text(
-                if (isClassroomPrivacyMode) "Invisible Presentation Mode is ON." else "Invisible Presentation Mode is OFF.",
+                if (isClassroomPrivacyMode) "Classroom Privacy Mode is ON." else "Classroom Privacy Mode is OFF.",
                 fontSize = 12.sp,
                 color = if (isClassroomPrivacyMode) ElectricCyan else Slate400,
                 fontWeight = FontWeight.SemiBold
