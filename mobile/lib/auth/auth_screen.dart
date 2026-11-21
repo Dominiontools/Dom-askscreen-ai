@@ -118,7 +118,33 @@ class _AuthScreenState extends State<AuthScreen> {
                     if (!_createAccount)
                       Align(
                         alignment: Alignment.centerRight,
-                        child: TextButton(onPressed: _busy ? null : _resetPassword, child: const Text('Forgot password?')),
+                        child: TextButton(
+                          onPressed: _busy ? null : _resetPassword,
+                          child: const Text('Forgot password?'),
+                        ),
+                      ),
+                    if (widget.repository.currentUser != null &&
+                        !widget.repository.currentUser!.emailVerified)
+                      Align(
+                        alignment: Alignment.center,
+                        child: TextButton(
+                          onPressed: _busy
+                              ? null
+                              : () async {
+                                  setState(() { _busy = true; _error = null; _message = null; });
+                                  try {
+                                    await widget.repository.resendEmailVerification();
+                                    if (mounted) {
+                                      setState(() => _message = 'A new verification email has been sent.');
+                                    }
+                                  } catch (e) {
+                                    if (mounted) setState(() => _error = e.toString());
+                                  } finally {
+                                    if (mounted) setState(() => _busy = false);
+                                  }
+                                },
+                          child: const Text('Resend verification email'),
+                        ),
                       ),
                     if (_error != null) Padding(
                       padding: const EdgeInsets.only(top: 12),
