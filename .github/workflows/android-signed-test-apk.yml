@@ -6,6 +6,11 @@ on:
       - feature/flutter-cross-platform-foundation
     paths:
       - '.github/workflows/android-signed-test-apk.yml'
+      - 'app/**'
+      - 'gradle/**'
+      - 'build.gradle*'
+      - 'settings.gradle*'
+      - 'gradle.properties'
   workflow_dispatch:
 
 permissions:
@@ -47,6 +52,9 @@ jobs:
           printf '%s' "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${KEYSTORE_PATH}"
           test -s "${KEYSTORE_PATH}"
           echo "KEYSTORE_PATH=${KEYSTORE_PATH}" >> "$GITHUB_ENV"
+
+      - name: Run Android unit tests
+        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
 
       - name: Build release-signed test APK
         shell: bash
