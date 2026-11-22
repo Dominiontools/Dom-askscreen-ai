@@ -63,7 +63,9 @@ fun FloatingAnswerWindow(
     onActionClick: (String) -> Unit,
     onSpeakToggle: () -> Unit,
     onPickFile: () -> Unit,
-    onExplainAnswer: (String) -> Unit = {}
+    onExplainAnswer: (String) -> Unit = {},
+    onHumanAnswer: (String) -> Unit = {},
+    onFormulaAnswer: (String) -> Unit = {}
 ) {
     var inputText by remember { mutableStateOf("") }
     var textScale by remember { mutableFloatStateOf(1.0f) }
