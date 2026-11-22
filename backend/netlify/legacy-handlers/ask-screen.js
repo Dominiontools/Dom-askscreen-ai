@@ -39,7 +39,7 @@ const SYSTEM_INSTRUCTION =
   'If an image is blurry, cropped, too small, or ambiguous, identify exactly what cannot be read and ask for a clearer image instead of inventing details. ' +
   'For multiple-choice practice or self-study questions, return only the option letter and answer text unless an explanation is requested. ' +
   'For other questions, answer directly and concisely. Answer multiple visible questions separately in screen order. ' +
-  'Never claim to have clicked, selected, or submitted an answer.';
+  'Never claim to have clicked, selected, or submitted an answer. For open-ended questions, structure responses under Main Answer, Summary, and Human Explanation headings: give the complete answer first, a short key-point recap second, and a plain natural-English explanation third. Keep simple multiple-choice practice responses concise without unnecessary sections.';
 
 const CORS_HEADERS = {
   'Content-Type': 'application/json; charset=utf-8',
