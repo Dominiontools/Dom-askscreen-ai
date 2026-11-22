@@ -261,14 +261,14 @@ class AskScreenOverlayService : Service() {
         return START_STICKY
     }
 
-    private fun privacySecureFlag(): Int = if (prefs.isClassroomPrivacyMode) {
+    private fun privacySecureFlag(): Int = if (prefs.isClassroomPrivacyMode || prefs.isInvisibleMode) {
         WindowManager.LayoutParams.FLAG_SECURE
     } else 0
 
     private fun applyPrivacyModeToWindows() {
         fun update(view: View?, params: WindowManager.LayoutParams?) {
             if (view == null || params == null) return
-            params.flags = if (prefs.isClassroomPrivacyMode) {
+            params.flags = if (prefs.isClassroomPrivacyMode || prefs.isInvisibleMode) {
                 params.flags or WindowManager.LayoutParams.FLAG_SECURE
             } else {
                 params.flags and WindowManager.LayoutParams.FLAG_SECURE.inv()
