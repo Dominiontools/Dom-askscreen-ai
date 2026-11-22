@@ -40,6 +40,7 @@ object ResumeTextExtractor {
             found
         } ?: error("This Word file does not contain readable document text.")
         val factory = DocumentBuilderFactory.newInstance().apply {
+            isNamespaceAware = true
             setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
             setFeature("http://xml.org/sax/features/external-general-entities", false)
             setFeature("http://xml.org/sax/features/external-parameter-entities", false)
