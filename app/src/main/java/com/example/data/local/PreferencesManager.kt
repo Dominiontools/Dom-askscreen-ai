@@ -163,6 +163,20 @@ class PreferencesManager(context: Context) {
         set(value) = prefs.edit().putString(KEY_AUDIO_LANGUAGE_TAG, value).apply()
 
 
+    /** CV text is stored separately for each signed-in account and never mixed between profiles. */
+    fun specificTaskResume(userId: String): String =
+        if (userId.isBlank()) "" else prefs.getString("specific_task_resume_$userId", "").orEmpty()
+
+    fun saveSpecificTaskResume(userId: String, resumeText: String) {
+        require(userId.isNotBlank()) { "A signed-in account is required to save a CV." }
+        require(resumeText.isNotBlank()) { "The selected CV could not be read. Please choose another file." }
+        prefs.edit().putString("specific_task_resume_$userId", resumeText.trim().take(18000)).apply()
+    }
+
+    fun clearSpecificTaskResume(userId: String) {
+        if (userId.isNotBlank()) prefs.edit().remove("specific_task_resume_$userId").apply()
+    }
+
     /** Active task context is stored separately for each signed-in account. */
     fun isSpecificTaskEnabled(userId: String): Boolean =
         userId.isNotBlank() && prefs.getBoolean("specific_task_enabled_$userId", false)
