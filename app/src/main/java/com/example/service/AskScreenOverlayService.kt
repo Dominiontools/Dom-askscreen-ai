@@ -308,8 +308,14 @@ class AskScreenOverlayService : Service() {
             layoutParams = params,
             prefs = prefs,
             onTap = {
-                // Tap: Instant "Read Screen"
-                startReadScreenAction()
+                // Keep a platform/overlay failure from escaping the touch callback
+                // and crashing the foreground service.
+                runCatching { startReadScreenAction() }
+                    .onFailure { error ->
+                        Log.e("AskScreenOverlayService", "Floating bubble tap failed", error)
+                        bubbleState.value = BubbleState.ERROR
+                        Toast.makeText(this, "Could not open screen assistance. Please try again.", Toast.LENGTH_LONG).show()
+                    }
             },
             onLongPress = {
                 // Long press: Quick action menu
@@ -436,7 +442,7 @@ class AskScreenOverlayService : Service() {
 
         val density = resources.displayMetrics.density
         val preset = currentPreset.value
-        val (initW, initH) = if (preset == WindowSizePreset.FULLSCREEN) {
+        val requestedSize = if (preset == WindowSizePreset.FULLSCREEN) {
             Pair(screenWidth, screenHeight)
         } else {
             val savedW = prefs.windowWidth
@@ -444,6 +450,15 @@ class AskScreenOverlayService : Service() {
             if (savedW > 0 && savedH > 0) Pair(savedW, savedH)
             else Pair((preset.widthDp * density).toInt(), (preset.heightDp * density).toInt())
         }
+        // Old saved dimensions can exceed a smaller device's usable display. Clamp
+        // dimensions before calculating positions so coerceIn never receives an
+        // empty range (which would crash the service when the bubble is tapped).
+        val safeScreenWidth = screenWidth.coerceAtLeast(1)
+        val safeScreenHeight = screenHeight.coerceAtLeast(1)
+        val minWindowWidth = minOf((240 * density).toInt().coerceAtLeast(1), safeScreenWidth)
+        val minWindowHeight = minOf((280 * density).toInt().coerceAtLeast(1), safeScreenHeight)
+        val initW = requestedSize.first.coerceIn(minWindowWidth, safeScreenWidth)
+        val initH = requestedSize.second.coerceIn(minWindowHeight, safeScreenHeight)
 
         val params = WindowManager.LayoutParams(
             initW,
@@ -455,8 +470,8 @@ class AskScreenOverlayService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = prefs.windowPosX.coerceIn(0, screenWidth - initW)
-            y = prefs.windowPosY.coerceIn(80, screenHeight - initH - 80)
+            x = prefs.windowPosX.coerceIn(0, (safeScreenWidth - initW).coerceAtLeast(0))
+            y = prefs.windowPosY.coerceIn(0, (safeScreenHeight - initH).coerceAtLeast(0))
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         }
         answerWindowLayoutParams = params
