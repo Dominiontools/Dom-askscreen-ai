@@ -737,6 +737,7 @@ class AskScreenOverlayService : Service() {
         }
 
         serviceScope.launch {
+            try {
             bubbleState.value = BubbleState.CAPTURING_SCREEN
             // Temporarily hide overlays to take a clean screenshot of the user's screen
             bubbleView?.visibility = View.INVISIBLE
@@ -820,6 +821,17 @@ class AskScreenOverlayService : Service() {
                 }
             }.onFailure { error ->
                 appendRequestFailure(error, queryType, "I could not complete that request.")
+            }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.e("AskScreenOverlayService", "Screen-reading action failed", error)
+                bubbleView?.visibility = if (isBubbleVisible) View.VISIBLE else View.GONE
+                answerWindowView?.visibility = if (isAnswerWindowVisible) View.VISIBLE else View.GONE
+                bubbleState.value = BubbleState.ERROR
+                Toast.makeText(this@AskScreenOverlayService, "Screen assistance could not open. Please try again.", Toast.LENGTH_LONG).show()
+                delay(1200)
+                bubbleState.value = BubbleState.IDLE
             }
         }
     }
