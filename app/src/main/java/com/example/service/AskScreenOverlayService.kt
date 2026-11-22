@@ -122,6 +122,8 @@ class AskScreenOverlayService : Service() {
     // State
     private val bubbleState = MutableStateFlow(BubbleState.IDLE)
     private val sessionMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
+    // Preserve original text so mode changes replace the same answer bubble and Normal restores it.
+    private val originalAnswerTexts = mutableMapOf<String, String>()
     private val liveCaptions = MutableStateFlow("")
     private val currentPreset = MutableStateFlow(WindowSizePreset.MEDIUM)
     private var isBubbleVisible = true
@@ -559,14 +561,17 @@ class AskScreenOverlayService : Service() {
                         }
                         startActivity(intent)
                     },
-                    onExplainAnswer = { answerText ->
-                        explainAnswer(answerText)
+                    onExplainAnswer = { messageId, answerText ->
+                        transformAnswer(messageId, answerText, "explain")
                     },
-                    onHumanAnswer = { answerText ->
-                        transformAnswer(answerText, "human")
+                    onHumanAnswer = { messageId, answerText ->
+                        transformAnswer(messageId, answerText, "human")
                     },
-                    onFormulaAnswer = { answerText ->
-                        transformAnswer(answerText, "formula")
+                    onFormulaAnswer = { messageId, answerText ->
+                        transformAnswer(messageId, answerText, "formula")
+                    },
+                    onNormalAnswer = { messageId, answerText ->
+                        restoreNormalAnswer(messageId, answerText)
                     }
                 )
             }
@@ -1209,88 +1214,61 @@ Instructions:
 
     private var lastScreenshot: Bitmap? = null
 
-    /** Called by the Explain button under an answer. Short, simple and human-sounding. */
-    private fun explainAnswer(answerText: String) {
+    /**
+     * Rewrites the selected answer in its existing message bubble.
+     * It never appends a user message or a second assistant answer.
+     */
+    private fun transformAnswer(messageId: String, currentText: String, mode: String) {
         serviceScope.launch {
-            bubbleState.value = BubbleState.PROCESSING_AI
-            sessionMessages.value = sessionMessages.value + ChatMessage(
-                role = "user",
-                text = "Explain this answer",
-                queryType = QueryType.TEXT
-            )
+            val messagesBeforeRequest = sessionMessages.value
+            val currentMessage = messagesBeforeRequest.firstOrNull { it.id == messageId && it.role == "model" }
+                ?: return@launch
+            originalAnswerTexts.putIfAbsent(messageId, currentText)
+            val originalText = originalAnswerTexts[messageId] ?: currentText
             val shot = lastScreenshot?.takeIf { !it.isRecycled }
-            val prompt = "Explain this the way a real person would explain it to a friend. " +
-                "Use plain, simple words and short sentences. Go straight to the point and keep it to a few sentences. " +
-                "No headings, no bullet points, no emojis, no filler like 'Great question' or 'Certainly', and never say you are an AI. " +
-                "The answer was: \"$answerText\". " +
-                (if (shot != null) "The question is on the screenshot. " else "") +
-                "Tell me why that answer is right, or what it means."
 
+            val prompt = when (mode) {
+                "human" ->
+                    "Rewrite this answer in simple, natural, conversational language, as if a person were explaining it face-to-face. " +
+                    "Use familiar words, briefly explain difficult terms, and give a small example only if useful. Keep it accurate. " +
+                    "Return only the rewritten explanation. Original answer: \"$originalText\"."
+                "formula" ->
+                    "Turn this answer into a concise, easy-to-remember summary. Use a formula, sequence, arrows, or key = meaning format when suitable. " +
+                    "If no actual formula applies, provide a short structured takeaway. Do not invent facts. Return only the summary. " +
+                    "Original answer: \"$originalText\"."
+                else ->
+                    "Explain this answer clearly in plain, simple words, as if explaining it to a friend. Say what it means and why it is correct. " +
+                    "Keep it concise. Return only the explanation. Original answer: \"$originalText\"."
+            }
+
+            bubbleState.value = BubbleState.PROCESSING_AI
             val result = repository.askScreenAi(
                 prompt = prompt,
-                queryType = QueryType.TEXT,
+                queryType = currentMessage.queryType,
                 images = if (shot != null) listOf(shot) else emptyList(),
-                chatHistory = sessionMessages.value
+                chatHistory = messagesBeforeRequest.filterNot { it.id == messageId }
             )
-
             result.onSuccess { answer ->
+                sessionMessages.value = sessionMessages.value.map { message ->
+                    if (message.id == messageId) message.copy(text = answer.trim()) else message
+                }
                 bubbleState.value = BubbleState.IDLE
-                sessionMessages.value = sessionMessages.value + ChatMessage(
-                    role = "model",
-                    text = answer.trim(),
-                    queryType = QueryType.TEXT
-                )
                 if (prefs.isTtsEnabled) ttsManager.speak(answer, prefs.ttsSpeed)
-            }.onFailure { err ->
-                appendRequestFailure(err, QueryType.TEXT, "I could not explain that answer.")
+            }.onFailure { error ->
+                bubbleState.value = BubbleState.ERROR
+                Log.e("AskScreenOverlayService", "Answer mode change failed", error)
+                Toast.makeText(this@AskScreenOverlayService, "Could not change answer. Please try again.", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    /** Rewrites a selected answer without changing or deleting the original answer. */
-    private fun transformAnswer(answerText: String, mode: String) {
-        serviceScope.launch {
-            bubbleState.value = BubbleState.PROCESSING_AI
-            val requestLabel = if (mode == "human") "Explain in human language" else "Summarize as a formula"
-            sessionMessages.value = sessionMessages.value + ChatMessage(
-                role = "user",
-                text = requestLabel,
-                queryType = QueryType.TEXT
-            )
-            val shot = lastScreenshot?.takeIf { !it.isRecycled }
-            val prompt = if (mode == "human") {
-                "Rewrite and explain the answer below in very simple, natural, conversational human language, " +
-                    "as if a patient person were explaining it face-to-face to someone learning it for the first time. " +
-                    "Use familiar words, explain difficult terms briefly, and give one small everyday example only if useful. " +
-                    "Keep the meaning accurate. Do not sound robotic or overly formal. Do not add unsupported facts. " +
-                    "The answer is: \"$answerText\". " +
-                    (if (shot != null) "Use the screenshot question as context. " else "")
-            } else {
-                "Summarize the answer below into a short, easy-to-remember formula or structured takeaway. " +
-                    "Use an equation, sequence, arrows, or key = meaning format when suitable; otherwise give 1-3 concise lines. " +
-                    "Keep only the essential points, preserve accuracy, and do not invent a mathematical formula if none applies. " +
-                    "The answer is: \"$answerText\". " +
-                    (if (shot != null) "Use the screenshot question as context. " else "")
-            }
-
-            val result = repository.askScreenAi(
-                prompt = prompt,
-                queryType = QueryType.TEXT,
-                images = if (shot != null) listOf(shot) else emptyList(),
-                chatHistory = sessionMessages.value
-            )
-            result.onSuccess { answer ->
-                bubbleState.value = BubbleState.IDLE
-                sessionMessages.value = sessionMessages.value + ChatMessage(
-                    role = "model",
-                    text = answer.trim(),
-                    queryType = QueryType.TEXT
-                )
-                if (prefs.isTtsEnabled) ttsManager.speak(answer, prefs.ttsSpeed)
-            }.onFailure { err ->
-                appendRequestFailure(err, QueryType.TEXT, "I could not transform that answer. Please try again.")
-            }
+    /** Restores the original AI answer in the same message bubble. */
+    private fun restoreNormalAnswer(messageId: String, currentText: String) {
+        val original = originalAnswerTexts[messageId] ?: return
+        sessionMessages.value = sessionMessages.value.map { message ->
+            if (message.id == messageId) message.copy(text = original) else message
         }
+        bubbleState.value = BubbleState.IDLE
     }
 
     private fun sendFollowUpQuestion(text: String, queryType: QueryType = QueryType.TEXT) {
