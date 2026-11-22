@@ -466,7 +466,7 @@ private data class StructuredAnswerSection(val title: String, val body: String)
 
 private fun structuredAnswerSections(text: String): List<StructuredAnswerSection> {
     val lines = text.lines()
-    val header = Regex("^\\s*(Answer for Question\\s+\\d+|Summary)\\s*:?\\s*$", RegexOption.IGNORE_CASE)
+    val header = Regex("^\\s*(Main Answer|Answer for Question\\s+\\d+|Summary|Human Explanation)\\s*:?\\s*$", RegexOption.IGNORE_CASE)
     val sections = mutableListOf<StructuredAnswerSection>()
     var currentTitle: String? = null
     var currentBody = mutableListOf<String>()
