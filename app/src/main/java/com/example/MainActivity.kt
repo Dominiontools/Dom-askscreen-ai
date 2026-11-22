@@ -204,7 +204,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun applyClassroomPrivacyFlag() {
-        val secure = AskScreenApp.instance.preferencesManager.isClassroomPrivacyMode
+        val prefs = AskScreenApp.instance.preferencesManager
+        val secure = prefs.isClassroomPrivacyMode || prefs.isInvisibleMode
         if (secure) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
     }
