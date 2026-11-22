@@ -639,7 +639,7 @@ function isInvalidGeminiKey(error) {
 function shouldTryNextProvider(error) {
   if (error.code === 'TIMEOUT') return true;
   if (!error.status) return true;
-  return [400, 401, 403, 404, 408, 409, 422, 425, 429, 500, 502, 503, 504].includes(error.status);
+  return [400, 401, 402, 403, 404, 408, 409, 422, 425, 429, 500, 502, 503, 504].includes(error.status);
 }
 
 
