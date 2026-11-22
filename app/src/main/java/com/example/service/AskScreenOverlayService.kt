@@ -561,6 +561,12 @@ class AskScreenOverlayService : Service() {
                     },
                     onExplainAnswer = { answerText ->
                         explainAnswer(answerText)
+                    },
+                    onHumanAnswer = { answerText ->
+                        transformAnswer(answerText, "human")
+                    },
+                    onFormulaAnswer = { answerText ->
+                        transformAnswer(answerText, "formula")
                     }
                 )
             }
@@ -1237,6 +1243,52 @@ Instructions:
                 if (prefs.isTtsEnabled) ttsManager.speak(answer, prefs.ttsSpeed)
             }.onFailure { err ->
                 appendRequestFailure(err, QueryType.TEXT, "I could not explain that answer.")
+            }
+        }
+    }
+
+    /** Rewrites a selected answer without changing or deleting the original answer. */
+    private fun transformAnswer(answerText: String, mode: String) {
+        serviceScope.launch {
+            bubbleState.value = BubbleState.PROCESSING_AI
+            val requestLabel = if (mode == "human") "Explain in human language" else "Summarize as a formula"
+            sessionMessages.value = sessionMessages.value + ChatMessage(
+                role = "user",
+                text = requestLabel,
+                queryType = QueryType.TEXT
+            )
+            val shot = lastScreenshot?.takeIf { !it.isRecycled }
+            val prompt = if (mode == "human") {
+                "Rewrite and explain the answer below in very simple, natural, conversational human language, " +
+                    "as if a patient person were explaining it face-to-face to someone learning it for the first time. " +
+                    "Use familiar words, explain difficult terms briefly, and give one small everyday example only if useful. " +
+                    "Keep the meaning accurate. Do not sound robotic or overly formal. Do not add unsupported facts. " +
+                    "The answer is: \"$answerText\". " +
+                    (if (shot != null) "Use the screenshot question as context. " else "")
+            } else {
+                "Summarize the answer below into a short, easy-to-remember formula or structured takeaway. " +
+                    "Use an equation, sequence, arrows, or key = meaning format when suitable; otherwise give 1-3 concise lines. " +
+                    "Keep only the essential points, preserve accuracy, and do not invent a mathematical formula if none applies. " +
+                    "The answer is: \"$answerText\". " +
+                    (if (shot != null) "Use the screenshot question as context. " else "")
+            }
+
+            val result = repository.askScreenAi(
+                prompt = prompt,
+                queryType = QueryType.TEXT,
+                images = if (shot != null) listOf(shot) else emptyList(),
+                chatHistory = sessionMessages.value
+            )
+            result.onSuccess { answer ->
+                bubbleState.value = BubbleState.IDLE
+                sessionMessages.value = sessionMessages.value + ChatMessage(
+                    role = "model",
+                    text = answer.trim(),
+                    queryType = QueryType.TEXT
+                )
+                if (prefs.isTtsEnabled) ttsManager.speak(answer, prefs.ttsSpeed)
+            }.onFailure { err ->
+                appendRequestFailure(err, QueryType.TEXT, "I could not transform that answer. Please try again.")
             }
         }
     }
