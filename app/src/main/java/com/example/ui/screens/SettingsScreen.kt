@@ -172,13 +172,13 @@ fun SettingsScreen() {
             )
             Spacer(modifier = Modifier.height(12.dp))
             Text("CV / RESUME", fontSize = 11.sp, color = Slate300, fontWeight = FontWeight.Bold)
-            Text("Upload a text-based PDF or Word DOCX. AskScreen reads the document and uses its real experience and skills when preparing practical interview answers and introductions.", fontSize = 11.sp, color = Slate400, lineHeight = 16.sp)
+            Text("Upload a PDF, Word DOCX, JPG or PNG. AskScreen extracts selectable text and uses on-device OCR to read scanned PDFs and CV images. It uses the extracted experience and skills when preparing practical interview answers and introductions.", fontSize = 11.sp, color = Slate400, lineHeight = 16.sp)
             Spacer(modifier = Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = {
                         if (taskUserId.isBlank()) Toast.makeText(context, "Sign in before uploading a CV.", Toast.LENGTH_LONG).show()
-                        else resumePicker.launch(arrayOf("application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+                        else resumePicker.launch(arrayOf("application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "image/jpeg", "image/png"))
                     },
                     enabled = !isReadingResume,
                     colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = Slate950)
