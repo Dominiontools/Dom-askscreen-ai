@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.AskScreenApp
+import com.example.data.local.ResumeTextExtractor
 import com.example.service.AskScreenOverlayService
 import com.google.firebase.auth.FirebaseAuth
 import com.example.data.model.WindowSizePreset
@@ -61,6 +62,30 @@ fun SettingsScreen() {
     var specificTaskEnabled by remember { mutableStateOf(taskUserId.isNotBlank() && prefs.isSpecificTaskEnabled(taskUserId)) }
     var specificTaskTitle by remember { mutableStateOf(prefs.specificTaskTitle(taskUserId)) }
     var specificTaskDescription by remember { mutableStateOf(prefs.specificTaskDescription(taskUserId)) }
+    var resumeText by remember { mutableStateOf(prefs.specificTaskResume(taskUserId)) }
+    var resumeFileName by remember { mutableStateOf(if (resumeText.isNotBlank()) "CV saved for this account" else "") }
+    var isReadingResume by remember { mutableStateOf(false) }
+    val resumePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null && taskUserId.isNotBlank()) {
+            scope.launch {
+                isReadingResume = true
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        val mime = context.contentResolver.getType(uri).orEmpty()
+                        ResumeTextExtractor.extract(context, uri, mime)
+                    }
+                }.onSuccess { extracted ->
+                    resumeText = extracted
+                    resumeFileName = uri.lastPathSegment?.substringAfterLast('/')?.take(100) ?: "CV uploaded"
+                    prefs.saveSpecificTaskResume(taskUserId, extracted)
+                    Toast.makeText(context, "CV uploaded and saved for this account.", Toast.LENGTH_LONG).show()
+                }.onFailure { error ->
+                    Toast.makeText(context, error.message ?: "Could not read this CV.", Toast.LENGTH_LONG).show()
+                }
+                isReadingResume = false
+            }
+        }
+    }
 
     var isTestingConnection by remember { mutableStateOf(false) }
 
@@ -143,6 +168,38 @@ fun SettingsScreen() {
                 "${specificTaskDescription.length}/6000 characters. This information is saved on this device for the signed-in account and sent with AI questions while Specific Task Mode is enabled.",
                 fontSize = 10.sp, color = Slate400, lineHeight = 15.sp
             )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text("CV / RESUME", fontSize = 11.sp, color = Slate300, fontWeight = FontWeight.Bold)
+            Text("Upload a text-based PDF or Word DOCX. AskScreen reads the document and uses its real experience and skills when preparing practical interview answers and introductions.", fontSize = 11.sp, color = Slate400, lineHeight = 16.sp)
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        if (taskUserId.isBlank()) Toast.makeText(context, "Sign in before uploading a CV.", Toast.LENGTH_LONG).show()
+                        else resumePicker.launch(arrayOf("application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+                    },
+                    enabled = !isReadingResume,
+                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = Slate950)
+                ) {
+                    if (isReadingResume) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    else Icon(Icons.Default.UploadFile, contentDescription = null)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(if (isReadingResume) "Reading CV..." else if (resumeText.isBlank()) "Upload CV" else "Replace CV")
+                }
+                if (resumeText.isNotBlank()) {
+                    TextButton(onClick = {
+                        prefs.clearSpecificTaskResume(taskUserId)
+                        resumeText = ""
+                        resumeFileName = ""
+                        Toast.makeText(context, "Saved CV removed.", Toast.LENGTH_SHORT).show()
+                    }) { Text("Remove") }
+                }
+            }
+            if (resumeText.isNotBlank()) {
+                Text("CV ready: $resumeFileName • ${resumeText.length} characters extracted", fontSize = 10.sp, color = Color(0xFF34D399))
+            } else {
+                Text("No CV uploaded yet. You can still paste your experience into the Task Brief.", fontSize = 10.sp, color = Slate400)
+            }
             Spacer(modifier = Modifier.height(10.dp))
             Button(
                 onClick = {
