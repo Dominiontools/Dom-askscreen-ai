@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.AskScreenApp
 import com.example.service.AskScreenOverlayService
+import com.google.firebase.auth.FirebaseAuth
 import com.example.data.model.WindowSizePreset
 import com.example.ui.theme.*
 import kotlinx.coroutines.Dispatchers
@@ -56,6 +57,10 @@ fun SettingsScreen() {
     var monitorInterval by remember { mutableFloatStateOf(prefs.autoMonitorIntervalMs.toFloat() / 1000f) }
     var audioLanguageTag by remember { mutableStateOf(prefs.audioLanguageTag) }
     var isClassroomPrivacyMode by remember { mutableStateOf(prefs.isClassroomPrivacyMode) }
+    val taskUserId = remember { FirebaseAuth.getInstance().currentUser?.uid.orEmpty() }
+    var specificTaskEnabled by remember { mutableStateOf(taskUserId.isNotBlank() && prefs.isSpecificTaskEnabled(taskUserId)) }
+    var specificTaskTitle by remember { mutableStateOf(prefs.specificTaskTitle(taskUserId)) }
+    var specificTaskDescription by remember { mutableStateOf(prefs.specificTaskDescription(taskUserId)) }
 
     var isTestingConnection by remember { mutableStateOf(false) }
 
@@ -76,6 +81,92 @@ fun SettingsScreen() {
         )
 
         Spacer(modifier = Modifier.height(12.dp))
+
+        SettingsCard(title = "AI Mode & Task Brief", icon = Icons.Default.AutoAwesome) {
+            Text(
+                "Normal AI Mode answers general questions. Specific Task Mode uses the saved task brief below to answer questions using your supplied background, CV details, company instructions and task guidelines.",
+                fontSize = 11.sp, color = Slate300, lineHeight = 16.sp
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(if (specificTaskEnabled) "Specific Task Mode is ON" else "Normal AI Mode is ON",
+                        fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text(if (specificTaskEnabled) "AI answers are guided by this task brief." else "AI answers without a saved task brief.",
+                        fontSize = 11.sp, color = Slate400)
+                }
+                Switch(
+                    checked = specificTaskEnabled,
+                    onCheckedChange = { enabled ->
+                        if (taskUserId.isBlank()) {
+                            Toast.makeText(context, "Sign in before saving a task brief.", Toast.LENGTH_LONG).show()
+                        } else if (enabled) {
+                            if (specificTaskTitle.isBlank()) {
+                                Toast.makeText(context, "Enter a task title and save the brief first.", Toast.LENGTH_LONG).show()
+                            } else {
+                                prefs.saveSpecificTask(taskUserId, specificTaskTitle, specificTaskDescription)
+                                specificTaskEnabled = true
+                                Toast.makeText(context, "Specific Task Mode is on.", Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            prefs.disableSpecificTask(taskUserId)
+                            specificTaskEnabled = false
+                            Toast.makeText(context, "Normal AI Mode is on.", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = SwitchDefaults.colors(checkedTrackColor = ElectricCyan)
+                )
+            }
+            OutlinedTextField(
+                value = specificTaskTitle,
+                onValueChange = { specificTaskTitle = it.take(120) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Task or subject name") },
+                placeholder = { Text("e.g. Video Annotation, Job Interview, Customer Support") },
+                singleLine = true
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = specificTaskDescription,
+                onValueChange = { specificTaskDescription = it.take(6000) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Task Brief / background information") },
+                placeholder = { Text("Paste your CV details, personal profile, work experience, assessment instructions, company guidelines, examples and other task information here.") },
+                minLines = 5,
+                maxLines = 9
+            )
+            Text(
+                "${specificTaskDescription.length}/6000 characters. This information is saved on this device for the signed-in account and sent with AI questions while Specific Task Mode is enabled.",
+                fontSize = 10.sp, color = Slate400, lineHeight = 15.sp
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Button(
+                onClick = {
+                    if (taskUserId.isBlank()) {
+                        Toast.makeText(context, "Sign in before saving a task brief.", Toast.LENGTH_LONG).show()
+                    } else if (specificTaskTitle.isBlank()) {
+                        Toast.makeText(context, "Enter a task or subject name.", Toast.LENGTH_SHORT).show()
+                    } else {
+                        runCatching {
+                            prefs.saveSpecificTask(taskUserId, specificTaskTitle, specificTaskDescription)
+                            specificTaskEnabled = true
+                        }.onSuccess {
+                            Toast.makeText(context, "Task Brief saved. Specific Task Mode is on.", Toast.LENGTH_LONG).show()
+                        }.onFailure {
+                            Toast.makeText(context, it.message ?: "Could not save the Task Brief.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = Slate950)
+            ) { Text("Save Task Brief & Enable Specific Task Mode") }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         SettingsCard(title = "Classroom Privacy Mode", icon = Icons.Default.Security) {
             Row(
