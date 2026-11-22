@@ -516,7 +516,7 @@ private fun summaryItems(body: String): List<StructuredAnswerSection> {
 }
 
 @Composable
-fun MessageBubble(msg: ChatMessage, textScale: Float, onCopy: (String) -> Unit, onExplain: () -> Unit = {}, onHuman: () -> Unit = {}, onFormula: () -> Unit = {}) {
+fun MessageBubble(msg: ChatMessage, textScale: Float, onCopy: (String) -> Unit, onExplain: () -> Unit = {}, onHuman: () -> Unit = {}, onFormula: () -> Unit = {}, onNormal: () -> Unit = {}) {
     val isUser = msg.role == "user"
     val answerSections = remember(msg.text) { if (!isUser) structuredAnswerSections(msg.text) else emptyList() }
     Column(
