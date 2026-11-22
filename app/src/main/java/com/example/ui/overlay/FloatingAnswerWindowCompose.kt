@@ -63,9 +63,10 @@ fun FloatingAnswerWindow(
     onActionClick: (String) -> Unit,
     onSpeakToggle: () -> Unit,
     onPickFile: () -> Unit,
-    onExplainAnswer: (String) -> Unit = {},
-    onHumanAnswer: (String) -> Unit = {},
-    onFormulaAnswer: (String) -> Unit = {}
+    onExplainAnswer: (String, String) -> Unit = { _, _ -> },
+    onHumanAnswer: (String, String) -> Unit = { _, _ -> },
+    onFormulaAnswer: (String, String) -> Unit = { _, _ -> },
+    onNormalAnswer: (String, String) -> Unit = { _, _ -> }
 ) {
     var inputText by remember { mutableStateOf("") }
     var textScale by remember { mutableFloatStateOf(1.0f) }
@@ -358,7 +359,7 @@ fun FloatingAnswerWindow(
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         clipboard.setPrimaryClip(ClipData.newPlainText("AskScreen Answer", copiedText))
                         Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-                    }, onExplain = { onExplainAnswer(msg.text) }, onHuman = { onHumanAnswer(msg.text) }, onFormula = { onFormulaAnswer(msg.text) })
+                    }, onExplain = { onExplainAnswer(msg.id, msg.text) }, onHuman = { onHumanAnswer(msg.id, msg.text) }, onFormula = { onFormulaAnswer(msg.id, msg.text) }, onNormal = { onNormalAnswer(msg.id, msg.text) })
                 }
             }
 
@@ -650,6 +651,16 @@ fun MessageBubble(msg: ChatMessage, textScale: Float, onCopy: (String) -> Unit, 
                             modifier = Modifier
                                 .clip(RoundedCornerShape(4.dp))
                                 .clickable { onFormula() }
+                                .padding(4.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Normal",
+                            fontSize = 10.sp,
+                            color = Color(0xFF93C5FD),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable { onNormal() }
                                 .padding(4.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
