@@ -65,8 +65,8 @@ object ResumeTextExtractor {
                     } finally {
                         bitmap.recycle()
                     }
-                }.filter { it.isNotBlank() }.joinToString("\\n")
-                return if (nativeText.isNotBlank()) "$nativeText\\n$recognized" else recognized
+                }.filter { it.isNotBlank() }.joinToString("\n")
+                return if (nativeText.isNotBlank()) "$nativeText\n$recognized" else recognized
             } finally {
                 recognizer.close()
             }
