@@ -732,7 +732,13 @@ class AskScreenOverlayService : Service() {
         if (!screenCaptureManager.hasMediaProjection()) {
             val target = if (onlyIfQuestion) ScreenCaptureActivity.ACTION_AUTO_MONITOR else ScreenCaptureActivity.ACTION_START_SCREEN
             val intent = ScreenCaptureActivity.createIntent(this, target)
-            startActivity(intent)
+            try {
+                startActivity(intent)
+            } catch (error: Exception) {
+                Log.e("AskScreenOverlayService", "Could not launch screen-capture permission activity", error)
+                bubbleState.value = BubbleState.ERROR
+                Toast.makeText(this, "Please open AskScreen and allow screen-capture permission.", Toast.LENGTH_LONG).show()
+            }
             return
         }
 
@@ -1286,20 +1292,26 @@ Instructions:
     }
 
     fun handleMediaProjectionGranted(resultCode: Int, data: Intent, targetAction: String) {
-        enableMediaProjectionForegroundType()
-        val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        val projection = projectionManager.getMediaProjection(resultCode, data)
-        if (projection != null) {
-            screenCaptureManager.setMediaProjection(projection)
-            when (targetAction) {
-                ScreenCaptureActivity.ACTION_START_SCREEN -> startReadScreenAction()
-                ScreenCaptureActivity.ACTION_START_AUDIO -> startListenAudioAction()
-                ScreenCaptureActivity.ACTION_START_BOTH -> startReadAndListenAction()
-                ScreenCaptureActivity.ACTION_SELECT_REGION -> startSelectRegionAction()
-                ScreenCaptureActivity.ACTION_AUTO_MONITOR -> startAutoMonitor()
+        try {
+            enableMediaProjectionForegroundType()
+            val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            val projection = projectionManager.getMediaProjection(resultCode, data)
+            if (projection != null) {
+                screenCaptureManager.setMediaProjection(projection)
+                when (targetAction) {
+                    ScreenCaptureActivity.ACTION_START_SCREEN -> startReadScreenAction()
+                    ScreenCaptureActivity.ACTION_START_AUDIO -> startListenAudioAction()
+                    ScreenCaptureActivity.ACTION_START_BOTH -> startReadAndListenAction()
+                    ScreenCaptureActivity.ACTION_SELECT_REGION -> startSelectRegionAction()
+                    ScreenCaptureActivity.ACTION_AUTO_MONITOR -> startAutoMonitor()
+                }
+            } else {
+                handleMediaProjectionDenied()
             }
-        } else {
-            handleMediaProjectionDenied()
+        } catch (error: Exception) {
+            Log.e("AskScreenOverlayService", "Could not start screen capture after permission", error)
+            bubbleState.value = BubbleState.ERROR
+            Toast.makeText(this, "Screen capture could not start. Please restart the assistant and try again.", Toast.LENGTH_LONG).show()
         }
     }
 
