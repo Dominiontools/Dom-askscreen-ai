@@ -356,7 +356,7 @@ fun FloatingAnswerWindow(
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         clipboard.setPrimaryClip(ClipData.newPlainText("AskScreen Answer", copiedText))
                         Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-                    }, onExplain = { onExplainAnswer(msg.text) })
+                    }, onExplain = { onExplainAnswer(msg.text) }, onHuman = { onHumanAnswer(msg.text) }, onFormula = { onFormulaAnswer(msg.text) })
                 }
             }
 
@@ -513,7 +513,7 @@ private fun summaryItems(body: String): List<StructuredAnswerSection> {
 }
 
 @Composable
-fun MessageBubble(msg: ChatMessage, textScale: Float, onCopy: (String) -> Unit, onExplain: () -> Unit = {}) {
+fun MessageBubble(msg: ChatMessage, textScale: Float, onCopy: (String) -> Unit, onExplain: () -> Unit = {}, onHuman: () -> Unit = {}, onFormula: () -> Unit = {}) {
     val isUser = msg.role == "user"
     val answerSections = remember(msg.text) { if (!isUser) structuredAnswerSections(msg.text) else emptyList() }
     Column(
@@ -628,6 +628,26 @@ fun MessageBubble(msg: ChatMessage, textScale: Float, onCopy: (String) -> Unit, 
                             modifier = Modifier
                                 .clip(RoundedCornerShape(4.dp))
                                 .clickable { onExplain() }
+                                .padding(4.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Human",
+                            fontSize = 10.sp,
+                            color = Color(0xFF34D399),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable { onHuman() }
+                                .padding(4.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Formula",
+                            fontSize = 10.sp,
+                            color = Color(0xFFFBBF24),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable { onFormula() }
                                 .padding(4.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
