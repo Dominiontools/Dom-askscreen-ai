@@ -95,7 +95,8 @@ class AskScreenRepository(private val context: Context) {
                 taskContext = if (prefs.isSpecificTaskEnabled(user.uid)) {
                     mapOf(
                         "title" to prefs.specificTaskTitle(user.uid),
-                        "description" to prefs.specificTaskDescription(user.uid)
+                        "description" to prefs.specificTaskDescription(user.uid),
+                        "resume" to prefs.specificTaskResume(user.uid)
                     ).takeIf { it["title"].orEmpty().isNotBlank() }
                 } else null
             )
@@ -206,6 +207,7 @@ class AskScreenRepository(private val context: Context) {
             rootJson.put("taskContext", JSONObject().apply {
                 put("title", taskContext["title"].orEmpty().take(120))
                 put("description", taskContext["description"].orEmpty().take(6000))
+                put("resume", taskContext["resume"].orEmpty().take(18000))
             })
         } else {
             rootJson.put("mode", "NORMAL")
