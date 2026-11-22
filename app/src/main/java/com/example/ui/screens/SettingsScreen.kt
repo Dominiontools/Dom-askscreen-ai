@@ -60,6 +60,7 @@ fun SettingsScreen() {
     var monitorInterval by remember { mutableFloatStateOf(prefs.autoMonitorIntervalMs.toFloat() / 1000f) }
     var audioLanguageTag by remember { mutableStateOf(prefs.audioLanguageTag) }
     var isClassroomPrivacyMode by remember { mutableStateOf(prefs.isClassroomPrivacyMode) }
+    var isInvisibleMode by remember { mutableStateOf(prefs.isInvisibleMode) }
     val taskUserId = remember { FirebaseAuth.getInstance().currentUser?.uid.orEmpty() }
     var specificTaskEnabled by remember { mutableStateOf(taskUserId.isNotBlank() && prefs.isSpecificTaskEnabled(taskUserId)) }
     var specificTaskTitle by remember { mutableStateOf(prefs.specificTaskTitle(taskUserId)) }
@@ -227,6 +228,41 @@ fun SettingsScreen() {
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        SettingsCard(title = "Visibility Mode", icon = Icons.Default.VisibilityOff) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(if (isInvisibleMode) "Invisible Mode is ON" else "Visible Mode is ON",
+                        fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        if (isInvisibleMode) "AskScreen stays usable on your phone but is hidden from supported screen sharing and recordings."
+                        else "AskScreen appears normally in supported screen sharing and recordings.",
+                        fontSize = 11.sp, color = Slate400, lineHeight = 16.sp
+                    )
+                }
+                Switch(
+                    checked = isInvisibleMode,
+                    onCheckedChange = { enabled ->
+                        isInvisibleMode = enabled
+                        prefs.isInvisibleMode = enabled
+                        (context as? Activity)?.window?.let { activityWindow ->
+                            if (enabled || prefs.isClassroomPrivacyMode) activityWindow.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                            else activityWindow.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                        }
+                        AskScreenOverlayService.refreshPrivacyMode()
+                        Toast.makeText(context, if (enabled) "Invisible Mode is on." else "Visible Mode is on.", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = SwitchDefaults.colors(checkedTrackColor = ElectricCyan)
+                )
+            }
+            Text("This setting does not hide other phone apps or notifications. Capture protection depends on the screen-sharing app and Android version.", fontSize = 10.sp, color = Slate400, lineHeight = 15.sp)
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
         SettingsCard(title = "Classroom Privacy Mode", icon = Icons.Default.Security) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -243,7 +279,7 @@ fun SettingsScreen() {
                         isClassroomPrivacyMode = enabled
                         prefs.isClassroomPrivacyMode = enabled
                         (context as? Activity)?.window?.let { activityWindow ->
-                            if (enabled) activityWindow.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                            if (enabled || prefs.isInvisibleMode) activityWindow.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
                             else activityWindow.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
                         }
                         AskScreenOverlayService.refreshPrivacyMode()
