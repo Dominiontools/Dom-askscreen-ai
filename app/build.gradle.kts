@@ -83,7 +83,8 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
-  implementation("com.tom-roush:pdfbox-android:2.0.27.0")\n  implementation("com.google.mlkit:text-recognition:16.0.1")
+  implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+  implementation("com.google.mlkit:text-recognition:16.0.1")
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)
