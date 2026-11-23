@@ -1338,7 +1338,6 @@ Instructions:
                 lastProviderRetryFailureId = null
                 showProviderNotice()
                 bubbleState.value = BubbleState.IDLE
-                Toast.makeText(this@AskScreenOverlayService, "Answered after switching provider.", Toast.LENGTH_SHORT).show()
                 if (prefs.isTtsEnabled) ttsManager.speak(answer, prefs.ttsSpeed)
             }.onFailure { error ->
                 val text = if (error.message.orEmpty().startsWith("PROVIDER_SWITCH_AVAILABLE:")) {
