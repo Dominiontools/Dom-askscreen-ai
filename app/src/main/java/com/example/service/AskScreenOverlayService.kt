@@ -129,8 +129,8 @@ class AskScreenOverlayService : Service() {
     private var lastProviderRetryImages: List<Bitmap> = emptyList()
     private var lastProviderRetryHistory: List<ChatMessage> = emptyList()
     private var lastProviderRetryFailureId: String? = null
-    private var manualProviderIndex = 1
-    private val manualProviderOrder = listOf("Gemini", "Groq", "OpenRouter", "Cohere", "NVIDIA", "Z.AI", "Cloudflare", "Custom AI")
+    private var manualProviderIndex = 0
+    private val manualProviderOrder = listOf("Groq", "OpenRouter", "Cohere", "NVIDIA", "Z.AI", "Cloudflare", "Custom AI", "Gemini")
     private val liveCaptions = MutableStateFlow("")
     private val currentPreset = MutableStateFlow(WindowSizePreset.MEDIUM)
     private var isBubbleVisible = true
@@ -1307,14 +1307,20 @@ Instructions:
         lastProviderRetryType = type
         lastProviderRetryHistory = history.toList()
         lastProviderRetryFailureId = null
+        manualProviderIndex = 0
     }
 
     private fun retryLastRequestWithNextProvider() {
         if (bubbleState.value == BubbleState.PROCESSING_AI) return
         val prompt = lastProviderRetryPrompt ?: return
         val failureId = lastProviderRetryFailureId ?: return
-        val provider = manualProviderOrder[manualProviderIndex % manualProviderOrder.size]
-        manualProviderIndex = (manualProviderIndex + 1) % manualProviderOrder.size
+        val compatibleOrder = if (lastProviderRetryImages.any { !it.isRecycled }) {
+            listOf("OpenRouter", "NVIDIA", "Gemini")
+        } else {
+            manualProviderOrder
+        }
+        val provider = compatibleOrder[manualProviderIndex % compatibleOrder.size]
+        manualProviderIndex = (manualProviderIndex + 1) % compatibleOrder.size
         serviceScope.launch {
             bubbleState.value = BubbleState.PROCESSING_AI
             Toast.makeText(this@AskScreenOverlayService, "Trying $provider first...", Toast.LENGTH_SHORT).show()
