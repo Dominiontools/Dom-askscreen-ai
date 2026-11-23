@@ -384,7 +384,7 @@ function getProviders(payload) {
   if (process.env.NVIDIA_API_KEY) providers.push({
     name: 'NVIDIA', type: 'openai', key: process.env.NVIDIA_API_KEY,
     url: 'https://integrate.api.nvidia.com/v1/chat/completions',
-    model: process.env.NVIDIA_MODEL || 'meta/llama-3.3-70b-instruct'
+    model: process.env.NVIDIA_MODEL || 'nvidia/nemotron-nano-12b-v2-vl'
   });
 
   if (process.env.ZAI_API_KEY) providers.push({
@@ -425,7 +425,7 @@ function getProviders(payload) {
     if (!multimodal) return true;
     // OpenRouter's configured GPT-4o-mini vision model can inspect sampled video frames.
     // Keep PDFs and audio on Gemini because they require provider-specific media handling.
-    if (imageOnly && p.name === 'OpenRouter') return true;
+    if (imageOnly && (p.name === 'OpenRouter' || p.name === 'NVIDIA')) return true;
     return p.type === 'gemini';
   });
 }
