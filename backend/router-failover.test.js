@@ -7,6 +7,7 @@ async function run() {
   assert.equal(_test.PROVIDER_TIMEOUT_MS, 4_500);
   assert.equal(_test.ROUTER_DEADLINE_MS, 38_000);
   assert.equal(_test.classifyProviderFailure({ status: 429 }), 'QUOTA_LIMIT');
+  assert.equal(_test.classifyProviderFailure({ status: 403, message: 'Quota exceeded' }), 'QUOTA_LIMIT');
   assert.equal(_test.classifyProviderFailure({ status: 402 }), 'BILLING_REQUIRED');
   assert.equal(_test.classifyProviderFailure({ code: 'TIMEOUT' }), 'TEMPORARILY_UNAVAILABLE');
 
