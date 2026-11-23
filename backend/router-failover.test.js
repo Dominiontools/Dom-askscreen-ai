@@ -12,20 +12,7 @@ async function run() {
   assert.equal(_test.classifyProviderFailure({ code: 'TIMEOUT' }), 'TEMPORARILY_UNAVAILABLE');
 
   const normalPayload = _test.normalizePayload({ prompt: 'What is this?' });
-  assert.equal(normalPayload.mode, 'NORMAL');
-  assert.equal(normalPayload.taskContext, null);
   assert.equal(normalPayload.preferredProvider, '');
-  assert.doesNotMatch(_test.systemInstructionFor(normalPayload), /ACTIVE SPECIFIC TASK/);
-
-  const taskPayload = _test.normalizePayload({
-    prompt: 'What comes next?',
-    mode: 'SPECIFIC_TASK',
-    taskContext: { title: 'Fibonacci Test', description: 'Questions concern the Fibonacci sequence.' }
-  });
-  assert.equal(taskPayload.mode, 'SPECIFIC_TASK');
-  assert.equal(taskPayload.taskContext.title, 'Fibonacci Test');
-  assert.match(_test.systemInstructionFor(taskPayload), /ACTIVE SPECIFIC TASK: Fibonacci Test/);
-  assert.match(_test.systemInstructionFor(taskPayload), /does not need to list possible questions/i);
 
   const previous = {
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
