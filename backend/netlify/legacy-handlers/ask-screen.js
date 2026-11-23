@@ -646,6 +646,7 @@ function classifyProviderFailure(error) {
   if (error.status === 429 || code.includes('resource_exhausted') || message.includes('quota') || message.includes('rate limit')) return 'QUOTA_LIMIT';
   if (error.status === 402 || message.includes('insufficient credit') || message.includes('payment required') || message.includes('billing')) return 'BILLING_REQUIRED';
   if (error.status === 401 || isInvalidGeminiKey(error) || message.includes('invalid api key')) return 'INVALID_API_KEY';
+  if (error.status === 403 && /quota|rate.?limit|resource.?exhausted/i.test(message + ' ' + code)) return 'QUOTA_LIMIT';
   if (error.status === 403) return 'PERMISSION_DENIED';
   if (error.code === 'TIMEOUT' || !error.status || [408, 425, 500, 502, 503, 504].includes(error.status)) return 'TEMPORARILY_UNAVAILABLE';
   return 'REQUEST_REJECTED';
