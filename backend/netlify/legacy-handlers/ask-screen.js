@@ -729,6 +729,7 @@ async function routeRequest(payload) {
             failoverCount: failures.length
           });
           result.diagnostics.providerAttempts = failures;
+          result.diagnostics.activeKeySlot = provider.type === 'gemini' ? index + 1 : null;
           result.diagnostics.automaticFailover = failures.length > 0;
           return result;
         } catch (error) {
