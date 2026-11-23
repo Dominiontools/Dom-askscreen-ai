@@ -1327,7 +1327,7 @@ Instructions:
                 val text = if (error.message.orEmpty().startsWith("PROVIDER_SWITCH_AVAILABLE:")) {
                     "Provider switch available: " + error.message.orEmpty().removePrefix("PROVIDER_SWITCH_AVAILABLE:").trim()
                 } else {
-                    "Provider switch failed: \${error.message ?: "Please try another provider."}"
+                    "Provider switch failed: " + (error.message ?: "Please try another provider.")
                 }
                 sessionMessages.value = sessionMessages.value.map { message ->
                     if (message.id == failureId) message.copy(text = text) else message
