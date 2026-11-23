@@ -19,6 +19,9 @@ async function run() {
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     GEMINI_API_KEY2: process.env.GEMINI_API_KEY2,
     GEMINI_API_KEY3: process.env.GEMINI_API_KEY3,
+    GEMINI_API_KEY_4: process.env.GEMINI_API_KEY_4,
+    GEMINI_API_KEY_5: process.env.GEMINI_API_KEY_5,
+    GEMINI_API_KEY_6: process.env.GEMINI_API_KEY_6,
     OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
     OPENROUTER_MODEL: process.env.OPENROUTER_MODEL,
     GROQ_API_KEY: process.env.GROQ_API_KEY,
@@ -37,6 +40,9 @@ async function run() {
   process.env.GEMINI_API_KEY = 'test-gemini-key';
   process.env.GEMINI_API_KEY2 = 'test-gemini-key-2';
   process.env.GEMINI_API_KEY3 = 'test-gemini-key-3';
+  process.env.GEMINI_API_KEY_4 = 'test-gemini-key-4';
+  process.env.GEMINI_API_KEY_5 = 'test-gemini-key-5';
+  process.env.GEMINI_API_KEY_6 = 'test-gemini-key-6';
   process.env.OPENROUTER_API_KEY = 'test-openrouter-key';
   process.env.OPENROUTER_MODEL = 'openai/gpt-4o-mini';
   for (const key of ['GROQ_API_KEY', 'COHERE_API_KEY', 'NVIDIA_API_KEY', 'ZAI_API_KEY', 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_API_KEY', 'CLOUDFLARE_ACCOUNT_ID', 'CUSTOM1_API_KEY', 'CUSTOM1_BASE_URL', 'CUSTOM1_MODEL']) delete process.env[key];
@@ -46,13 +52,13 @@ async function run() {
     if (!String(url).includes('generativelanguage.googleapis.com')) throw new Error('Unexpected provider URL: ' + url);
     quotaCalls++;
     const key = options.headers['x-goog-api-key'];
-    if (key === 'test-gemini-key') {
+    if (key !== 'test-gemini-key-6') {
       return new Response(JSON.stringify({ error: { message: 'Quota exceeded' } }), {
         status: 429, headers: { 'Content-Type': 'application/json' }
       });
     }
     return new Response(JSON.stringify({
-      candidates: [{ content: { parts: [{ text: 'Gemini key two answered.' }] }, finishReason: 'STOP' }]
+      candidates: [{ content: { parts: [{ text: 'Gemini key six answered.' }] }, finishReason: 'STOP' }]
     }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   };
 
@@ -66,12 +72,12 @@ async function run() {
       requestedModel: ''
     });
     assert.equal(quotaResult.provider, 'Gemini');
-    assert.equal(quotaResult.answer, 'Gemini key two answered.');
-    assert.equal(quotaCalls, 2, 'A quota-limited Gemini key must immediately rotate to the next key');
+    assert.equal(quotaResult.answer, 'Gemini key six answered.');
+    assert.equal(quotaCalls, 6, 'Quota-limited Gemini keys must rotate through all six configured keys');
     assert.equal(quotaResult.diagnostics.providerAttempts[0].keySlot, 1);
     assert.equal(quotaResult.diagnostics.providerAttempts[0].category, 'QUOTA_LIMIT');
-    assert.equal(quotaResult.diagnostics.activeKeySlot, 2, 'The response must identify the Gemini key slot that succeeded');
-    console.log('PASS Gemini quota errors rotate to the next API key and report the limited key slot');
+    assert.equal(quotaResult.diagnostics.activeKeySlot, 6, 'The response must identify the sixth Gemini key slot that succeeded');
+    console.log('PASS Gemini quota errors rotate across all six API keys and report the successful key slot');
   } finally {
     global.fetch = originalFetch;
   }

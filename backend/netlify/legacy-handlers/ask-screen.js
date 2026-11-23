@@ -357,8 +357,14 @@ function geminiModelFor(payload) {
 function getProviders(payload) {
   const multimodal = payload.images.length > 0 || payload.files.length > 0 || Boolean(payload.audio);
   const providers = [];
-  const geminiKeys = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY2, process.env.GEMINI_API_KEY3]
-    .map(x => typeof x === 'string' ? x.trim() : '').filter(Boolean);
+  const geminiKeys = [
+    process.env.GEMINI_API_KEY,
+    process.env.GEMINI_API_KEY2,
+    process.env.GEMINI_API_KEY3,
+    process.env.GEMINI_API_KEY_4,
+    process.env.GEMINI_API_KEY_5,
+    process.env.GEMINI_API_KEY_6
+  ].map(x => typeof x === 'string' ? x.trim() : '').filter(Boolean);
 
   if (geminiKeys.length) providers.push({
     name: 'Gemini', type: 'gemini', keys: geminiKeys, model: geminiModelFor(payload)
