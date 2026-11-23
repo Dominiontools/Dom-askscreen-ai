@@ -902,7 +902,7 @@ exports.handler = async function handler(event) {
     if (error.code === 'NO_MULTIMODAL_PROVIDER') {
       return response(503, {
         success: false,
-        error: 'This media type needs a compatible vision or Gemini provider. Configure Gemini for PDFs/audio, or use the available OpenRouter vision model for images and sampled video frames.',
+        error: 'This media type needs a compatible vision or Gemini provider. Configure Gemini for PDFs/audio, or use an available OpenRouter or NVIDIA vision model for images and sampled video frames.',
         code: 'NO_MULTIMODAL_PROVIDER', requestId
       }, requestId);
     }
