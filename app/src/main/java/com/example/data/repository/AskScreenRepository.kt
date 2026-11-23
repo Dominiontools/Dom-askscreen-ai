@@ -316,7 +316,10 @@ class AskScreenRepository(private val context: Context) {
             val json = JSONObject(responseBody)
             if (json.optBoolean("success", false)) {
                 val provider = json.optString("provider").ifBlank { "AI provider" }
-                val attempts = json.optJSONObject("diagnostics")?.optJSONArray("providerAttempts") ?: JSONArray()
+                val diagnostics = json.optJSONObject("diagnostics")
+                val activeKeySlot = diagnostics?.optInt("activeKeySlot", 0) ?: 0
+                val providerLabel = if (activeKeySlot > 0) provider + " key " + activeKeySlot else provider
+                val attempts = diagnostics?.optJSONArray("providerAttempts") ?: JSONArray()
                 if (attempts.length() > 0) {
                     val failed = (0 until attempts.length()).mapNotNull { index ->
                         val item = attempts.optJSONObject(index) ?: return@mapNotNull null
@@ -333,9 +336,9 @@ class AskScreenRepository(private val context: Context) {
                         }
                         label + " (" + reason + ")"
                     }.distinct()
-                    providerNotice = "Automatically switched to " + provider + " after " + failed.joinToString(", ")
+                    providerNotice = "Automatically switched to " + providerLabel + " after " + failed.joinToString(", ")
                 } else {
-                    providerNotice = "Answered by " + provider
+                    providerNotice = "Answered by " + providerLabel
                 }
                 return json.optString("answer", "No answer received.")
             } else {
