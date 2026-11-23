@@ -66,7 +66,8 @@ fun FloatingAnswerWindow(
     onExplainAnswer: (String, String) -> Unit = { _, _ -> },
     onHumanAnswer: (String, String) -> Unit = { _, _ -> },
     onFormulaAnswer: (String, String) -> Unit = { _, _ -> },
-    onNormalAnswer: (String, String) -> Unit = { _, _ -> }
+    onNormalAnswer: (String, String) -> Unit = { _, _ -> },
+    onSwitchProvider: () -> Unit = {}
 ) {
     var inputText by remember { mutableStateOf("") }
     var textScale by remember { mutableFloatStateOf(1.0f) }
@@ -359,7 +360,7 @@ fun FloatingAnswerWindow(
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         clipboard.setPrimaryClip(ClipData.newPlainText("AskScreen Answer", copiedText))
                         Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-                    }, onExplain = { onExplainAnswer(msg.id, msg.text) }, onHuman = { onHumanAnswer(msg.id, msg.text) }, onFormula = { onFormulaAnswer(msg.id, msg.text) }, onNormal = { onNormalAnswer(msg.id, msg.text) })
+                    }, onExplain = { onExplainAnswer(msg.id, msg.text) }, onHuman = { onHumanAnswer(msg.id, msg.text) }, onFormula = { onFormulaAnswer(msg.id, msg.text) }, onNormal = { onNormalAnswer(msg.id, msg.text) }, onSwitchProvider = onSwitchProvider)
                 }
             }
 
@@ -516,7 +517,7 @@ private fun summaryItems(body: String): List<StructuredAnswerSection> {
 }
 
 @Composable
-fun MessageBubble(msg: ChatMessage, textScale: Float, onCopy: (String) -> Unit, onExplain: () -> Unit = {}, onHuman: () -> Unit = {}, onFormula: () -> Unit = {}, onNormal: () -> Unit = {}) {
+fun MessageBubble(msg: ChatMessage, textScale: Float, onCopy: (String) -> Unit, onExplain: () -> Unit = {}, onHuman: () -> Unit = {}, onFormula: () -> Unit = {}, onNormal: () -> Unit = {}, onSwitchProvider: () -> Unit = {}) {
     val isUser = msg.role == "user"
     val answerSections = remember(msg.text) { if (!isUser) structuredAnswerSections(msg.text) else emptyList() }
     Column(
@@ -619,6 +620,19 @@ fun MessageBubble(msg: ChatMessage, textScale: Float, onCopy: (String) -> Unit, 
                 }
 
                 if (!isUser) {
+                    if (msg.text.startsWith("Provider switch available:", ignoreCase = true) ||
+                        msg.text.startsWith("Provider switch failed:", ignoreCase = true)) {
+                        Text(
+                            text = "Switch provider & retry",
+                            fontSize = 11.sp,
+                            color = Color(0xFF38BDF8),
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(5.dp))
+                                .clickable { onSwitchProvider() }
+                                .padding(vertical = 5.dp, horizontal = 3.dp)
+                        )
+                    }
                     Spacer(modifier = Modifier.height(4.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
