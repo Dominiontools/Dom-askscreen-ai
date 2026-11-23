@@ -4,15 +4,32 @@ const assert = require('node:assert/strict');
 const { routeRequest, _test } = require('./netlify/legacy-handlers/ask-screen');
 
 async function run() {
-  assert.equal(_test.PROVIDER_TIMEOUT_MS, 8_000);
-  assert.equal(_test.ROUTER_DEADLINE_MS, 18_000);
+  assert.equal(_test.PROVIDER_TIMEOUT_MS, 4_500);
+  assert.equal(_test.ROUTER_DEADLINE_MS, 38_000);
+  assert.equal(_test.classifyProviderFailure({ status: 429 }), 'QUOTA_LIMIT');
+  assert.equal(_test.classifyProviderFailure({ status: 403, message: 'Quota exceeded' }), 'QUOTA_LIMIT');
+  assert.equal(_test.classifyProviderFailure({ status: 402 }), 'BILLING_REQUIRED');
+  assert.equal(_test.classifyProviderFailure({ code: 'TIMEOUT' }), 'TEMPORARILY_UNAVAILABLE');
+
+  const normalPayload = _test.normalizePayload({ prompt: 'What is this?' });
+  assert.equal(normalPayload.preferredProvider, '');
 
   const previous = {
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     GEMINI_API_KEY2: process.env.GEMINI_API_KEY2,
     GEMINI_API_KEY3: process.env.GEMINI_API_KEY3,
     OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
-    OPENROUTER_MODEL: process.env.OPENROUTER_MODEL
+    OPENROUTER_MODEL: process.env.OPENROUTER_MODEL,
+    GROQ_API_KEY: process.env.GROQ_API_KEY,
+    COHERE_API_KEY: process.env.COHERE_API_KEY,
+    NVIDIA_API_KEY: process.env.NVIDIA_API_KEY,
+    ZAI_API_KEY: process.env.ZAI_API_KEY,
+    CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN,
+    CLOUDFLARE_API_KEY: process.env.CLOUDFLARE_API_KEY,
+    CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID,
+    CUSTOM1_API_KEY: process.env.CUSTOM1_API_KEY,
+    CUSTOM1_BASE_URL: process.env.CUSTOM1_BASE_URL,
+    CUSTOM1_MODEL: process.env.CUSTOM1_MODEL
   };
   const originalFetch = global.fetch;
   process.env.GEMINI_API_KEY = 'test-gemini-key';
@@ -20,6 +37,42 @@ async function run() {
   process.env.GEMINI_API_KEY3 = 'test-gemini-key-3';
   process.env.OPENROUTER_API_KEY = 'test-openrouter-key';
   process.env.OPENROUTER_MODEL = 'openai/gpt-4o-mini';
+  for (const key of ['GROQ_API_KEY', 'COHERE_API_KEY', 'NVIDIA_API_KEY', 'ZAI_API_KEY', 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_API_KEY', 'CLOUDFLARE_ACCOUNT_ID', 'CUSTOM1_API_KEY', 'CUSTOM1_BASE_URL', 'CUSTOM1_MODEL']) delete process.env[key];
+
+  let quotaCalls = 0;
+  global.fetch = async (url, options) => {
+    if (!String(url).includes('generativelanguage.googleapis.com')) throw new Error('Unexpected provider URL: ' + url);
+    quotaCalls++;
+    const key = options.headers['x-goog-api-key'];
+    if (key === 'test-gemini-key') {
+      return new Response(JSON.stringify({ error: { message: 'Quota exceeded' } }), {
+        status: 429, headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    return new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ text: 'Gemini key two answered.' }] }, finishReason: 'STOP' }]
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+
+  try {
+    const quotaResult = await routeRequest({
+      prompt: 'Test Gemini key rotation',
+      history: [],
+      images: [],
+      files: [],
+      audio: null,
+      requestedModel: ''
+    });
+    assert.equal(quotaResult.provider, 'Gemini');
+    assert.equal(quotaResult.answer, 'Gemini key two answered.');
+    assert.equal(quotaCalls, 2, 'A quota-limited Gemini key must immediately rotate to the next key');
+    assert.equal(quotaResult.diagnostics.providerAttempts[0].keySlot, 1);
+    assert.equal(quotaResult.diagnostics.providerAttempts[0].category, 'QUOTA_LIMIT');
+    assert.equal(quotaResult.diagnostics.activeKeySlot, 2, 'The response must identify the Gemini key slot that succeeded');
+    console.log('PASS Gemini quota errors rotate to the next API key and report the limited key slot');
+  } finally {
+    global.fetch = originalFetch;
+  }
 
   let geminiCalls = 0;
   let openRouterCalls = 0;
@@ -52,7 +105,19 @@ async function run() {
     assert.match(result.answer, /classroom slide/);
     assert.equal(geminiCalls, 1, 'A provider-wide 503 must not waste time retrying every Gemini key');
     assert.equal(openRouterCalls, 1, 'The image must be passed to the compatible vision fallback');
-    console.log('PASS image requests fail over from Gemini outage to OpenRouter vision without retry delays');
+    const manualResult = await routeRequest({
+      prompt: 'Retry using the selected provider',
+      history: [],
+      images: [],
+      files: [],
+      audio: null,
+      requestedModel: '',
+      preferredProvider: 'OpenRouter'
+    });
+    assert.equal(manualResult.provider, 'OpenRouter', 'A manual provider choice must be attempted first');
+    assert.equal(geminiCalls, 1, 'Manual provider switching must not start with the failed default provider');
+    assert.equal(openRouterCalls, 2);
+    console.log('PASS manual provider preference is attempted first without starting a new request context');
   } finally {
     global.fetch = originalFetch;
     for (const [key, value] of Object.entries(previous)) {
