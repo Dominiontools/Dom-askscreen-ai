@@ -116,7 +116,19 @@ async function run() {
     assert.match(result.answer, /classroom slide/);
     assert.equal(geminiCalls, 1, 'A provider-wide 503 must not waste time retrying every Gemini key');
     assert.equal(openRouterCalls, 1, 'The image must be passed to the compatible vision fallback');
-    console.log('PASS image requests fail over from Gemini outage to OpenRouter vision without retry delays');
+    const manualResult = await routeRequest({
+      prompt: 'Retry using the selected provider',
+      history: [],
+      images: [],
+      files: [],
+      audio: null,
+      requestedModel: '',
+      preferredProvider: 'OpenRouter'
+    });
+    assert.equal(manualResult.provider, 'OpenRouter', 'A manual provider choice must be attempted first');
+    assert.equal(geminiCalls, 1, 'Manual provider switching must not start with the failed default provider');
+    assert.equal(openRouterCalls, 2);
+    console.log('PASS manual provider preference is attempted first without starting a new request context');
   } finally {
     global.fetch = originalFetch;
     for (const [key, value] of Object.entries(previous)) {
