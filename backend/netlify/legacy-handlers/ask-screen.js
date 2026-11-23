@@ -423,7 +423,7 @@ function getProviders(payload) {
   const imageOnly = payload.images.length > 0 && payload.files.length === 0 && !payload.audio;
   if (imageOnly) {
     const nvidia = providers.find(provider => provider.name === 'NVIDIA');
-    if (nvidia) nvidia.model = process.env.NVIDIA_VISION_MODEL || 'stepfun-ai/step-3.7-flash';
+    if (nvidia) nvidia.model = process.env.NVIDIA_VISION_MODEL || 'stepfun-ai/step-5-preview';
   }
   return providers.filter(p => {
     if (!multimodal) return true;
