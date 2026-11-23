@@ -384,7 +384,7 @@ function getProviders(payload) {
   if (process.env.NVIDIA_API_KEY) providers.push({
     name: 'NVIDIA', type: 'openai', key: process.env.NVIDIA_API_KEY,
     url: 'https://integrate.api.nvidia.com/v1/chat/completions',
-    model: process.env.NVIDIA_MODEL || 'meta/llama-3.3-70b-instruct'
+    model: process.env.NVIDIA_MODEL || 'nvidia/nemotron-nano-12b-v2-vl'
   });
 
   if (process.env.ZAI_API_KEY) providers.push({
