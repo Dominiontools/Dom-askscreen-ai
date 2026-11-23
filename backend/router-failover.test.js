@@ -24,6 +24,7 @@ async function run() {
     GROQ_API_KEY: process.env.GROQ_API_KEY,
     COHERE_API_KEY: process.env.COHERE_API_KEY,
     NVIDIA_API_KEY: process.env.NVIDIA_API_KEY,
+    NVIDIA_VISION_MODEL: process.env.NVIDIA_VISION_MODEL,
     ZAI_API_KEY: process.env.ZAI_API_KEY,
     CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN,
     CLOUDFLARE_API_KEY: process.env.CLOUDFLARE_API_KEY,
@@ -76,6 +77,10 @@ async function run() {
   }
 
   process.env.NVIDIA_API_KEY = 'test-nvidia-key';
+  delete process.env.NVIDIA_VISION_MODEL;
+  const visionProviders = _test.getProviders({ images: [{ mimeType: 'image/jpeg', data: 'dGVzdA==' }], files: [], audio: null });
+  assert.equal(visionProviders.find(provider => provider.name === 'NVIDIA')?.model, 'stepfun-ai/step-5-preview');
+  console.log('PASS NVIDIA image requests use the current Step 5 Preview vision model by default');
   let geminiCalls = 0;
   let openRouterCalls = 0;
   let nvidiaCalls = 0;
