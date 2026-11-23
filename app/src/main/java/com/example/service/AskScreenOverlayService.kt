@@ -129,7 +129,7 @@ class AskScreenOverlayService : Service() {
     private var lastProviderRetryImages: List<Bitmap> = emptyList()
     private var lastProviderRetryHistory: List<ChatMessage> = emptyList()
     private var lastProviderRetryFailureId: String? = null
-    private var manualProviderIndex = 0
+    private var manualProviderIndex = 1
     private val manualProviderOrder = listOf("Gemini", "Groq", "OpenRouter", "Cohere", "NVIDIA", "Z.AI", "Cloudflare", "Custom AI")
     private val liveCaptions = MutableStateFlow("")
     private val currentPreset = MutableStateFlow(WindowSizePreset.MEDIUM)
@@ -1490,6 +1490,8 @@ Instructions:
         instance = null
         stopAutoMonitor()
         serviceScope.cancel()
+        lastProviderRetryImages.forEach { if (!it.isRecycled) it.recycle() }
+        lastProviderRetryImages = emptyList()
         hideQuickActionMenu()
         hideAnswerWindow()
         removeRegionOverlay()
