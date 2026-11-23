@@ -75,7 +75,8 @@ class AskScreenRepository(private val context: Context) {
         audioBase64: String? = null,
         audioMimeType: String? = null,
         files: List<MediaItem> = emptyList(),
-        chatHistory: List<ChatMessage> = emptyList()
+        chatHistory: List<ChatMessage> = emptyList(),
+        preferredProvider: String? = null
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             val selectedModel = prefs.geminiModel.ifEmpty { "gemini-3.8-flash" }
@@ -90,6 +91,7 @@ class AskScreenRepository(private val context: Context) {
                 backendUrl = backendUrl, prompt = prompt, model = selectedModel,
                 queryType = queryType, images = images, audioBase64 = audioBase64,
                 audioMimeType = audioMimeType, files = files, chatHistory = chatHistory,
+                preferredProvider = preferredProvider,
                 idToken = user.getIdToken(false).await().token
                     ?: throw Exception("Could not verify your account. Please sign in again."),
                 taskContext = if (prefs.isSpecificTaskEnabled(user.uid)) {
@@ -195,6 +197,7 @@ class AskScreenRepository(private val context: Context) {
         audioMimeType: String?,
         files: List<MediaItem>,
         chatHistory: List<ChatMessage>,
+        preferredProvider: String? = null,
         idToken: String?,
         taskContext: Map<String, String>? = null
     ): String {
@@ -202,6 +205,7 @@ class AskScreenRepository(private val context: Context) {
         rootJson.put("prompt", prompt)
         rootJson.put("model", model)
         rootJson.put("queryType", queryType.name)
+        if (!preferredProvider.isNullOrBlank()) rootJson.put("preferredProvider", preferredProvider)
         if (taskContext != null) {
             rootJson.put("mode", "SPECIFIC_TASK")
             rootJson.put("taskContext", JSONObject().apply {
@@ -279,6 +283,26 @@ class AskScreenRepository(private val context: Context) {
                     throw Exception("RATE_LIMITED:${retryAfter.coerceAtLeast(1)}")
                 }
                 val diagnostic = if (requestId.isNotBlank()) " (Request ID: $requestId)" else ""
+                if (errorCode == "UPSTREAM_UNAVAILABLE") {
+                    val failures = errorJson.optJSONArray("providerFailures") ?: JSONArray()
+                    val details = (0 until failures.length()).mapNotNull { index ->
+                        val item = failures.optJSONObject(index) ?: return@mapNotNull null
+                        val provider = item.optString("provider").ifBlank { "AI provider" }
+                        val slot = item.optInt("keySlot", 0)
+                        val label = if (slot > 0) "$provider key $slot" else provider
+                        val category = when (item.optString("category")) {
+                            "QUOTA_LIMIT" -> "quota reached"
+                            "BILLING_REQUIRED" -> "credits or billing required"
+                            "INVALID_API_KEY" -> "invalid API key"
+                            "PERMISSION_DENIED" -> "permission denied"
+                            "TEMPORARILY_UNAVAILABLE" -> "temporarily unavailable"
+                            else -> "request failed"
+                        }
+                        "$label: $category"
+                    }.distinct()
+                    val statusText = if (details.isEmpty()) "All compatible providers are unavailable." else details.joinToString("; ")
+                    throw Exception("PROVIDER_SWITCH_AVAILABLE: $statusText$diagnostic")
+                }
                 throw Exception(
                     "Backend error (${response.code}): " +
                         serverMsg.ifBlank { "The server could not complete the request." } + diagnostic
