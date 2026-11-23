@@ -124,6 +124,13 @@ class AskScreenOverlayService : Service() {
     private val sessionMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
     // Preserve original text so mode changes replace the same answer bubble and Normal restores it.
     private val originalAnswerTexts = mutableMapOf<String, String>()
+    private var lastProviderRetryPrompt: String? = null
+    private var lastProviderRetryType: QueryType = QueryType.TEXT
+    private var lastProviderRetryImages: List<Bitmap> = emptyList()
+    private var lastProviderRetryHistory: List<ChatMessage> = emptyList()
+    private var lastProviderRetryFailureId: String? = null
+    private var manualProviderIndex = 0
+    private val manualProviderOrder = listOf("Groq", "OpenRouter", "Cohere", "NVIDIA", "Z.AI", "Cloudflare", "Custom AI", "Gemini")
     private val liveCaptions = MutableStateFlow("")
     private val currentPreset = MutableStateFlow(WindowSizePreset.MEDIUM)
     private var isBubbleVisible = true
@@ -572,6 +579,9 @@ class AskScreenOverlayService : Service() {
                     },
                     onNormalAnswer = { messageId, answerText ->
                         restoreNormalAnswer(messageId, answerText)
+                    },
+                    onSwitchProvider = {
+                        retryLastRequestWithNextProvider()
                     }
                 )
             }
@@ -800,6 +810,7 @@ class AskScreenOverlayService : Service() {
                 "Look at the visible screen. $answerStyle"
             }
 
+            rememberLastProviderRequest(prompt, queryType, listOf(bitmap), sessionMessages.value)
             val result = repository.askScreenAi(
                 prompt = prompt,
                 queryType = queryType,
@@ -821,6 +832,7 @@ class AskScreenOverlayService : Service() {
 
                     val aiMsg = ChatMessage(role = "model", text = cleanAnswer, queryType = queryType)
                     sessionMessages.value = sessionMessages.value + aiMsg
+                    showProviderNotice()
 
                     // Auto-submit only when it applies, and stay silent when it does not.
                     if (prefs.isAutoSubmitEnabled) {
@@ -867,9 +879,17 @@ class AskScreenOverlayService : Service() {
             bubbleState.value = BubbleState.ERROR
             "$fallback ${error.message ?: "Please try again."}"
         }
-        sessionMessages.value = sessionMessages.value + ChatMessage(
-            role = "model", text = message, queryType = queryType
+        val failureMessage = ChatMessage(
+            role = "model",
+            text = if (error.message.orEmpty().startsWith("PROVIDER_SWITCH_AVAILABLE:")) {
+                "Provider switch available: " + error.message.orEmpty().removePrefix("PROVIDER_SWITCH_AVAILABLE:").trim()
+            } else message,
+            queryType = queryType
         )
+        sessionMessages.value = sessionMessages.value + failureMessage
+        if (error.message.orEmpty().startsWith("PROVIDER_SWITCH_AVAILABLE:")) {
+            lastProviderRetryFailureId = failureMessage.id
+        }
     }
 
     private fun shouldProcessAudioTranscript(transcript: String): Boolean {
@@ -1018,6 +1038,7 @@ Instructions:
 - Do not expose a raw transcript in the final response.
 """.trimIndent()
                 liveCaptions.value = "Analysing the complete $wordCount-word session..."
+                rememberLastProviderRequest(prompt, type, frames, sessionMessages.value)
                 val result = repository.askScreenAi(
                     prompt = prompt,
                     queryType = type,
@@ -1271,12 +1292,74 @@ Instructions:
         bubbleState.value = BubbleState.IDLE
     }
 
+    private fun showProviderNotice() {
+        repository.consumeProviderNotice()?.let { notice ->
+            Toast.makeText(this@AskScreenOverlayService, notice, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun rememberLastProviderRequest(prompt: String, type: QueryType, images: List<Bitmap>, history: List<ChatMessage>) {
+        lastProviderRetryImages.forEach { if (!it.isRecycled) it.recycle() }
+        lastProviderRetryImages = images.mapNotNull { bitmap ->
+            runCatching { bitmap.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull()
+        }
+        lastProviderRetryPrompt = prompt
+        lastProviderRetryType = type
+        lastProviderRetryHistory = history.toList()
+        lastProviderRetryFailureId = null
+        manualProviderIndex = 0
+    }
+
+    private fun retryLastRequestWithNextProvider() {
+        if (bubbleState.value == BubbleState.PROCESSING_AI) return
+        val prompt = lastProviderRetryPrompt ?: return
+        val failureId = lastProviderRetryFailureId ?: return
+        val compatibleOrder = if (lastProviderRetryImages.any { !it.isRecycled }) {
+            listOf("OpenRouter", "NVIDIA", "Gemini")
+        } else {
+            manualProviderOrder
+        }
+        val provider = compatibleOrder[manualProviderIndex % compatibleOrder.size]
+        manualProviderIndex = (manualProviderIndex + 1) % compatibleOrder.size
+        serviceScope.launch {
+            bubbleState.value = BubbleState.PROCESSING_AI
+            Toast.makeText(this@AskScreenOverlayService, "Trying $provider first...", Toast.LENGTH_SHORT).show()
+            val result = repository.askScreenAi(
+                prompt = prompt,
+                queryType = lastProviderRetryType,
+                images = lastProviderRetryImages.filterNot { it.isRecycled },
+                chatHistory = lastProviderRetryHistory,
+                preferredProvider = provider
+            )
+            result.onSuccess { answer ->
+                sessionMessages.value = sessionMessages.value.map { message ->
+                    if (message.id == failureId) message.copy(text = answer.trim()) else message
+                }
+                lastProviderRetryFailureId = null
+                showProviderNotice()
+                bubbleState.value = BubbleState.IDLE
+                if (prefs.isTtsEnabled) ttsManager.speak(answer, prefs.ttsSpeed)
+            }.onFailure { error ->
+                val text = if (error.message.orEmpty().startsWith("PROVIDER_SWITCH_AVAILABLE:")) {
+                    "Provider switch available: " + error.message.orEmpty().removePrefix("PROVIDER_SWITCH_AVAILABLE:").trim()
+                } else {
+                    "Provider switch failed: " + (error.message ?: "Please try another provider.")
+                }
+                sessionMessages.value = sessionMessages.value.map { message ->
+                    if (message.id == failureId) message.copy(text = text) else message
+                }
+                bubbleState.value = BubbleState.ERROR
+            }
+        }
+    }
+
     private fun sendFollowUpQuestion(text: String, queryType: QueryType = QueryType.TEXT) {
         serviceScope.launch {
             bubbleState.value = BubbleState.PROCESSING_AI
             val userMsg = ChatMessage(role = "user", text = text, queryType = queryType)
             sessionMessages.value = sessionMessages.value + userMsg
 
+            rememberLastProviderRequest(text, queryType, emptyList(), sessionMessages.value)
             val result = repository.askScreenAi(
                 prompt = text,
                 queryType = queryType,
@@ -1287,6 +1370,7 @@ Instructions:
                 bubbleState.value = BubbleState.IDLE
                 val aiMsg = ChatMessage(role = "model", text = answer, queryType = queryType)
                 sessionMessages.value = sessionMessages.value + aiMsg
+                showProviderNotice()
                 if (prefs.isTtsEnabled) {
                     ttsManager.speak(answer, prefs.ttsSpeed)
                 }
@@ -1414,6 +1498,8 @@ Instructions:
         instance = null
         stopAutoMonitor()
         serviceScope.cancel()
+        lastProviderRetryImages.forEach { if (!it.isRecycled) it.recycle() }
+        lastProviderRetryImages = emptyList()
         hideQuickActionMenu()
         hideAnswerWindow()
         removeRegionOverlay()
