@@ -370,72 +370,23 @@ function getProviders(payload) {
     name: 'Gemini', type: 'gemini', keys: geminiKeys, model: geminiModelFor(payload)
   });
 
-  if (process.env.GROQ_API_KEY) providers.push({
-    name: 'Groq', type: 'openai', key: process.env.GROQ_API_KEY,
-    url: 'https://api.groq.com/openai/v1/chat/completions',
-    model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
-  });
-
-  if (process.env.OPENROUTER_API_KEY) providers.push({
-    name: 'OpenRouter', type: 'openai', key: process.env.OPENROUTER_API_KEY,
-    url: 'https://openrouter.ai/api/v1/chat/completions',
-    model: process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini'
-  });
-
-  if (process.env.COHERE_API_KEY) providers.push({
-    name: 'Cohere', type: 'cohere', key: process.env.COHERE_API_KEY,
-    url: 'https://api.cohere.com/v2/chat',
-    model: process.env.COHERE_MODEL || 'command-a-plus-05-2026'
-  });
-
-  if (process.env.NVIDIA_API_KEY) providers.push({
-    name: 'NVIDIA', type: 'openai', key: process.env.NVIDIA_API_KEY,
-    url: 'https://integrate.api.nvidia.com/v1/chat/completions',
-    model: process.env.NVIDIA_MODEL || 'meta/llama-3.3-70b-instruct'
-  });
-
-  if (process.env.ZAI_API_KEY) providers.push({
-    name: 'Z.AI', type: 'openai', key: process.env.ZAI_API_KEY,
-    url: process.env.ZAI_BASE_URL || 'https://api.z.ai/api/paas/v4/chat/completions',
-    model: process.env.ZAI_MODEL || 'glm-5.3'
-  });
-
   const cfToken = process.env.CLOUDFLARE_API_TOKEN || process.env.CLOUDFLARE_API_KEY;
   if (cfToken && process.env.CLOUDFLARE_ACCOUNT_ID) providers.push({
     name: 'Cloudflare', type: 'openai', key: cfToken,
     url: 'https://api.cloudflare.com/client/v4/accounts/' + encodeURIComponent(process.env.CLOUDFLARE_ACCOUNT_ID) + '/ai/v1/chat/completions',
-    model: process.env.CLOUDFLARE_MODEL || '@cf/meta/llama-3.1-8b-instruct'
+    model: process.env.CLOUDFLARE_MODEL || '@cf/zai-org/glm-4.7-flash'
   });
-
-  if (process.env.CUSTOM1_API_KEY && process.env.CUSTOM1_BASE_URL && process.env.CUSTOM1_MODEL) {
-    let customUrl;
-    try {
-      customUrl = new URL(process.env.CUSTOM1_BASE_URL);
-      if (customUrl.protocol !== 'https:') throw new Error('HTTPS_REQUIRED');
-    } catch {
-      console.error('[AskScreen Router] CUSTOM1_BASE_URL must be a valid HTTPS URL.');
-      customUrl = null;
-    }
-    if (customUrl) {
-      const base = customUrl.toString().replace(/\/+$/, '');
-      providers.push({
-        name: 'Custom AI', type: 'openai', key: process.env.CUSTOM1_API_KEY,
-        url: base.endsWith('/chat/completions') ? base : base + '/chat/completions',
-        model: process.env.CUSTOM1_MODEL
-      });
-    }
-  }
 
   const imageOnly = payload.images.length > 0 && payload.files.length === 0 && !payload.audio;
   if (imageOnly) {
-    const nvidia = providers.find(provider => provider.name === 'NVIDIA');
-    if (nvidia) nvidia.model = process.env.NVIDIA_VISION_MODEL || 'stepfun-ai/step-5-preview';
+    const cloudflare = providers.find(provider => provider.name === 'Cloudflare');
+    if (cloudflare) cloudflare.model = process.env.CLOUDFLARE_VISION_MODEL || '@cf/qwen/qwen3.8-27b';
   }
   return providers.filter(p => {
     if (!multimodal) return true;
-    // OpenRouter's configured GPT-4o-mini vision model can inspect sampled video frames.
+    // Free Cloudflare Qwen vision is a fallback for image-only screen captures.
     // Keep PDFs and audio on Gemini because they require provider-specific media handling.
-    if (imageOnly && (p.name === 'OpenRouter' || p.name === 'NVIDIA')) return true;
+    if (imageOnly && p.name === 'Cloudflare') return true;
     return p.type === 'gemini';
   });
 }
@@ -639,7 +590,7 @@ function classifyProviderFailure(error) {
 
 function isGeminiKeyRotationError(error) {
   const category = classifyProviderFailure(error);
-  return ['QUOTA_LIMIT', 'INVALID_API_KEY'].includes(category) ||
+  return ['QUOTA_LIMIT', 'INVALID_API_KEY', 'TEMPORARILY_UNAVAILABLE'].includes(category) ||
     (error.status === 403 && /quota|rate.?limit|resource.?exhausted/i.test(String(error.message || '') + ' ' + String(error.providerCode || '')));
 }
 
