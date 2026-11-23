@@ -1,6 +1,6 @@
 'use strict';
 
-const { verifyUser } = require('./ask-screen');
+const { verifyAdminSession } = require('./admin-auth');
 const { summarizeProductSubscriptions } = require('../../product-subscriptions');
 
 let adminPromise;
@@ -26,7 +26,7 @@ function json(statusCode, data) {
       'Content-Type': 'application/json; charset=utf-8',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+      'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Admin-Access-Code',
       'Cache-Control': 'no-store'
     },
     body: JSON.stringify(data)
@@ -44,7 +44,7 @@ exports.handler = async event => {
   });
 
   try {
-    const decoded = await verifyUser(event);
+    const decoded = verifyAdminSession(event);
     const email = String(decoded.email || '').toLowerCase();
     if (!email || !allowed.includes(email) || decoded.email_verified !== true) {
       return json(403, { error: 'This account is not authorized to access the admin dashboard.' });

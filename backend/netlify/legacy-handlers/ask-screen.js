@@ -20,9 +20,12 @@ const MAX_REQUESTS_PER_WINDOW = Number.isFinite(configuredRateLimit)
   ? Math.min(300, Math.max(10, configuredRateLimit))
   : DEFAULT_MAX_REQUESTS_PER_WINDOW;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
-const PROVIDER_TIMEOUT_MS = 8_000;
-const ROUTER_DEADLINE_MS = 24_000;
-const MAX_PROVIDER_RETRIES = 1;
+const PROVIDER_TIMEOUT_MS = 4_500;
+// Keep synchronous processing below Netlify's 60-second function execution limit.
+const ROUTER_DEADLINE_MS = 38_000;
+// Do not spend a second full provider timeout retrying an upstream outage.
+// Rotate Gemini keys for authentication/quota errors, then fail over immediately.
+const MAX_PROVIDER_RETRIES = 0;
 const RETRY_BASE_DELAY_MS = 350;
 const COOLDOWN_MS = 30_000;
 const MAX_HISTORY_ITEMS = 12;
@@ -337,12 +340,13 @@ function normalizePayload(raw) {
     images,
     files,
     audio,
-    requestedModel: typeof raw.model === 'string' ? raw.model.trim() : ''
+    requestedModel: typeof raw.model === 'string' ? raw.model.trim() : '',
+    preferredProvider: typeof raw.preferredProvider === 'string' ? raw.preferredProvider.trim() : ''
   };
 }
 
 function geminiModelFor(payload) {
-  const fallback = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+  const fallback = process.env.GEMINI_MODEL || ['gemini', '3.8', 'flash'].join('-');
   const allowed = (process.env.GEMINI_ALLOWED_MODELS || fallback)
     .split(',').map(x => x.trim()).filter(Boolean);
   return payload.requestedModel && allowed.includes(payload.requestedModel)
@@ -353,70 +357,38 @@ function geminiModelFor(payload) {
 function getProviders(payload) {
   const multimodal = payload.images.length > 0 || payload.files.length > 0 || Boolean(payload.audio);
   const providers = [];
-  const geminiKeys = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_2, process.env.GEMINI_API_KEY_3]
-    .map(x => typeof x === 'string' ? x.trim() : '').filter(Boolean);
+  const geminiKeys = [
+    process.env.GEMINI_API_KEY,
+    process.env.GEMINI_API_KEY2,
+    process.env.GEMINI_API_KEY3,
+    process.env.GEMINI_API_KEY_4,
+    process.env.GEMINI_API_KEY_5,
+    process.env.GEMINI_API_KEY_6
+  ].map(x => typeof x === 'string' ? x.trim() : '').filter(Boolean);
 
   if (geminiKeys.length) providers.push({
     name: 'Gemini', type: 'gemini', keys: geminiKeys, model: geminiModelFor(payload)
-  });
-
-  if (process.env.GROQ_API_KEY) providers.push({
-    name: 'Groq', type: 'openai', key: process.env.GROQ_API_KEY,
-    url: 'https://api.groq.com/openai/v1/chat/completions',
-    model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
-  });
-
-  if (process.env.OPENROUTER_API_KEY) providers.push({
-    name: 'OpenRouter', type: 'openai', key: process.env.OPENROUTER_API_KEY,
-    url: 'https://openrouter.ai/api/v1/chat/completions',
-    model: process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini'
-  });
-
-  if (process.env.COHERE_API_KEY) providers.push({
-    name: 'Cohere', type: 'cohere', key: process.env.COHERE_API_KEY,
-    url: 'https://api.cohere.com/v2/chat',
-    model: process.env.COHERE_MODEL || 'command-a-plus-05-2026'
-  });
-
-  if (process.env.NVIDIA_API_KEY) providers.push({
-    name: 'NVIDIA', type: 'openai', key: process.env.NVIDIA_API_KEY,
-    url: 'https://integrate.api.nvidia.com/v1/chat/completions',
-    model: process.env.NVIDIA_MODEL || 'meta/llama-3.3-70b-instruct'
-  });
-
-  if (process.env.ZAI_API_KEY) providers.push({
-    name: 'Z.AI', type: 'openai', key: process.env.ZAI_API_KEY,
-    url: process.env.ZAI_BASE_URL || 'https://api.z.ai/api/paas/v4/chat/completions',
-    model: process.env.ZAI_MODEL || 'glm-5.3'
   });
 
   const cfToken = process.env.CLOUDFLARE_API_TOKEN || process.env.CLOUDFLARE_API_KEY;
   if (cfToken && process.env.CLOUDFLARE_ACCOUNT_ID) providers.push({
     name: 'Cloudflare', type: 'openai', key: cfToken,
     url: 'https://api.cloudflare.com/client/v4/accounts/' + encodeURIComponent(process.env.CLOUDFLARE_ACCOUNT_ID) + '/ai/v1/chat/completions',
-    model: process.env.CLOUDFLARE_MODEL || '@cf/meta/llama-3.1-8b-instruct'
+    model: process.env.CLOUDFLARE_MODEL || '@cf/zai-org/glm-4.7-flash'
   });
 
-  if (process.env.CUSTOM1_API_KEY && process.env.CUSTOM1_BASE_URL && process.env.CUSTOM1_MODEL) {
-    let customUrl;
-    try {
-      customUrl = new URL(process.env.CUSTOM1_BASE_URL);
-      if (customUrl.protocol !== 'https:') throw new Error('HTTPS_REQUIRED');
-    } catch {
-      console.error('[AskScreen Router] CUSTOM1_BASE_URL must be a valid HTTPS URL.');
-      customUrl = null;
-    }
-    if (customUrl) {
-      const base = customUrl.toString().replace(/\/+$/, '');
-      providers.push({
-        name: 'Custom AI', type: 'openai', key: process.env.CUSTOM1_API_KEY,
-        url: base.endsWith('/chat/completions') ? base : base + '/chat/completions',
-        model: process.env.CUSTOM1_MODEL
-      });
-    }
+  const imageOnly = payload.images.length > 0 && payload.files.length === 0 && !payload.audio;
+  if (imageOnly) {
+    const cloudflare = providers.find(provider => provider.name === 'Cloudflare');
+    if (cloudflare) cloudflare.model = process.env.CLOUDFLARE_VISION_MODEL || '@cf/qwen/qwen3.8-27b';
   }
-
-  return providers.filter(p => !isCoolingDown(p.name) && (!multimodal || p.type === 'gemini'));
+  return providers.filter(p => {
+    if (!multimodal) return true;
+    // Free Cloudflare Qwen vision is a fallback for image-only screen captures.
+    // Keep PDFs and audio on Gemini because they require provider-specific media handling.
+    if (imageOnly && p.name === 'Cloudflare') return true;
+    return p.type === 'gemini';
+  });
 }
 
 function geminiContents(payload) {
@@ -439,10 +411,17 @@ function geminiContents(payload) {
 }
 
 function openAiMessages(payload) {
+  const userContent = [{ type: 'text', text: payload.prompt }];
+  for (const image of payload.images) {
+    userContent.push({
+      type: 'image_url',
+      image_url: { url: 'data:' + image.mimeType + ';base64,' + image.data, detail: 'high' }
+    });
+  }
   return [
     { role: 'system', content: SYSTEM_INSTRUCTION },
     ...payload.history.map(turn => ({ role: turn.role, content: turn.content })),
-    { role: 'user', content: payload.prompt }
+    { role: 'user', content: userContent.length === 1 ? payload.prompt : userContent }
   ];
 }
 
@@ -596,10 +575,29 @@ function isInvalidGeminiKey(error) {
     ));
 }
 
+function classifyProviderFailure(error) {
+  const message = String(error.message || '').toLowerCase();
+  const code = String(error.providerCode || '').toLowerCase();
+  if (error.status === 429 || code.includes('resource_exhausted') || message.includes('quota') || message.includes('rate limit')) return 'QUOTA_LIMIT';
+  if (error.status === 402 || message.includes('insufficient credit') || message.includes('payment required') || message.includes('billing')) return 'BILLING_REQUIRED';
+  if (error.status === 401 || isInvalidGeminiKey(error) || message.includes('invalid api key')) return 'INVALID_API_KEY';
+  if (error.status === 403 && /quota|rate.?limit|resource.?exhausted/i.test(message + ' ' + code)) return 'QUOTA_LIMIT';
+  if (error.status === 403) return 'PERMISSION_DENIED';
+  if (error.status === 404 || error.status === 410) return 'MODEL_OR_ENDPOINT_UNAVAILABLE';
+  if (error.code === 'TIMEOUT' || !error.status || [408, 425, 500, 502, 503, 504].includes(error.status)) return 'TEMPORARILY_UNAVAILABLE';
+  return 'REQUEST_REJECTED';
+}
+
+function isGeminiKeyRotationError(error) {
+  const category = classifyProviderFailure(error);
+  return ['QUOTA_LIMIT', 'INVALID_API_KEY', 'TEMPORARILY_UNAVAILABLE'].includes(category) ||
+    (error.status === 403 && /quota|rate.?limit|resource.?exhausted/i.test(String(error.message || '') + ' ' + String(error.providerCode || '')));
+}
+
 function shouldTryNextProvider(error) {
   if (error.code === 'TIMEOUT') return true;
   if (!error.status) return true;
-  return [400, 401, 403, 404, 408, 409, 422, 425, 429, 500, 502, 503, 504].includes(error.status);
+  return [400, 401, 402, 403, 404, 408, 409, 410, 422, 425, 429, 500, 502, 503, 504].includes(error.status);
 }
 
 
@@ -613,7 +611,16 @@ function wait(ms) {
 }
 
 async function routeRequest(payload) {
-  const providers = getProviders(payload);
+  let providers = getProviders(payload);
+  if (payload.preferredProvider) {
+    const preferred = payload.preferredProvider.toLowerCase();
+    const index = providers.findIndex(provider => provider.name.toLowerCase() === preferred);
+    if (index >= 0) providers = [providers[index], ...providers.slice(0, index), ...providers.slice(index + 1)];
+  } else {
+    // Prefer providers outside their cooldown window, but retain cooled providers
+    // as fallbacks so one stale cooldown cannot make a request fail without a probe.
+    providers.sort((a, b) => Number(isCoolingDown(a.name)) - Number(isCoolingDown(b.name)));
+  }
 
   if (!providers.length) {
     const e = new Error(
@@ -631,9 +638,18 @@ async function routeRequest(payload) {
   for (const provider of providers) {
     if (Date.now() >= deadline) break;
 
+    const isManualSelection = payload.preferredProvider &&
+      provider.name.toLowerCase() === payload.preferredProvider.toLowerCase();
+    // A cooldown is a priority hint, never a hard block. In serverless
+    // environments a warm instance can retain a stale cooldown while a provider
+    // has already recovered. Always probe compatible providers as a last resort.
+    if (isManualSelection) cooldowns.delete(provider.name);
+
     const keys = provider.type === 'gemini' ? provider.keys : [provider.key];
 
-    for (let index = 0; index < keys.length; index++) {
+    // A provider outage or timeout should move to the next provider immediately.
+    // Only rotate Gemini keys for invalid-key or quota/rate-limit responses.
+    providerKeyLoop: for (let index = 0; index < keys.length; index++) {
       let attempt = 0;
       while (attempt <= MAX_PROVIDER_RETRIES && Date.now() < deadline) {
         try {
@@ -642,13 +658,19 @@ async function routeRequest(payload) {
             provider: provider.name,
             model: provider.model,
             latencyMs: result.diagnostics.latencyMs,
-            attempt: attempt + 1
+            attempt: attempt + 1,
+            failoverCount: failures.length
           });
+          result.diagnostics.providerAttempts = failures;
+          result.diagnostics.activeKeySlot = provider.type === 'gemini' ? index + 1 : null;
+          result.diagnostics.automaticFailover = failures.length > 0;
           return result;
         } catch (error) {
           failures.push({
             provider: provider.name,
             status: error.status || error.code || 'NETWORK_ERROR',
+            category: classifyProviderFailure(error),
+            keySlot: provider.type === 'gemini' ? index + 1 : null,
             attempt: attempt + 1
           });
           console.warn('[AskScreen Router] Provider attempt failed', {
@@ -657,28 +679,20 @@ async function routeRequest(payload) {
             attempt: attempt + 1
           });
 
-          if (
-            provider.type === 'gemini' &&
-            isInvalidGeminiKey(error) &&
-            index < keys.length - 1
-          ) break;
+          const canRotateGeminiKey = provider.type === 'gemini' &&
+            index < keys.length - 1 &&
+            isGeminiKeyRotationError(error);
+          if (canRotateGeminiKey) break;
 
-          const canRetry = isRetryableProviderError(error) &&
-            attempt < MAX_PROVIDER_RETRIES;
-          const backoff = error.retryAfterMs || RETRY_BASE_DELAY_MS * (attempt + 1);
-          if (canRetry && Date.now() + backoff + 250 < deadline) {
-            attempt++;
-            await wait(backoff);
-            continue;
-          }
-
-          if (error.status === 429 || isRetryableProviderError(error)) {
+          // A 5xx, network failure, or timeout is provider-wide, not key-specific.
+          // Cool down this provider and continue to the next compatible provider.
+          if (isRetryableProviderError(error) || error.status === 429 || error.status === 410) {
             coolDown(provider.name);
-            break;
+            break providerKeyLoop;
           }
           if (!shouldTryNextProvider(error)) throw error;
           coolDown(provider.name);
-          break;
+          break providerKeyLoop;
         }
       }
     }
@@ -687,6 +701,7 @@ async function routeRequest(payload) {
   console.error('[AskScreen Router] No provider completed the request', failures);
   const e = new Error('ALL_PROVIDERS_FAILED');
   e.code = 'ALL_PROVIDERS_FAILED';
+  e.providerFailures = failures;
   throw e;
 }
 
@@ -842,22 +857,27 @@ exports.handler = async function handler(event) {
     if (error.code === 'NO_MULTIMODAL_PROVIDER') {
       return response(503, {
         success: false,
-        error: 'Image, audio and file questions require a configured Gemini API key. Please try again later.',
+        error: 'This media type needs a compatible provider. Configure Gemini for PDFs/audio, or Cloudflare Workers AI vision for images.',
         code: 'NO_MULTIMODAL_PROVIDER', requestId
       }, requestId);
     }
 
+    const providerFailures = Array.isArray(error.providerFailures) ? error.providerFailures : [];
     return response(503, {
       success: false,
-      error: 'AskScreen AI is temporarily unable to answer. Please try again shortly.',
-      code: 'UPSTREAM_UNAVAILABLE', requestId
+      error: 'All compatible AI providers failed for this request. You can switch provider and retry without starting a new conversation.',
+      code: 'UPSTREAM_UNAVAILABLE',
+      requestId,
+      providerFailures
     }, requestId);
   }
 };
 
 
 // Shared authenticated usage helpers for feature-only endpoints.
+exports.routeRequest = routeRequest;
 exports.featureForRequest = featureForRequest;
 exports.verifyUser = verifyUser;
 exports.reserveFeatureUse = reserveFeatureUse;
 exports.isEligibleForFreeTrial = isEligibleForFreeTrial;
+exports._test = { getProviders, openAiMessages, normalizePayload, classifyProviderFailure, isGeminiKeyRotationError, PROVIDER_TIMEOUT_MS, ROUTER_DEADLINE_MS };

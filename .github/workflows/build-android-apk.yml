@@ -3,9 +3,9 @@ name: Build AskScreen AI APK
 on:
   workflow_dispatch:
   push:
-    branches: [main, master, upgrade/continuous-assistant-and-reliability, upgrade/account-auth-and-usage, feature/admin-monitoring-dashboard]
+    branches: [main, master, upgrade/continuous-assistant-and-reliability, upgrade/account-auth-and-usage, feature/admin-monitoring-dashboard, fix/full-platform-functionality, feature/operational-work-centre-v2, integration/android-workspaces-release, feature/android-classroom-privacy-mode, fix/android-update-admin-approval-privacy]
   pull_request:
-    branches: [upgrade/account-auth-and-usage]
+    branches: [upgrade/account-auth-and-usage, fix/full-platform-functionality]
 
 permissions:
   contents: read
@@ -98,7 +98,7 @@ jobs:
           {
             echo '### Real error (first lines)'
             echo '```'
-            grep -n -E "^e: |What went wrong|Execution failed|error:" -A6 build.log | head -80
+            if [ -f build.log ]; then grep -n -E "^e: |What went wrong|Execution failed|error:" -A6 build.log | head -80; else echo 'Backend validation or setup failed before the Android build log was created.'; fi
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
@@ -111,7 +111,7 @@ jobs:
           retention-days: 14
 
       - name: Prepare release signing key
-        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/upgrade/account-auth-and-usage'
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/upgrade/account-auth-and-usage' || github.ref == 'refs/heads/feature/android-classroom-privacy-mode' || github.ref == 'refs/heads/fix/android-update-admin-approval-privacy' || github.ref == 'refs/heads/fix/full-platform-functionality'
         id: release_signing
         shell: bash
         env:

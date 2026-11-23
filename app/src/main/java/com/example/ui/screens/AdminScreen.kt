@@ -10,6 +10,7 @@ import androidx.compose.ui.platform.LocalContext
 import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
 import java.io.FileOutputStream
+import java.security.MessageDigest
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -32,10 +33,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.AskScreenApp
 import com.example.ui.theme.*
-import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -55,16 +54,31 @@ private data class AdminTicketRow(val id:String,val date:String,val email:String
 private data class AdminAuditRow(val action:String,val targetEmail:String,val adminEmail:String,val detail:String,val date:String)
 private data class AdminPriceRow(val id:String,val name:String,val category:String,val monthlyPriceCents:Int,val priceText:String)
 private data class AdminActivityRow(val email:String,val feature:String,val outcome:String,val code:String,val provider:String,val requestId:String,val date:String)
+private data class AdminReleaseRow(val versionName:String,val versionCode:Long,val releaseNotes:String,val publishedAt:String)
+private fun nextReleaseName(current:String):String {
+    val parts = current.split(".").toMutableList()
+    val last = parts.lastOrNull()?.toIntOrNull()
+    return if (last != null) {
+        parts[parts.lastIndex] = (last + 1).toString()
+        parts.joinToString(".")
+    } else "$current.1"
+}
 
 @Composable
 fun AdminScreen(onBack: () -> Unit) {
-    val auth = remember { FirebaseAuth.getInstance() }
     val prefs = remember { AskScreenApp.instance.preferencesManager }
     val scope = rememberCoroutineScope()
     val http = remember { OkHttpClient() }
     val context = LocalContext.current
-    var email by remember { mutableStateOf(auth.currentUser?.email.orEmpty()) }
-    var password by remember { mutableStateOf("") }
+    val installedVersion = remember {
+        runCatching {
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            val code = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
+            (info.versionName ?: "1.1.2") to code
+        }.getOrDefault("1.1.2" to 5L)
+    }
+    var email by remember { mutableStateOf("") }
+    var adminAccessCode by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var idToken by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -76,6 +90,7 @@ fun AdminScreen(onBack: () -> Unit) {
     var auditLogs by remember { mutableStateOf<List<AdminAuditRow>>(emptyList()) }
     var activityLogs by remember { mutableStateOf<List<AdminActivityRow>>(emptyList()) }
     var announcement by remember { mutableStateOf("") }
+    var backendUrl by remember { mutableStateOf(prefs.backendUrl) }
     var screenEnabled by remember { mutableStateOf(true) }
     var spokenEnabled by remember { mutableStateOf(true) }
     var transcriptionEnabled by remember { mutableStateOf(true) }
@@ -87,13 +102,54 @@ fun AdminScreen(onBack: () -> Unit) {
     var trialUsers by remember { mutableIntStateOf(0) }
     var disabledUsers by remember { mutableIntStateOf(0) }
     var loaded by remember { mutableStateOf(false) }
-    var releaseVersionCode by remember { mutableStateOf("2") }
-    var releaseVersionName by remember { mutableStateOf("1.1") }
-    var releaseNotes by remember { mutableStateOf("") }
-    var releaseDownloadUrl by remember { mutableStateOf("") }
-    var releaseSizeBytes by remember { mutableStateOf("") }
-    var releaseSha256 by remember { mutableStateOf("") }
+    var releaseVersionCode by remember { mutableStateOf((installedVersion.second + 1L).toString()) }
+    var releaseVersionName by remember { mutableStateOf(nextReleaseName(installedVersion.first)) }
+    var currentPublishedRelease by remember { mutableStateOf("No release has been published yet.") }
+    var releaseHistory by remember { mutableStateOf<List<AdminReleaseRow>>(emptyList()) }
+    var releaseNotes by remember { mutableStateOf("Classroom Privacy Mode, payment approval fixes, and a more reliable in-app update flow.") }
+    var selectedApkUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedApkName by remember { mutableStateOf("") }
+    var selectedApkSize by remember { mutableLongStateOf(0L) }
     var releaseMessage by remember { mutableStateOf<String?>(null) }
+    val apkPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            selectedApkUri = uri
+            selectedApkName = "selected.apk"
+            selectedApkSize = 0L
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    if (nameIndex >= 0) selectedApkName = cursor.getString(nameIndex) ?: "selected.apk"
+                    if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) selectedApkSize = cursor.getLong(sizeIndex)
+                }
+            }
+            releaseMessage = null
+            scope.launch {
+                try {
+                    val detected = withContext(Dispatchers.IO) {
+                        val temp = File.createTempFile("dom-askscreen-version-", ".apk", context.cacheDir)
+                        try {
+                            context.contentResolver.openInputStream(uri)?.use { input ->
+                                FileOutputStream(temp).use { output -> input.copyTo(output) }
+                            } ?: throw IllegalStateException("The selected APK could not be opened.")
+                            val info = context.packageManager.getPackageArchiveInfo(temp.absolutePath, 0)
+                                ?: throw IllegalArgumentException("Android could not read this APK.")
+                            if (info.packageName != "com.dominion.askscreenai") throw IllegalArgumentException("This is not the DOM Ask AI APK.")
+                            val code = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
+                            val name = info.versionName?.trim().orEmpty()
+                            if (code < 2L || name.isBlank()) throw IllegalArgumentException("The APK version details are invalid.")
+                            name to code
+                        } finally { temp.delete() }
+                    }
+                    releaseVersionName = detected.first
+                    releaseVersionCode = detected.second.toString()
+                } catch (e: Exception) {
+                    releaseMessage = e.message ?: "Could not read the APK version."
+                }
+            }
+        }
+    }
     var grantDialogOpen by remember { mutableStateOf(false) }
     var grantTargetUid by remember { mutableStateOf("") }
     var selectedGrantProduct by remember { mutableStateOf("video_annotation") }
@@ -136,6 +192,7 @@ fun AdminScreen(onBack: () -> Unit) {
         val settings = result.optJSONObject("settings") ?: JSONObject()
         val features = settings.optJSONObject("features") ?: JSONObject()
         announcement = settings.optString("announcement")
+        backendUrl = settings.optString("backendUrl", prefs.backendUrl)
         screenEnabled = features.optBoolean("screen",true)
         spokenEnabled = features.optBoolean("spoken",true)
         transcriptionEnabled = features.optBoolean("transcription",true)
@@ -167,7 +224,10 @@ fun AdminScreen(onBack: () -> Unit) {
         pricingRows.forEach { row ->
             priceArray.put(JSONObject().put("id",row.id).put("monthlyPriceCents",row.monthlyPriceCents))
         }
-        val payload = JSONObject().put("announcement",announcement).put("features",features).put("freeTrialLimit",limit)
+        val backendCandidate = backendUrl.trim()
+        val backendUri = Uri.parse(backendCandidate)
+        if (backendUri.scheme != "https" || backendUri.userInfo != null || backendUri.query != null || backendUri.fragment != null || !backendUri.path.orEmpty().trimEnd('/').endsWith("/ask-screen")) throw IllegalArgumentException("Enter a valid HTTPS AskScreen endpoint ending in /ask-screen.")
+        val payload = JSONObject().put("announcement",announcement).put("backendUrl",backendCandidate).put("features",features).put("freeTrialLimit",limit)
             .put("pricing",priceArray).put("bundleDiscountPercent",discount)
         withContext(Dispatchers.IO) {
             val request = Request.Builder().url(endpoint).header("Authorization","Bearer $token")
@@ -283,6 +343,26 @@ fun AdminScreen(onBack: () -> Unit) {
             }
         }
         loadSettings(token)
+        val releaseEndpoint = configured.removeSuffix("/ask-screen") + "/app-update?admin=1"
+        val releaseListing = withContext(Dispatchers.IO) {
+            val request = Request.Builder().url(releaseEndpoint).header("Authorization", "Bearer $token").get().build()
+            http.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                val json = try { JSONObject(body) } catch (_:Exception) { JSONObject() }
+                if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "Could not load published app releases." })
+                json
+            }
+        }
+        val currentRelease = releaseListing.optJSONObject("currentRelease")
+        currentPublishedRelease = if (currentRelease == null) "No release has been published yet." else
+            "Version ${currentRelease.optString("versionName")} (code ${currentRelease.optLong("versionCode")})"
+        val historyArray = releaseListing.optJSONArray("releases")
+        releaseHistory = buildList {
+            if (historyArray != null) for (i in 0 until historyArray.length()) {
+                val item = historyArray.optJSONObject(i) ?: continue
+                add(AdminReleaseRow(item.optString("versionName"), item.optLong("versionCode"), item.optString("releaseNotes"), dateLabel(item.optString("publishedAt"))))
+            }
+        }
         loaded = true
     }
 
@@ -304,6 +384,7 @@ fun AdminScreen(onBack: () -> Unit) {
         withContext(Dispatchers.IO) {
             val request = Request.Builder().url(endpoint)
                 .header("Authorization","Bearer $idToken")
+                
                 .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
             http.newCall(request).execute().use { response ->
@@ -375,34 +456,101 @@ fun AdminScreen(onBack: () -> Unit) {
     }
 
     suspend fun publishApk() {
-        val versionCode = releaseVersionCode.toIntOrNull()
-            ?: throw IllegalArgumentException("Version code must be a whole number.")
-        if (versionCode < 2) throw IllegalArgumentException("Version code must be at least 2.")
-        if (releaseVersionName.isBlank()) throw IllegalArgumentException("Enter the version name.")
-        val downloadUrl = releaseDownloadUrl.trim()
-        if (!downloadUrl.startsWith("https://github.com/Dominiontools/Dom-askscreen-ai/releases/download/") || !downloadUrl.substringBefore("?").lowercase().endsWith(".apk")) {
-            throw IllegalArgumentException("Paste the HTTPS APK asset link from a GitHub Release for this repository.")
-        }
-        val sizeBytes = releaseSizeBytes.toLongOrNull() ?: 0L
-        if (sizeBytes < 0L || sizeBytes > 2L * 1024L * 1024L * 1024L) throw IllegalArgumentException("Enter a valid APK size in bytes, or leave it blank.")
-        val checksum = releaseSha256.trim().lowercase()
-        if (!checksum.matches(Regex("[a-f0-9]{64}"))) throw IllegalArgumentException("Enter the APK SHA-256 checksum (64 hexadecimal characters).")
+        val selectedUri = selectedApkUri ?: throw IllegalArgumentException("Choose the signed APK from this device.")
+        if (!selectedApkName.lowercase(Locale.US).endsWith(".apk")) throw IllegalArgumentException("Choose a file ending in .apk.")
         val configured = prefs.backendUrl.trim().trimEnd('/')
-        if (!configured.endsWith("/ask-screen")) throw IllegalStateException("Set your Netlify AskScreen endpoint in Settings first.")
+        if (!configured.endsWith("/ask-screen")) throw IllegalStateException("Set your AskScreen backend URL in Settings first.")
         val endpoint = configured.removeSuffix("/ask-screen") + "/app-update"
-        val payload = JSONObject().put("action", "publish").put("versionCode", versionCode)
-            .put("versionName", releaseVersionName.trim()).put("releaseNotes", releaseNotes.trim())
-            .put("downloadUrl", downloadUrl).put("sizeBytes", sizeBytes).put("sha256", checksum)
-        withContext(Dispatchers.IO) {
-            val request = Request.Builder().url(endpoint).header("Authorization", "Bearer $idToken")
-                .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
-            http.newCall(request).execute().use { response ->
-                val body = response.body?.string().orEmpty()
-                val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
-                if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "Could not publish the app update." })
+        val tempApk = File.createTempFile("dom-askscreen-release-", ".apk", context.cacheDir)
+        try {
+            val apkDetails = withContext(Dispatchers.IO) {
+                context.contentResolver.openInputStream(selectedUri)?.use { input ->
+                    FileOutputStream(tempApk).use { output -> input.copyTo(output) }
+                } ?: throw IllegalStateException("The selected APK could not be opened.")
+                val archiveInfo = context.packageManager.getPackageArchiveInfo(tempApk.absolutePath, 0)
+                    ?: throw IllegalArgumentException("Android could not read this APK. Choose a valid APK file.")
+                if (archiveInfo.packageName != "com.dominion.askscreenai") {
+                    throw IllegalArgumentException("This APK is not the DOM Ask AI app package.")
+                }
+                val apkVersionCode = if (Build.VERSION.SDK_INT >= 28) archiveInfo.longVersionCode else archiveInfo.versionCode.toLong()
+                val apkVersionName = archiveInfo.versionName?.trim().orEmpty()
+                if (apkVersionCode < 2L || apkVersionCode > Int.MAX_VALUE.toLong()) {
+                    throw IllegalArgumentException("The selected APK has an invalid Android version code.")
+                }
+                if (apkVersionName.isBlank() || apkVersionName.length > 40) {
+                    throw IllegalArgumentException("The selected APK has an invalid version name.")
+                }
+                val size = tempApk.length()
+                if (size <= 0L || size > 300L * 1024L * 1024L) {
+                    throw IllegalArgumentException("The APK must be between 1 byte and 300 MB.")
+                }
+                val digest = MessageDigest.getInstance("SHA-256")
+                tempApk.inputStream().use { input ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        digest.update(buffer, 0, count)
+                    }
+                }
+                val checksum = digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+                Triple(size, checksum, apkVersionCode to apkVersionName)
             }
+            val versionCode = apkDetails.third.first.toInt()
+            val versionName = apkDetails.third.second
+            releaseVersionCode = versionCode.toString()
+            releaseVersionName = versionName
+            val preparePayload = JSONObject()
+                .put("action", "prepare_upload")
+                .put("versionCode", versionCode)
+                .put("versionName", versionName)
+                .put("releaseNotes", releaseNotes.trim())
+                .put("sizeBytes", apkDetails.first)
+                .put("sha256", apkDetails.second)
+            val prepared = withContext(Dispatchers.IO) {
+                val request = Request.Builder().url(endpoint).header("Authorization", "Bearer $idToken")
+                    .post(preparePayload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
+                http.newCall(request).execute().use { response ->
+                    val body = response.body?.string().orEmpty()
+                    val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
+                    if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "Could not prepare the APK upload." })
+                    json
+                }
+            }
+            val uploadUrl = prepared.optString("uploadUrl")
+            val uploadId = prepared.optString("uploadId")
+            if (uploadUrl.isBlank() || uploadId.isBlank()) throw IllegalStateException("The server did not return a secure APK upload session.")
+            withContext(Dispatchers.IO) {
+                val uploadRequest = Request.Builder().url(uploadUrl)
+                    .header("Content-Type", "application/vnd.android.package-archive")
+                    .put(tempApk.asRequestBody("application/vnd.android.package-archive".toMediaType()))
+                    .build()
+                http.newCall(uploadRequest).execute().use { response ->
+                    if (!response.isSuccessful) throw IllegalStateException("APK upload failed (HTTP ${response.code}). Please try again.")
+                }
+            }
+            val publishPayload = JSONObject().put("action", "publish_uploaded").put("uploadId", uploadId)
+            withContext(Dispatchers.IO) {
+                val request = Request.Builder().url(endpoint).header("Authorization", "Bearer $idToken")
+                    .post(publishPayload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
+                http.newCall(request).execute().use { response ->
+                    val body = response.body?.string().orEmpty()
+                    val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
+                    if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "The APK uploaded, but publishing failed." })
+                }
+            }
+            releaseMessage = "Version ${versionName} (code ${versionCode}) has been uploaded and published. Customer apps can now check for this update."
+            selectedApkUri = null
+            selectedApkName = ""
+            selectedApkSize = 0L
+            try {
+                loadData(idToken)
+            } catch (refreshError: Exception) {
+                releaseMessage = "Version ${versionName} (code ${versionCode}) is published. The release list will refresh on the next Admin Centre refresh."
+            }
+        } finally {
+            tempApk.delete()
         }
-        releaseMessage = "Version ${releaseVersionName.trim()} has been published. Customer apps can now check for this update."
     }
 
     Column(Modifier.fillMaxSize().background(Slate950).verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement=Arrangement.spacedBy(14.dp)) {
@@ -418,25 +566,38 @@ fun AdminScreen(onBack: () -> Unit) {
             Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(18.dp)) {
                 Column(Modifier.fillMaxWidth().padding(18.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
                     Text("Admin sign-in",color=Color.White,fontSize=18.sp,fontWeight=FontWeight.Bold)
-                    Text("Only the verified Firebase account authorized by the owner can enter this area.",color=Slate300,fontSize=13.sp)
+                    Text("Enter the administrator email approved by the owner and the separate access code. No Firebase password is required.",color=Slate300,fontSize=13.sp)
                     OutlinedTextField(value=email,onValueChange={email=it.trim()},label={Text("Admin email")},singleLine=true,modifier=Modifier.fillMaxWidth())
-                    OutlinedTextField(value=password,onValueChange={password=it},label={Text("Password")},visualTransformation=PasswordVisualTransformation(),singleLine=true,modifier=Modifier.fillMaxWidth())
+                    OutlinedTextField(value=adminAccessCode,onValueChange={adminAccessCode=it.take(128)},label={Text("Administrator access code")},visualTransformation=PasswordVisualTransformation(),singleLine=true,modifier=Modifier.fillMaxWidth())
                     Button(onClick={
                         scope.launch {
                             busy=true; error=null
                             try {
-                                val user=auth.signInWithEmailAndPassword(email.trim(),password).await().user ?: throw IllegalStateException("Sign-in failed.")
-                                val token=user.getIdToken(true).await().token ?: throw IllegalStateException("Could not verify account.")
+                                val configured=prefs.backendUrl.trim().trimEnd('/')
+                                if (!configured.endsWith("/ask-screen")) throw IllegalStateException("Set the Netlify AskScreen endpoint in Settings first.")
+                                val endpoint=configured.removeSuffix("/ask-screen") + "/admin-login"
+                                val payload=JSONObject().put("email",email.trim()).put("accessCode",adminAccessCode)
+                                val token=withContext(Dispatchers.IO) {
+                                    val request=Request.Builder().url(endpoint)
+                                        .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
+                                    http.newCall(request).execute().use { response ->
+                                        val body=response.body?.string().orEmpty()
+                                        val json=try { JSONObject(body) } catch (_:Exception) { JSONObject() }
+                                        if (!response.isSuccessful) throw IllegalStateException(json.optString("error").ifBlank { "Admin sign-in failed (HTTP ${response.code})." })
+                                        json.optString("token").takeIf { it.isNotBlank() }
+                                            ?: throw IllegalStateException("The server did not return an administrator session.")
+                                    }
+                                }
                                 idToken=token
+                                adminAccessCode=""
                                 loadData(token)
-                                password=""
                             } catch(e:Exception) {
                                 idToken=""
+                                loaded=false
                                 error=e.message ?: "Admin sign-in failed or this account is not authorized."
-                                if(auth.currentUser!=null) auth.signOut()
                             } finally { busy=false }
                         }
-                    },enabled=!busy && email.contains("@") && password.length>=6,modifier=Modifier.fillMaxWidth()) {
+                    },enabled=!busy && email.contains("@") && adminAccessCode.length>=16,modifier=Modifier.fillMaxWidth()) {
                         if(busy) CircularProgressIndicator(Modifier.size(18.dp),color=Color.White,strokeWidth=2.dp) else Text("Sign in to Admin Centre")
                     }
                 }
@@ -444,7 +605,7 @@ fun AdminScreen(onBack: () -> Unit) {
         } else {
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 Button(onClick={refresh()},enabled=!busy,modifier=Modifier.weight(1f)) { Icon(Icons.Default.Refresh,contentDescription=null); Spacer(Modifier.width(6.dp)); Text("Refresh data") }
-                OutlinedButton(onClick={auth.signOut();idToken="";loaded=false;users=emptyList();payments=emptyList();error=null}) { Text("Sign out") }
+                OutlinedButton(onClick={idToken="";loaded=false;users=emptyList();payments=emptyList();supportTickets=emptyList();auditLogs=emptyList();activityLogs=emptyList();error=null}) { Text("Sign out") }
             }
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 AdminMetric("Registered users",totalUsers.toString(),Modifier.weight(1f))
@@ -454,11 +615,47 @@ fun AdminScreen(onBack: () -> Unit) {
                 AdminMetric("Trial-eligible users",trialUsers.toString(),Modifier.weight(1f))
                 AdminMetric("Disabled accounts",disabledUsers.toString(),Modifier.weight(1f))
             }
+            Text("Payment review queue",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
+            Text("Verify every USDT transaction directly on the selected blockchain before approving. A screenshot alone is not proof of payment.",color=AmberWarning,fontSize=11.sp)
+            if(payments.isEmpty()) Text("No payment records yet. Customer submissions will appear here for blockchain verification and approval.",color=Slate400,fontSize=12.sp)
+            payments.forEach { payment ->
+                Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(12.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(5.dp)) {
+                        Text(payment.productName.ifBlank { "Customer payment" },color=Color.White,fontWeight=FontWeight.SemiBold)
+                        Text(payment.email,color=ElectricCyan,fontSize=12.sp)
+                        Text("${payment.amount} • ${payment.network.ifBlank { payment.provider }} • ${payment.status.uppercase()}",color=ElectricCyan,fontSize=12.sp)
+                        if(payment.transactionHash.isNotBlank()) Text("Transaction: ${payment.transactionHash}",color=Slate300,fontSize=10.sp)
+                        if(payment.destinationAddress.isNotBlank()) Text("Destination: ${payment.destinationAddress}",color=Slate400,fontSize=10.sp)
+                        Text("${payment.reference} • ${payment.date}",color=Slate400,fontSize=11.sp)
+                        if(payment.provider=="USDT_MANUAL" && payment.status=="pending") {
+                            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                                Button(onClick={
+                                    scope.launch {
+                                        busy=true; error=null
+                                        try { reviewCryptoPayment(payment.id,"approve") }
+                                        catch(e:Exception) { error=e.message ?: "Could not approve payment." }
+                                        finally { busy=false }
+                                    }
+                                },enabled=!busy && payment.id.isNotBlank(),modifier=Modifier.weight(1f)) { Text("Approve & activate") }
+                                OutlinedButton(onClick={
+                                    scope.launch {
+                                        busy=true; error=null
+                                        try { reviewCryptoPayment(payment.id,"reject") }
+                                        catch(e:Exception) { error=e.message ?: "Could not reject payment." }
+                                        finally { busy=false }
+                                    }
+                                },enabled=!busy && payment.id.isNotBlank(),modifier=Modifier.weight(1f)) { Text("Reject") }
+                            }
+                        }
+                    }
+                }
+            }
             Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(16.dp)) {
                 Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                     Text("App & feature settings",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
                     Text("Make routine app changes here without editing source code. Changes are saved on the server.",color=Slate400,fontSize=11.sp)
                     OutlinedTextField(value=announcement,onValueChange={if(it.length<=240) announcement=it},label={Text("Customer announcement (optional)")},supportingText={Text("${announcement.length}/240 characters")},modifier=Modifier.fillMaxWidth(),minLines=2,maxLines=3)
+                    OutlinedTextField(value=backendUrl,onValueChange={backendUrl=it.take(500)},label={Text("Central AskScreen backend URL")},supportingText={Text("HTTPS URL ending in /ask-screen. All app installations refresh this address automatically.")},singleLine=true,modifier=Modifier.fillMaxWidth())
                     Row(verticalAlignment=Alignment.CenterVertically,modifier=Modifier.fillMaxWidth()) {
                         Column(Modifier.weight(1f)) { Text("Screen reading",color=Color.White); Text("Allow screen and image questions",color=Slate400,fontSize=11.sp) }
                         Switch(checked=screenEnabled,onCheckedChange={screenEnabled=it})
@@ -485,8 +682,9 @@ fun AdminScreen(onBack: () -> Unit) {
                                     val cents = value.toBigDecimalOrNull()?.takeIf { it >= BigDecimal.ZERO }?.multiply(BigDecimal(100))?.setScale(0,RoundingMode.HALF_UP)?.toInt()
                                     pricingRows = pricingRows.map { if (it.id == row.id) it.copy(priceText=value,monthlyPriceCents=cents?.takeIf { amount -> amount <= 1000000 } ?: it.monthlyPriceCents) else it }
                                 },
-                                label={Text("${row.name} — USD/month")},
+                                label={Text(if (row.id == "core") "DOM AI Core — fixed USD 9/month" else "${row.name} — USD/month")},
                                 singleLine=true,
+                                enabled=row.id != "core",
                                 modifier=Modifier.fillMaxWidth()
                             )
                         }
@@ -516,25 +714,37 @@ fun AdminScreen(onBack: () -> Unit) {
             Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(16.dp)) {
                 Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                     Text("App Update Centre",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
-                    Text("Upload the APK to GitHub Releases first, then register its download link here. Customers will receive the update through the app.",color=Slate400,fontSize=11.sp)
-                    OutlinedTextField(value=releaseVersionName,onValueChange={releaseVersionName=it.take(40)},label={Text("Version name (example: 1.1)")},singleLine=true,modifier=Modifier.fillMaxWidth())
-                    OutlinedTextField(value=releaseVersionCode,onValueChange={releaseVersionCode=it.filter(Char::isDigit).take(9)},label={Text("Version code (must increase each release)")},singleLine=true,modifier=Modifier.fillMaxWidth())
-                    OutlinedTextField(value=releaseDownloadUrl,onValueChange={releaseDownloadUrl=it.take(1000)},label={Text("GitHub APK download link")},supportingText={Text("Paste the .apk asset link from the GitHub Release.")},modifier=Modifier.fillMaxWidth())
-                    OutlinedTextField(value=releaseSizeBytes,onValueChange={releaseSizeBytes=it.filter(Char::isDigit).take(12)},label={Text("APK size in bytes (optional)")},singleLine=true,modifier=Modifier.fillMaxWidth())
-                    OutlinedTextField(value=releaseSha256,onValueChange={releaseSha256=it.filter { ch -> ch.isDigit() || ch.lowercaseChar() in 'a'..'f' }.take(64)},label={Text("APK SHA-256 checksum (required)")},supportingText={Text("Generate this from the exact APK you uploaded to GitHub Releases.")},singleLine=true,modifier=Modifier.fillMaxWidth())
+                    Text("Installed app: ${installedVersion.first} (code ${installedVersion.second})",color=ElectricCyan,fontSize=11.sp,fontWeight=FontWeight.SemiBold)
+                    Text("Currently published: $currentPublishedRelease",color=Color.White,fontSize=12.sp,fontWeight=FontWeight.SemiBold)
+                    if (releaseHistory.isNotEmpty()) {
+                        Text("Published release history",color=Slate300,fontSize=11.sp,fontWeight=FontWeight.SemiBold)
+                        releaseHistory.forEach { release ->
+                            Text("• ${release.versionName} (code ${release.versionCode}) — ${release.publishedAt}",color=Slate400,fontSize=10.sp)
+                        }
+                    }
+                    Text("Select the signed APK directly from this device. It uploads securely to the app's Firebase Storage bucket; you do not need to create a GitHub Release or paste a link.",color=Slate400,fontSize=11.sp)
+                    Text("APK version: $releaseVersionName (code $releaseVersionCode)",color=Slate300,fontSize=11.sp)
+                    Text("The version name and version code are read directly from the selected APK before upload, so the release listing always matches the file.",color=Slate400,fontSize=10.sp)
+                    OutlinedButton(onClick={apkPicker.launch(arrayOf("application/vnd.android.package-archive","application/octet-stream"))},enabled=!busy,modifier=Modifier.fillMaxWidth()) {
+                        Text(if(selectedApkName.isBlank()) "Choose APK from this device" else "Choose a different APK")
+                    }
+                    if(selectedApkName.isNotBlank()) {
+                        Text("Selected: $selectedApkName",color=Color.White,fontSize=12.sp)
+                        if(selectedApkSize>0L) Text("File size: ${String.format(Locale.US,"%.2f",selectedApkSize/1024.0/1024.0)} MB",color=Slate400,fontSize=11.sp)
+                    }
                     OutlinedTextField(value=releaseNotes,onValueChange={releaseNotes=it.take(2000)},label={Text("What's new in this update")},supportingText={Text("${releaseNotes.length}/2000 characters")},minLines=2,maxLines=5,modifier=Modifier.fillMaxWidth())
                     Button(onClick={
                         scope.launch {
                             busy = true; error = null; releaseMessage = null
                             try { publishApk() }
-                            catch(e:Exception) { error = e.message ?: "Could not publish this app update." }
+                            catch(e:Exception) { error = e.message ?: "Could not upload this app update." }
                             finally { busy = false }
                         }
-                    },enabled=!busy && idToken.isNotBlank() && releaseVersionCode.toIntOrNull()!=null && releaseVersionName.isNotBlank() && releaseDownloadUrl.isNotBlank() && releaseSha256.length==64,modifier=Modifier.fillMaxWidth()) {
-                        Text(if(busy) "Publishing…" else "Publish update link")
+                    },enabled=!busy && idToken.isNotBlank() && selectedApkUri!=null && releaseVersionCode.toIntOrNull()!=null && releaseVersionName.isNotBlank(),modifier=Modifier.fillMaxWidth()) {
+                        Text(if(busy) "Uploading and publishing…" else "Upload and publish APK")
                     }
                     releaseMessage?.let { Text(it,color=ElectricCyan,fontSize=12.sp) }
-                    Text("Important: upload only the signed APK built with the same package name and signing key as the customer app. Increase versionCode for every release. The SHA-256 checksum must match that exact APK. Android will ask customers to approve installation.",color=AmberWarning,fontSize=11.sp,lineHeight=16.sp)
+                    Text("Important: upload only the signed APK built with the same package name and signing key as the customer app. Increase versionCode for every release. The app calculates the APK SHA-256 checksum automatically. Android will still ask customers to approve installation.",color=AmberWarning,fontSize=11.sp,lineHeight=16.sp)
                 }
             }
             Text("Registered users & free-trial usage",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
@@ -587,41 +797,6 @@ fun AdminScreen(onBack: () -> Unit) {
                             }
                         },enabled=!busy && user.uid.isNotBlank()) {
                             Text(if(user.disabled) "Enable account" else "Disable account")
-                        }
-                    }
-                }
-            }
-            Text("Payment review queue",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold)
-            Text("Verify every USDT transaction directly on the selected blockchain before approving. A screenshot alone is not proof of payment.",color=AmberWarning,fontSize=11.sp)
-            if(payments.isEmpty()) Text("No payment records have been submitted yet.",color=Slate400,fontSize=12.sp)
-            payments.forEach { payment ->
-                Card(colors=CardDefaults.cardColors(containerColor=Slate900),shape=RoundedCornerShape(12.dp)) {
-                    Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(5.dp)) {
-                        Text(payment.productName.ifBlank { "Customer payment" },color=Color.White,fontWeight=FontWeight.SemiBold)
-                        Text(payment.email,color=ElectricCyan,fontSize=12.sp)
-                        Text("${payment.amount} • ${payment.network.ifBlank { payment.provider }} • ${payment.status.uppercase()}",color=ElectricCyan,fontSize=12.sp)
-                        if(payment.transactionHash.isNotBlank()) Text("Transaction: ${payment.transactionHash}",color=Slate300,fontSize=10.sp)
-                        if(payment.destinationAddress.isNotBlank()) Text("Destination: ${payment.destinationAddress}",color=Slate400,fontSize=10.sp)
-                        Text("${payment.reference} • ${payment.date}",color=Slate400,fontSize=11.sp)
-                        if(payment.provider=="USDT_MANUAL" && payment.status=="pending") {
-                            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                                Button(onClick={
-                                    scope.launch {
-                                        busy=true; error=null
-                                        try { reviewCryptoPayment(payment.id,"approve") }
-                                        catch(e:Exception) { error=e.message ?: "Could not approve payment." }
-                                        finally { busy=false }
-                                    }
-                                },enabled=!busy && payment.id.isNotBlank(),modifier=Modifier.weight(1f)) { Text("Approve & activate") }
-                                OutlinedButton(onClick={
-                                    scope.launch {
-                                        busy=true; error=null
-                                        try { reviewCryptoPayment(payment.id,"reject") }
-                                        catch(e:Exception) { error=e.message ?: "Could not reject payment." }
-                                        finally { busy=false }
-                                    }
-                                },enabled=!busy && payment.id.isNotBlank(),modifier=Modifier.weight(1f)) { Text("Reject") }
-                            }
                         }
                     }
                 }

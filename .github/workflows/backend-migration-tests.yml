@@ -1,0 +1,28 @@
+name: Backend migration tests (AI failover repair)
+
+on:
+  push:
+    branches:
+      - migration/netlify-modern-functions
+      - fix/ai-response-speed-and-vision-fallback
+  pull_request:
+    branches:
+      - fix/full-platform-functionality
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install backend dependencies
+        run: npm install --no-audit --no-fund
+      - name: Run backend tests
+        run: npm test

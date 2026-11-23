@@ -1,6 +1,6 @@
 'use strict';
 
-const { verifyUser } = require('./ask-screen');
+const { verifyAdminSession } = require('./admin-auth');
 
 let adminPromise;
 async function getAdmin() {
@@ -25,7 +25,7 @@ function json(statusCode, data) {
       'Content-Type': 'application/json; charset=utf-8',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+      'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Admin-Access-Code',
       'Cache-Control': 'no-store'
     },
     body: JSON.stringify(data)
@@ -44,7 +44,7 @@ exports.handler = async event => {
   }
 
   try {
-    const decoded = await verifyUser(event);
+    const decoded = verifyAdminSession(event);
     const email = String(decoded.email || '').trim().toLowerCase();
     const allowed = (process.env.ADMIN_EMAILS || '')
       .split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
