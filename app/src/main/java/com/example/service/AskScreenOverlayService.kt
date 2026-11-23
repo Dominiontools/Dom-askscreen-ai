@@ -1038,6 +1038,7 @@ Instructions:
 - Do not expose a raw transcript in the final response.
 """.trimIndent()
                 liveCaptions.value = "Analysing the complete $wordCount-word session..."
+                rememberLastProviderRequest(prompt, type, frames, sessionMessages.value)
                 val result = repository.askScreenAi(
                     prompt = prompt,
                     queryType = type,
