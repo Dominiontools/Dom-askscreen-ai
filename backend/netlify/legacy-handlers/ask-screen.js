@@ -425,7 +425,7 @@ function getProviders(payload) {
     if (!multimodal) return true;
     // OpenRouter's configured GPT-4o-mini vision model can inspect sampled video frames.
     // Keep PDFs and audio on Gemini because they require provider-specific media handling.
-    if (imageOnly && p.name === 'OpenRouter') return true;
+    if (imageOnly && (p.name === 'OpenRouter' || p.name === 'NVIDIA')) return true;
     return p.type === 'gemini';
   });
 }
