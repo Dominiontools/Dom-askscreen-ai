@@ -81,6 +81,7 @@ async function run() {
     assert.equal(quotaCalls, 2, 'A quota-limited Gemini key must immediately rotate to the next key');
     assert.equal(quotaResult.diagnostics.providerAttempts[0].keySlot, 1);
     assert.equal(quotaResult.diagnostics.providerAttempts[0].category, 'QUOTA_LIMIT');
+    assert.equal(quotaResult.diagnostics.activeKeySlot, 2, 'The response must identify the Gemini key slot that succeeded');
     console.log('PASS Gemini quota errors rotate to the next API key and report the limited key slot');
   } finally {
     global.fetch = originalFetch;
