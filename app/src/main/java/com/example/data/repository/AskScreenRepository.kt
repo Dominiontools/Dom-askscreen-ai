@@ -338,7 +338,7 @@ class AskScreenRepository(private val context: Context) {
                     }.distinct()
                     providerNotice = "Automatically switched to " + providerLabel + " after " + failed.joinToString(", ")
                 } else {
-                    providerNotice = "Answered by " + providerLabel
+                    providerNotice = null
                 }
                 return json.optString("answer", "No answer received.")
             } else {
