@@ -659,6 +659,10 @@ async function routeRequest(payload) {
     const preferred = payload.preferredProvider.toLowerCase();
     const index = providers.findIndex(provider => provider.name.toLowerCase() === preferred);
     if (index >= 0) providers = [providers[index], ...providers.slice(0, index), ...providers.slice(index + 1)];
+  } else {
+    // Prefer providers outside their cooldown window, but retain cooled providers
+    // as fallbacks so one stale cooldown cannot make a request fail without a probe.
+    providers.sort((a, b) => Number(isCoolingDown(a.name)) - Number(isCoolingDown(b.name)));
   }
 
   if (!providers.length) {
