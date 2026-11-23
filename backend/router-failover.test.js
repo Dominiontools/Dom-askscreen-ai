@@ -75,6 +75,7 @@ async function run() {
     global.fetch = originalFetch;
   }
 
+  process.env.NVIDIA_API_KEY = 'test-nvidia-key';
   let geminiCalls = 0;
   let openRouterCalls = 0;
   let nvidiaCalls = 0;
