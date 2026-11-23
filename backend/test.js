@@ -42,7 +42,7 @@ async function run() {
   assert.equal(visionProviders.find(provider => provider.name === 'Cloudflare').model, '@cf/qwen/qwen3.8-27b');
   const visionMessages = askScreenTests.openAiMessages({ prompt: 'Describe this frame', history: [], images: visionPayload.images });
   assert.equal(visionMessages[1].content[1].type, 'image_url');
-  assert.match(visionMessages[1].content[1].image_url.url, /^data:image\\/jpeg;base64,/);
+  assert.match(visionMessages[1].content[1].image_url.url, /^data:image\/jpeg;base64,/);
   const audioOnlyPayload = { images: [], files: [], audio: { mimeType: 'audio/mpeg', data: Buffer.from('audio').toString('base64') } };
   assert.equal(askScreenTests.getProviders(audioOnlyPayload).some(provider => provider.name === 'Cloudflare'), false);
   for (const [key, value] of Object.entries(oldVisionEnv)) {
