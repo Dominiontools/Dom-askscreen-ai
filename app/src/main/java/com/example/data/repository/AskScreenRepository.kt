@@ -47,6 +47,10 @@ class AskScreenRepository(private val context: Context) {
         }.onFailure { Log.w(TAG, "Could not open subscription checkout", it) }
     }
 
+    @Volatile private var providerNotice: String? = null
+
+    fun consumeProviderNotice(): String? = providerNotice.also { providerNotice = null }
+
     private val prefs = PreferencesManager(context)
     private val db = AppDatabase.getDatabase(context)
     private val historyDao: HistoryDao = db.historyDao()
@@ -311,6 +315,28 @@ class AskScreenRepository(private val context: Context) {
 
             val json = JSONObject(responseBody)
             if (json.optBoolean("success", false)) {
+                val provider = json.optString("provider").ifBlank { "AI provider" }
+                val attempts = json.optJSONObject("diagnostics")?.optJSONArray("providerAttempts") ?: JSONArray()
+                if (attempts.length() > 0) {
+                    val failed = (0 until attempts.length()).mapNotNull { index ->
+                        val item = attempts.optJSONObject(index) ?: return@mapNotNull null
+                        val name = item.optString("provider").ifBlank { "Provider" }
+                        val slot = item.optInt("keySlot", 0)
+                        val label = if (slot > 0) name + " key " + slot else name
+                        val reason = when (item.optString("category")) {
+                            "QUOTA_LIMIT" -> "quota reached"
+                            "BILLING_REQUIRED" -> "credits/billing issue"
+                            "INVALID_API_KEY" -> "invalid key"
+                            "PERMISSION_DENIED" -> "permission denied"
+                            "TEMPORARILY_UNAVAILABLE" -> "temporarily unavailable"
+                            else -> "failed"
+                        }
+                        label + " (" + reason + ")"
+                    }.distinct()
+                    providerNotice = "Automatically switched to " + provider + " after " + failed.joinToString(", ")
+                } else {
+                    providerNotice = "Answered by " + provider
+                }
                 return json.optString("answer", "No answer received.")
             } else {
                 val error = json.optString("error", "Unknown backend error")
