@@ -23,31 +23,34 @@ const { handler: workServiceHandler, _test: workServiceTests } = require('./netl
 
 async function run() {
   const oldVisionEnv = {
-    OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
-    OPENROUTER_MODEL: process.env.OPENROUTER_MODEL,
+    CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN,
+    CLOUDFLARE_API_KEY: process.env.CLOUDFLARE_API_KEY,
+    CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     GEMINI_API_KEY2: process.env.GEMINI_API_KEY2,
     GEMINI_API_KEY3: process.env.GEMINI_API_KEY3
   };
-  process.env.OPENROUTER_API_KEY = 'test-openrouter-key';
-  process.env.OPENROUTER_MODEL = 'openai/gpt-4o-mini';
+  process.env.CLOUDFLARE_API_TOKEN = 'test-cloudflare-token';
+  process.env.CLOUDFLARE_ACCOUNT_ID = 'test-cloudflare-account';
+  delete process.env.CLOUDFLARE_API_KEY;
   delete process.env.GEMINI_API_KEY;
   delete process.env.GEMINI_API_KEY2;
   delete process.env.GEMINI_API_KEY3;
   const visionPayload = { images: [{ mimeType: 'image/jpeg', data: Buffer.from('frame').toString('base64') }], files: [], audio: null };
   const visionProviders = askScreenTests.getProviders(visionPayload);
-  assert.ok(visionProviders.some(provider => provider.name === 'OpenRouter'));
+  assert.ok(visionProviders.some(provider => provider.name === 'Cloudflare'));
+  assert.equal(visionProviders.find(provider => provider.name === 'Cloudflare').model, '@cf/qwen/qwen3.8-27b');
   const visionMessages = askScreenTests.openAiMessages({ prompt: 'Describe this frame', history: [], images: visionPayload.images });
   assert.equal(visionMessages[1].content[1].type, 'image_url');
-  assert.match(visionMessages[1].content[1].image_url.url, /^data:image\/jpeg;base64,/);
+  assert.match(visionMessages[1].content[1].image_url.url, /^data:image\\/jpeg;base64,/);
   const audioOnlyPayload = { images: [], files: [], audio: { mimeType: 'audio/mpeg', data: Buffer.from('audio').toString('base64') } };
-  assert.equal(askScreenTests.getProviders(audioOnlyPayload).some(provider => provider.name === 'OpenRouter'), false);
+  assert.equal(askScreenTests.getProviders(audioOnlyPayload).some(provider => provider.name === 'Cloudflare'), false);
   for (const [key, value] of Object.entries(oldVisionEnv)) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;
   }
   assert.equal(askScreenTests.PROVIDER_TIMEOUT_MS, 4_500);
   assert.equal(askScreenTests.ROUTER_DEADLINE_MS, 38_000);
-  console.log('PASS OpenRouter image/video-frame vision fallback and timeout configuration');
+  console.log('PASS Cloudflare image vision fallback and timeout configuration');
   const oldAdminCode = process.env.ADMIN_ACCESS_CODE;
   const oldAdminEmails = process.env.ADMIN_EMAILS;
   process.env.ADMIN_ACCESS_CODE = 'a-test-only-admin-code-12345';
