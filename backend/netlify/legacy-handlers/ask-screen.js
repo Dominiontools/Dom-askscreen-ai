@@ -432,7 +432,6 @@ function getProviders(payload) {
 
   const imageOnly = payload.images.length > 0 && payload.files.length === 0 && !payload.audio;
   return providers.filter(p => {
-    if (isCoolingDown(p.name)) return false;
     if (!multimodal) return true;
     // OpenRouter's configured GPT-4o-mini vision model can inspect sampled video frames.
     // Keep PDFs and audio on Gemini because they require provider-specific media handling.
@@ -693,6 +692,20 @@ async function routeRequest(payload) {
 
   for (const provider of providers) {
     if (Date.now() >= deadline) break;
+
+    const isManualSelection = payload.preferredProvider &&
+      provider.name.toLowerCase() === payload.preferredProvider.toLowerCase();
+    if (isCoolingDown(provider.name) && !isManualSelection) {
+      failures.push({
+        provider: provider.name,
+        status: 'COOLDOWN',
+        category: 'TEMPORARILY_UNAVAILABLE',
+        keySlot: null,
+        attempt: 0
+      });
+      continue;
+    }
+    if (isManualSelection) cooldowns.delete(provider.name);
 
     const keys = provider.type === 'gemini' ? provider.keys : [provider.key];
 
