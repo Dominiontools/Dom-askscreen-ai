@@ -832,6 +832,7 @@ class AskScreenOverlayService : Service() {
 
                     val aiMsg = ChatMessage(role = "model", text = cleanAnswer, queryType = queryType)
                     sessionMessages.value = sessionMessages.value + aiMsg
+                    showProviderNotice()
 
                     // Auto-submit only when it applies, and stay silent when it does not.
                     if (prefs.isAutoSubmitEnabled) {
@@ -1290,6 +1291,12 @@ Instructions:
         bubbleState.value = BubbleState.IDLE
     }
 
+    private fun showProviderNotice() {
+        repository.consumeProviderNotice()?.let { notice ->
+            Toast.makeText(this@AskScreenOverlayService, notice, Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun rememberLastProviderRequest(prompt: String, type: QueryType, images: List<Bitmap>, history: List<ChatMessage>) {
         lastProviderRetryImages.forEach { if (!it.isRecycled) it.recycle() }
         lastProviderRetryImages = images.mapNotNull { bitmap ->
@@ -1320,6 +1327,7 @@ Instructions:
                     if (message.id == failureId) message.copy(text = answer.trim()) else message
                 }
                 lastProviderRetryFailureId = null
+                showProviderNotice()
                 bubbleState.value = BubbleState.IDLE
                 Toast.makeText(this@AskScreenOverlayService, "Answered after switching provider.", Toast.LENGTH_SHORT).show()
                 if (prefs.isTtsEnabled) ttsManager.speak(answer, prefs.ttsSpeed)
@@ -1354,6 +1362,7 @@ Instructions:
                 bubbleState.value = BubbleState.IDLE
                 val aiMsg = ChatMessage(role = "model", text = answer, queryType = queryType)
                 sessionMessages.value = sessionMessages.value + aiMsg
+                showProviderNotice()
                 if (prefs.isTtsEnabled) {
                     ttsManager.speak(answer, prefs.ttsSpeed)
                 }
