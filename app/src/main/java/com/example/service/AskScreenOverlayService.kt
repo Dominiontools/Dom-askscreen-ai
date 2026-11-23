@@ -1310,12 +1310,14 @@ Instructions:
     }
 
     private fun retryLastRequestWithNextProvider() {
+        if (bubbleState.value == BubbleState.PROCESSING_AI) return
         val prompt = lastProviderRetryPrompt ?: return
         val failureId = lastProviderRetryFailureId ?: return
         val provider = manualProviderOrder[manualProviderIndex % manualProviderOrder.size]
         manualProviderIndex = (manualProviderIndex + 1) % manualProviderOrder.size
         serviceScope.launch {
             bubbleState.value = BubbleState.PROCESSING_AI
+            Toast.makeText(this@AskScreenOverlayService, "Trying $provider first...", Toast.LENGTH_SHORT).show()
             val result = repository.askScreenAi(
                 prompt = prompt,
                 queryType = lastProviderRetryType,
