@@ -36,6 +36,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.BubbleState
@@ -70,6 +73,23 @@ fun FloatingAnswerWindow(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+    val canSendText = inputText.isNotBlank() && bubbleState !in setOf(
+        BubbleState.PROCESSING_AI,
+        BubbleState.CAPTURING_SCREEN,
+        BubbleState.LISTENING_AUDIO
+    )
+    val submitTypedQuestion = {
+        val text = inputText.trim()
+        if (text.isNotEmpty() && bubbleState !in setOf(
+                BubbleState.PROCESSING_AI,
+                BubbleState.CAPTURING_SCREEN,
+                BubbleState.LISTENING_AUDIO
+            )
+        ) {
+            onSendQuestion(text)
+            inputText = ""
+        }
+    }
 
     // Auto-scroll to bottom on new messages
     LaunchedEffect(messages.size, messages.lastOrNull()?.text) {
@@ -414,27 +434,25 @@ fun FloatingAnswerWindow(
                         cursorColor = Color(0xFF38BDF8)
                     ),
                     shape = RoundedCornerShape(20.dp),
-                    textStyle = LocalTextStyle.current.copy(fontSize = 12.sp)
+                    textStyle = LocalTextStyle.current.copy(fontSize = 12.sp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { submitTypedQuestion() })
                 )
 
                 Spacer(modifier = Modifier.width(4.dp))
 
                 // Send button
                 IconButton(
-                    onClick = {
-                        val text = inputText.trim()
-                        if (text.isNotEmpty()) {
-                            onSendQuestion(text)
-                            inputText = ""
-                        }
-                    },
-                    enabled = inputText.isNotBlank() && bubbleState == BubbleState.IDLE,
+                    onClick = { submitTypedQuestion() },
+                    // ERROR is recoverable: allow the user to send a fresh text question
+                    // after a provider failure. Only block while another operation is active.
+                    enabled = canSendText,
                     modifier = Modifier.size(36.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Send,
                         contentDescription = "Send",
-                        tint = if (inputText.isNotBlank() && bubbleState == BubbleState.IDLE) Color(0xFF38BDF8) else Color(0xFF475569)
+                        tint = if (canSendText) Color(0xFF38BDF8) else Color(0xFF475569)
                     )
                 }
 
