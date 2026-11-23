@@ -136,6 +136,9 @@ async function run() {
     assert.equal(openRouterCalls, 2);
     console.log('PASS manual provider preference is attempted first without starting a new request context');
 
+    // Make the healthy non-cooldown fallback fail so the cooled Gemini
+    // provider is reached and can demonstrate recovery.
+    failOpenRouter = true;
     recoverGemini = true;
     const recovered = await routeRequest({
       prompt: 'Try a provider again after a temporary failure',
@@ -150,7 +153,6 @@ async function run() {
     console.log('PASS a provider on cooldown is still probed when the next request needs a working provider');
 
     recoverGemini = false;
-    failOpenRouter = true;
     const beforeNvidia = nvidiaCalls;
     let allFailed;
     try {
