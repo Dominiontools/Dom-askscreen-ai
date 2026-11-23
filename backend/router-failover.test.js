@@ -9,6 +9,7 @@ async function run() {
   assert.equal(_test.classifyProviderFailure({ status: 429 }), 'QUOTA_LIMIT');
   assert.equal(_test.classifyProviderFailure({ status: 403, message: 'Quota exceeded' }), 'QUOTA_LIMIT');
   assert.equal(_test.classifyProviderFailure({ status: 402 }), 'BILLING_REQUIRED');
+  assert.equal(_test.classifyProviderFailure({ status: 410 }), 'MODEL_OR_ENDPOINT_UNAVAILABLE');
   assert.equal(_test.classifyProviderFailure({ code: 'TIMEOUT' }), 'TEMPORARILY_UNAVAILABLE');
 
   const normalPayload = _test.normalizePayload({ prompt: 'What is this?' });
@@ -23,6 +24,7 @@ async function run() {
     GROQ_API_KEY: process.env.GROQ_API_KEY,
     COHERE_API_KEY: process.env.COHERE_API_KEY,
     NVIDIA_API_KEY: process.env.NVIDIA_API_KEY,
+    NVIDIA_VISION_MODEL: process.env.NVIDIA_VISION_MODEL,
     ZAI_API_KEY: process.env.ZAI_API_KEY,
     CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN,
     CLOUDFLARE_API_KEY: process.env.CLOUDFLARE_API_KEY,
@@ -74,20 +76,40 @@ async function run() {
     global.fetch = originalFetch;
   }
 
+  process.env.NVIDIA_API_KEY = 'test-nvidia-key';
+  delete process.env.NVIDIA_VISION_MODEL;
+  const visionProviders = _test.getProviders({ images: [{ mimeType: 'image/jpeg', data: 'dGVzdA==' }], files: [], audio: null });
+  assert.equal(visionProviders.find(provider => provider.name === 'NVIDIA')?.model, 'stepfun-ai/step-5-preview');
+  console.log('PASS NVIDIA image requests use the current Step 5 Preview vision model by default');
   let geminiCalls = 0;
   let openRouterCalls = 0;
+  let nvidiaCalls = 0;
+  let recoverGemini = false;
+  let failOpenRouter = false;
   global.fetch = async url => {
     if (String(url).includes('generativelanguage.googleapis.com')) {
       geminiCalls++;
+      if (recoverGemini) return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: 'Gemini recovered.' }] }, finishReason: 'STOP' }]
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       return new Response(JSON.stringify({ error: { message: 'temporary upstream outage' } }), {
         status: 503, headers: { 'Content-Type': 'application/json' }
       });
     }
     if (String(url).includes('openrouter.ai')) {
       openRouterCalls++;
+      if (failOpenRouter) return new Response(JSON.stringify({ error: { message: 'temporary outage' } }), {
+        status: 503, headers: { 'Content-Type': 'application/json' }
+      });
       return new Response(JSON.stringify({
         choices: [{ message: { content: 'The image shows a sample classroom slide.' }, finish_reason: 'stop' }]
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (String(url).includes('integrate.api.nvidia.com')) {
+      nvidiaCalls++;
+      return new Response(JSON.stringify({ error: { message: 'model retired' } }), {
+        status: 410, headers: { 'Content-Type': 'application/json' }
+      });
     }
     throw new Error('Unexpected provider URL: ' + url);
   };
@@ -118,6 +140,42 @@ async function run() {
     assert.equal(geminiCalls, 1, 'Manual provider switching must not start with the failed default provider');
     assert.equal(openRouterCalls, 2);
     console.log('PASS manual provider preference is attempted first without starting a new request context');
+
+    // Make the healthy non-cooldown fallback fail so the cooled Gemini
+    // provider is reached and can demonstrate recovery.
+    failOpenRouter = true;
+    recoverGemini = true;
+    const recovered = await routeRequest({
+      prompt: 'Try a provider again after a temporary failure',
+      history: [],
+      images: [{ mimeType: 'image/jpeg', data: Buffer.from('test image').toString('base64') }],
+      files: [],
+      audio: null,
+      requestedModel: ''
+    });
+    assert.equal(recovered.provider, 'Gemini', 'A stale cooldown must not permanently skip a recovered compatible provider');
+    assert.equal(geminiCalls, 2);
+    console.log('PASS a provider on cooldown is still probed when the next request needs a working provider');
+
+    recoverGemini = false;
+    const beforeNvidia = nvidiaCalls;
+    let allFailed;
+    try {
+      await routeRequest({
+        prompt: 'Exercise a retired NVIDIA model and continue routing',
+        history: [],
+        images: [{ mimeType: 'image/jpeg', data: Buffer.from('test image').toString('base64') }],
+        files: [],
+        audio: null,
+        requestedModel: ''
+      });
+    } catch (error) {
+      allFailed = error;
+    }
+    assert.equal(nvidiaCalls, beforeNvidia + 1, 'A retired NVIDIA model must be recorded and must not abort the remaining router flow');
+    assert.equal(allFailed?.code, 'ALL_PROVIDERS_FAILED');
+    assert.ok(allFailed.providerFailures.some(item => item.provider === 'NVIDIA' && item.category === 'MODEL_OR_ENDPOINT_UNAVAILABLE'));
+    console.log('PASS NVIDIA HTTP 410 is classified and does not prematurely abort provider failover');
   } finally {
     global.fetch = originalFetch;
     for (const [key, value] of Object.entries(previous)) {

@@ -423,7 +423,7 @@ function getProviders(payload) {
   const imageOnly = payload.images.length > 0 && payload.files.length === 0 && !payload.audio;
   if (imageOnly) {
     const nvidia = providers.find(provider => provider.name === 'NVIDIA');
-    if (nvidia) nvidia.model = process.env.NVIDIA_VISION_MODEL || 'nvidia/nemotron-nano-12b-v2-vl';
+    if (nvidia) nvidia.model = process.env.NVIDIA_VISION_MODEL || 'stepfun-ai/step-5-preview';
   }
   return providers.filter(p => {
     if (!multimodal) return true;
@@ -626,6 +626,7 @@ function classifyProviderFailure(error) {
   if (error.status === 401 || isInvalidGeminiKey(error) || message.includes('invalid api key')) return 'INVALID_API_KEY';
   if (error.status === 403 && /quota|rate.?limit|resource.?exhausted/i.test(message + ' ' + code)) return 'QUOTA_LIMIT';
   if (error.status === 403) return 'PERMISSION_DENIED';
+  if (error.status === 404 || error.status === 410) return 'MODEL_OR_ENDPOINT_UNAVAILABLE';
   if (error.code === 'TIMEOUT' || !error.status || [408, 425, 500, 502, 503, 504].includes(error.status)) return 'TEMPORARILY_UNAVAILABLE';
   return 'REQUEST_REJECTED';
 }
@@ -639,7 +640,7 @@ function isGeminiKeyRotationError(error) {
 function shouldTryNextProvider(error) {
   if (error.code === 'TIMEOUT') return true;
   if (!error.status) return true;
-  return [400, 401, 402, 403, 404, 408, 409, 422, 425, 429, 500, 502, 503, 504].includes(error.status);
+  return [400, 401, 402, 403, 404, 408, 409, 410, 422, 425, 429, 500, 502, 503, 504].includes(error.status);
 }
 
 
@@ -658,6 +659,10 @@ async function routeRequest(payload) {
     const preferred = payload.preferredProvider.toLowerCase();
     const index = providers.findIndex(provider => provider.name.toLowerCase() === preferred);
     if (index >= 0) providers = [providers[index], ...providers.slice(0, index), ...providers.slice(index + 1)];
+  } else {
+    // Prefer providers outside their cooldown window, but retain cooled providers
+    // as fallbacks so one stale cooldown cannot make a request fail without a probe.
+    providers.sort((a, b) => Number(isCoolingDown(a.name)) - Number(isCoolingDown(b.name)));
   }
 
   if (!providers.length) {
@@ -678,16 +683,9 @@ async function routeRequest(payload) {
 
     const isManualSelection = payload.preferredProvider &&
       provider.name.toLowerCase() === payload.preferredProvider.toLowerCase();
-    if (isCoolingDown(provider.name) && !isManualSelection) {
-      failures.push({
-        provider: provider.name,
-        status: 'COOLDOWN',
-        category: 'TEMPORARILY_UNAVAILABLE',
-        keySlot: null,
-        attempt: 0
-      });
-      continue;
-    }
+    // A cooldown is a priority hint, never a hard block. In serverless
+    // environments a warm instance can retain a stale cooldown while a provider
+    // has already recovered. Always probe compatible providers as a last resort.
     if (isManualSelection) cooldowns.delete(provider.name);
 
     const keys = provider.type === 'gemini' ? provider.keys : [provider.key];
@@ -731,7 +729,7 @@ async function routeRequest(payload) {
 
           // A 5xx, network failure, or timeout is provider-wide, not key-specific.
           // Cool down this provider and continue to the next compatible provider.
-          if (isRetryableProviderError(error) || error.status === 429) {
+          if (isRetryableProviderError(error) || error.status === 429 || error.status === 410) {
             coolDown(provider.name);
             break providerKeyLoop;
           }
