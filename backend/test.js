@@ -50,7 +50,7 @@ async function run() {
   assert.equal(visionProviders[0].model, '@cf/mistralai/mistral-small-3.1-24b-instruct');
   const visionMessages = askScreenTests.openAiMessages({ prompt: 'Describe this frame', history: [], images: visionPayload.images });
   assert.equal(visionMessages[1].content[1].type, 'image_url');
-  assert.match(visionMessages[1].content[1].image_url.url, /^data:image\\/jpeg;base64,/);
+  assert.match(visionMessages[1].content[1].image_url.url, /^data:image\/jpeg;base64,/);
   const audioOnlyPayload = { images: [], files: [], audio: { mimeType: 'audio/mpeg', data: Buffer.from('audio').toString('base64') } };
   assert.equal(askScreenTests.getProviders(audioOnlyPayload).length, 0, 'Audio is excluded from the text-and-image provider test');
   const pdfPayload = { images: [], files: [{ mimeType: 'application/pdf', data: Buffer.from('pdf').toString('base64') }], audio: null };
