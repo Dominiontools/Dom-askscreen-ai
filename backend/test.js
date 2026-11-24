@@ -22,35 +22,34 @@ const { handler: adminLoginHandler } = require('./netlify/legacy-handlers/admin-
 const { handler: workServiceHandler, _test: workServiceTests } = require('./netlify/legacy-handlers/work-service');
 
 async function run() {
-  const oldVisionEnv = {
-    CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN,
-    CLOUDFLARE_API_KEY: process.env.CLOUDFLARE_API_KEY,
-    CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID,
-    GEMINI_API_KEY: process.env.GEMINI_API_KEY,
-    GEMINI_API_KEY2: process.env.GEMINI_API_KEY2,
-    GEMINI_API_KEY3: process.env.GEMINI_API_KEY3
-  };
-  process.env.CLOUDFLARE_API_TOKEN = 'test-cloudflare-token';
-  process.env.CLOUDFLARE_ACCOUNT_ID = 'test-cloudflare-account';
-  delete process.env.CLOUDFLARE_API_KEY;
-  delete process.env.GEMINI_API_KEY;
-  delete process.env.GEMINI_API_KEY2;
-  delete process.env.GEMINI_API_KEY3;
-  const visionPayload = { images: [{ mimeType: 'image/jpeg', data: Buffer.from('frame').toString('base64') }], files: [], audio: null };
-  const visionProviders = askScreenTests.getProviders(visionPayload);
-  assert.ok(visionProviders.some(provider => provider.name === 'Cloudflare'));
-  assert.equal(visionProviders.find(provider => provider.name === 'Cloudflare').model, '@cf/qwen/qwen3.8-27b');
-  const visionMessages = askScreenTests.openAiMessages({ prompt: 'Describe this frame', history: [], images: visionPayload.images });
-  assert.equal(visionMessages[1].content[1].type, 'image_url');
-  assert.match(visionMessages[1].content[1].image_url.url, /^data:image\/jpeg;base64,/);
-  const audioOnlyPayload = { images: [], files: [], audio: { mimeType: 'audio/mpeg', data: Buffer.from('audio').toString('base64') } };
-  assert.equal(askScreenTests.getProviders(audioOnlyPayload).some(provider => provider.name === 'Cloudflare'), false);
-  for (const [key, value] of Object.entries(oldVisionEnv)) {
+  const providerEnvNames = [
+    'GEMINI_API_KEY', 'GEMINI_API_KEY2', 'GEMINI_API_KEY3',
+    'GEMINI_API_KEY_4', 'GEMINI_API_KEY_5', 'GEMINI_API_KEY_6',
+    'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_API_KEY', 'CLOUDFLARE_ACCOUNT_ID',
+    'OPENROUTER_API_KEY', 'GROQ_API_KEY', 'COHERE_API_KEY', 'NVIDIA_API_KEY',
+    'ZAI_API_KEY', 'CUSTOM1_API_KEY', 'CUSTOM1_BASE_URL', 'CUSTOM1_MODEL'
+  ];
+  const oldProviderEnv = Object.fromEntries(providerEnvNames.map(key => [key, process.env[key]]));
+  process.env.GEMINI_API_KEY = 'test-gemini-key-1';
+  process.env.GEMINI_API_KEY2 = 'test-gemini-key-2';
+  process.env.GEMINI_API_KEY3 = 'test-gemini-key-3';
+  process.env.GEMINI_API_KEY_4 = 'test-gemini-key-4';
+  process.env.GEMINI_API_KEY_5 = 'test-gemini-key-5';
+  process.env.GEMINI_API_KEY_6 = 'test-gemini-key-6';
+  for (const key of providerEnvNames.filter(key => !key.startsWith('GEMINI_'))) delete process.env[key];
+  const sampleImage = { mimeType: 'image/jpeg', data: Buffer.from('frame').toString('base64') };
+  const visionProviders = askScreenTests.getProviders({ images: [sampleImage], files: [], audio: null });
+  const textProviders = askScreenTests.getProviders({ images: [], files: [], audio: null });
+  assert.deepEqual(visionProviders.map(provider => provider.name), ['Gemini']);
+  assert.deepEqual(textProviders.map(provider => provider.name), ['Gemini']);
+  assert.deepEqual(visionProviders[0].keys, ['test-gemini-key-1']);
+  assert.deepEqual(textProviders[0].keys, ['test-gemini-key-1']);
+  for (const [key, value] of Object.entries(oldProviderEnv)) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;
   }
   assert.equal(askScreenTests.PROVIDER_TIMEOUT_MS, 4_500);
   assert.equal(askScreenTests.ROUTER_DEADLINE_MS, 38_000);
-  console.log('PASS Cloudflare image vision fallback and timeout configuration');
+  console.log('PASS provider isolation: Gemini key 1 only for text and image requests');
   const oldAdminCode = process.env.ADMIN_ACCESS_CODE;
   const oldAdminEmails = process.env.ADMIN_EMAILS;
   process.env.ADMIN_ACCESS_CODE = 'a-test-only-admin-code-12345';
