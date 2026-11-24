@@ -355,40 +355,18 @@ function geminiModelFor(payload) {
 }
 
 function getProviders(payload) {
-  const multimodal = payload.images.length > 0 || payload.files.length > 0 || Boolean(payload.audio);
-  const providers = [];
-  const geminiKeys = [
-    process.env.GEMINI_API_KEY,
-    process.env.GEMINI_API_KEY2,
-    process.env.GEMINI_API_KEY3,
-    process.env.GEMINI_API_KEY_4,
-    process.env.GEMINI_API_KEY_5,
-    process.env.GEMINI_API_KEY_6
-  ].map(x => typeof x === 'string' ? x.trim() : '').filter(Boolean);
-
-  if (geminiKeys.length) providers.push({
-    name: 'Gemini', type: 'gemini', keys: geminiKeys, model: geminiModelFor(payload)
-  });
-
-  const cfToken = process.env.CLOUDFLARE_API_TOKEN || process.env.CLOUDFLARE_API_KEY;
-  if (cfToken && process.env.CLOUDFLARE_ACCOUNT_ID) providers.push({
-    name: 'Cloudflare', type: 'openai', key: cfToken,
-    url: 'https://api.cloudflare.com/client/v4/accounts/' + encodeURIComponent(process.env.CLOUDFLARE_ACCOUNT_ID) + '/ai/v1/chat/completions',
-    model: process.env.CLOUDFLARE_MODEL || '@cf/zai-org/glm-4.7-flash'
-  });
-
-  const imageOnly = payload.images.length > 0 && payload.files.length === 0 && !payload.audio;
-  if (imageOnly) {
-    const cloudflare = providers.find(provider => provider.name === 'Cloudflare');
-    if (cloudflare) cloudflare.model = process.env.CLOUDFLARE_VISION_MODEL || '@cf/qwen/qwen3.8-27b';
-  }
-  return providers.filter(p => {
-    if (!multimodal) return true;
-    // Free Cloudflare Qwen vision is a fallback for image-only screen captures.
-    // Keep PDFs and audio on Gemini because they require provider-specific media handling.
-    if (imageOnly && p.name === 'Cloudflare') return true;
-    return p.type === 'gemini';
-  });
+  // Diagnostic mode: enable only Gemini key 1.
+  // Additional providers and Gemini keys will be added one at a time after live verification.
+  const firstGeminiKey = typeof process.env.GEMINI_API_KEY === 'string'
+    ? process.env.GEMINI_API_KEY.trim()
+    : '';
+  if (!firstGeminiKey) return [];
+  return [{
+    name: 'Gemini',
+    type: 'gemini',
+    keys: [firstGeminiKey],
+    model: geminiModelFor(payload)
+  }];
 }
 
 function geminiContents(payload) {
