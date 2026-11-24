@@ -28,29 +28,39 @@ async function run() {
     CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     GEMINI_API_KEY2: process.env.GEMINI_API_KEY2,
-    GEMINI_API_KEY3: process.env.GEMINI_API_KEY3
+    GEMINI_API_KEY3: process.env.GEMINI_API_KEY3,
+    GEMINI_API_KEY_4: process.env.GEMINI_API_KEY_4,
+    GEMINI_API_KEY_5: process.env.GEMINI_API_KEY_5,
+    GEMINI_API_KEY_6: process.env.GEMINI_API_KEY_6
   };
   process.env.CLOUDFLARE_API_TOKEN = 'test-cloudflare-token';
   process.env.CLOUDFLARE_ACCOUNT_ID = 'test-cloudflare-account';
   delete process.env.CLOUDFLARE_API_KEY;
-  delete process.env.GEMINI_API_KEY;
-  delete process.env.GEMINI_API_KEY2;
-  delete process.env.GEMINI_API_KEY3;
+  for (const key of ['GEMINI_API_KEY', 'GEMINI_API_KEY2', 'GEMINI_API_KEY3', 'GEMINI_API_KEY_4', 'GEMINI_API_KEY_5', 'GEMINI_API_KEY_6']) {
+    delete process.env[key];
+  }
+  const textPayload = { images: [], files: [], audio: null };
+  const textProviders = askScreenTests.getProviders(textPayload);
+  assert.equal(textProviders.length, 1, 'Only one provider should be active in the isolated test');
+  assert.equal(textProviders[0].name, 'Cloudflare');
+  assert.equal(textProviders[0].model, '@cf/mistralai/mistral-small-3.1-24b-instruct');
   const visionPayload = { images: [{ mimeType: 'image/jpeg', data: Buffer.from('frame').toString('base64') }], files: [], audio: null };
   const visionProviders = askScreenTests.getProviders(visionPayload);
-  assert.ok(visionProviders.some(provider => provider.name === 'Cloudflare'));
-  assert.equal(visionProviders.find(provider => provider.name === 'Cloudflare').model, '@cf/qwen/qwen3.8-27b');
+  assert.equal(visionProviders.length, 1, 'Cloudflare should be the only image provider in the isolated test');
+  assert.equal(visionProviders[0].model, '@cf/mistralai/mistral-small-3.1-24b-instruct');
   const visionMessages = askScreenTests.openAiMessages({ prompt: 'Describe this frame', history: [], images: visionPayload.images });
   assert.equal(visionMessages[1].content[1].type, 'image_url');
-  assert.match(visionMessages[1].content[1].image_url.url, /^data:image\/jpeg;base64,/);
+  assert.match(visionMessages[1].content[1].image_url.url, /^data:image\\/jpeg;base64,/);
   const audioOnlyPayload = { images: [], files: [], audio: { mimeType: 'audio/mpeg', data: Buffer.from('audio').toString('base64') } };
-  assert.equal(askScreenTests.getProviders(audioOnlyPayload).some(provider => provider.name === 'Cloudflare'), false);
+  assert.equal(askScreenTests.getProviders(audioOnlyPayload).length, 0, 'Audio is excluded from the text-and-image provider test');
+  const pdfPayload = { images: [], files: [{ mimeType: 'application/pdf', data: Buffer.from('pdf').toString('base64') }], audio: null };
+  assert.equal(askScreenTests.getProviders(pdfPayload).length, 0, 'PDF is excluded from the text-and-image provider test');
   for (const [key, value] of Object.entries(oldVisionEnv)) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;
   }
   assert.equal(askScreenTests.PROVIDER_TIMEOUT_MS, 4_500);
   assert.equal(askScreenTests.ROUTER_DEADLINE_MS, 38_000);
-  console.log('PASS Cloudflare image vision fallback and timeout configuration');
+  console.log('PASS Cloudflare-only text and image routing; unsupported media is held out of this diagnostic branch');
   const oldAdminCode = process.env.ADMIN_ACCESS_CODE;
   const oldAdminEmails = process.env.ADMIN_EMAILS;
   process.env.ADMIN_ACCESS_CODE = 'a-test-only-admin-code-12345';
