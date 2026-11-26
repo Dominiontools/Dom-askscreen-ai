@@ -36,7 +36,7 @@ async function run() {
   delete process.env.CLOUDFLARE_API_KEY;
   delete process.env.CLOUDFLARE_MODEL;
   delete process.env.CLOUDFLARE_VISION_MODEL;
-  for (const key of ['OPENROUTER_API_KEY', 'GROQ_API_KEY', 'COHERE_API_KEY',
+  for (const key of ['OPENROUTER_API_KEY', 'COHERE_API_KEY',
     'NVIDIA_API_KEY', 'ZAI_API_KEY', 'CUSTOM1_API_KEY', 'CUSTOM1_BASE_URL', 'CUSTOM1_MODEL']) {
     delete process.env[key];
   }
