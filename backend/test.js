@@ -26,25 +26,33 @@ async function run() {
     CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN,
     CLOUDFLARE_API_KEY: process.env.CLOUDFLARE_API_KEY,
     CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID,
+    GROQ_API_KEY: process.env.GROQ_API_KEY,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     GEMINI_API_KEY2: process.env.GEMINI_API_KEY2,
     GEMINI_API_KEY3: process.env.GEMINI_API_KEY3
   };
   process.env.CLOUDFLARE_API_TOKEN = 'test-cloudflare-token';
   process.env.CLOUDFLARE_ACCOUNT_ID = 'test-cloudflare-account';
+  process.env.GROQ_API_KEY = 'test-groq-key';
   delete process.env.CLOUDFLARE_API_KEY;
   delete process.env.GEMINI_API_KEY;
   delete process.env.GEMINI_API_KEY2;
   delete process.env.GEMINI_API_KEY3;
   const visionPayload = { images: [{ mimeType: 'image/jpeg', data: Buffer.from('frame').toString('base64') }], files: [], audio: null };
   const visionProviders = askScreenTests.getProviders(visionPayload);
-  assert.ok(visionProviders.some(provider => provider.name === 'Cloudflare'));
-  assert.equal(visionProviders.find(provider => provider.name === 'Cloudflare').model, '@cf/qwen/qwen3.8-27b');
+  assert.deepEqual(visionProviders.map(provider => provider.name), ['Groq', 'Cloudflare']);
+  assert.equal(visionProviders.find(provider => provider.name === 'Groq').model, 'qwen/qwen3.8-27b');
+  assert.equal(visionProviders.find(provider => provider.name === 'Cloudflare').model, '@cf/mistralai/mistral-small-3.1-24b-instruct');
+  const textProviders = askScreenTests.getProviders({ images: [], files: [], audio: null });
+  assert.deepEqual(textProviders.map(provider => provider.name), ['Groq', 'Cloudflare']);
   const visionMessages = askScreenTests.openAiMessages({ prompt: 'Describe this frame', history: [], images: visionPayload.images });
   assert.equal(visionMessages[1].content[1].type, 'image_url');
   assert.match(visionMessages[1].content[1].image_url.url, /^data:image\/jpeg;base64,/);
+  process.env.GEMINI_API_KEY = 'test-gemini-key';
   const audioOnlyPayload = { images: [], files: [], audio: { mimeType: 'audio/mpeg', data: Buffer.from('audio').toString('base64') } };
-  assert.equal(askScreenTests.getProviders(audioOnlyPayload).some(provider => provider.name === 'Cloudflare'), false);
+  assert.deepEqual(askScreenTests.getProviders(audioOnlyPayload).map(provider => provider.name), ['Gemini']);
+  const pdfPayload = { images: [], files: [{ mimeType: 'application/pdf', data: Buffer.from('pdf').toString('base64') }], audio: null };
+  assert.deepEqual(askScreenTests.getProviders(pdfPayload).map(provider => provider.name), ['Gemini']);
   for (const [key, value] of Object.entries(oldVisionEnv)) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;
   }
