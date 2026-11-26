@@ -355,8 +355,39 @@ function geminiModelFor(payload) {
 }
 
 function getProviders(payload) {
-  const multimodal = payload.images.length > 0 || payload.files.length > 0 || Boolean(payload.audio);
+  const hasImages = payload.images.length > 0;
+  const hasUnsupportedMedia = payload.files.length > 0 || Boolean(payload.audio);
   const providers = [];
+
+  // Groq is the first free text/vision route. Its Qwen vision model accepts
+  // OpenAI-compatible image_url data URLs (up to three images per request).
+  const groqKey = typeof process.env.GROQ_API_KEY === 'string'
+    ? process.env.GROQ_API_KEY.trim() : '';
+  if (groqKey && (!hasImages || payload.images.length <= 3) && !hasUnsupportedMedia) {
+    providers.push({
+      name: 'Groq',
+      type: 'openai',
+      key: groqKey,
+      url: 'https://api.groq.com/openai/v1/chat/completions',
+      model: process.env.GROQ_MODEL || 'qwen/qwen3.8-27b'
+    });
+  }
+
+  // Cloudflare Workers AI is the second free text/vision route.
+  const cfToken = process.env.CLOUDFLARE_API_TOKEN || process.env.CLOUDFLARE_API_KEY;
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  if (cfToken && accountId && !hasUnsupportedMedia) {
+    providers.push({
+      name: 'Cloudflare',
+      type: 'openai',
+      key: cfToken,
+      url: 'https://api.cloudflare.com/client/v4/accounts/' + encodeURIComponent(accountId) + '/ai/v1/chat/completions',
+      model: process.env.CLOUDFLARE_MODEL || '@cf/mistralai/mistral-small-3.1-24b-instruct'
+    });
+  }
+
+  // Keep Gemini available as the final fallback and as the existing PDF/audio
+  // handler. Those attachment types are not silently sent to text-only routes.
   const geminiKeys = [
     process.env.GEMINI_API_KEY,
     process.env.GEMINI_API_KEY2,
@@ -365,30 +396,15 @@ function getProviders(payload) {
     process.env.GEMINI_API_KEY_5,
     process.env.GEMINI_API_KEY_6
   ].map(x => typeof x === 'string' ? x.trim() : '').filter(Boolean);
-
-  if (geminiKeys.length) providers.push({
-    name: 'Gemini', type: 'gemini', keys: geminiKeys, model: geminiModelFor(payload)
-  });
-
-  const cfToken = process.env.CLOUDFLARE_API_TOKEN || process.env.CLOUDFLARE_API_KEY;
-  if (cfToken && process.env.CLOUDFLARE_ACCOUNT_ID) providers.push({
-    name: 'Cloudflare', type: 'openai', key: cfToken,
-    url: 'https://api.cloudflare.com/client/v4/accounts/' + encodeURIComponent(process.env.CLOUDFLARE_ACCOUNT_ID) + '/ai/v1/chat/completions',
-    model: process.env.CLOUDFLARE_MODEL || '@cf/zai-org/glm-4.7-flash'
-  });
-
-  const imageOnly = payload.images.length > 0 && payload.files.length === 0 && !payload.audio;
-  if (imageOnly) {
-    const cloudflare = providers.find(provider => provider.name === 'Cloudflare');
-    if (cloudflare) cloudflare.model = process.env.CLOUDFLARE_VISION_MODEL || '@cf/qwen/qwen3.8-27b';
+  if (geminiKeys.length) {
+    providers.push({
+      name: 'Gemini', type: 'gemini', keys: geminiKeys, model: geminiModelFor(payload)
+    });
   }
-  return providers.filter(p => {
-    if (!multimodal) return true;
-    // Free Cloudflare Qwen vision is a fallback for image-only screen captures.
-    // Keep PDFs and audio on Gemini because they require provider-specific media handling.
-    if (imageOnly && p.name === 'Cloudflare') return true;
-    return p.type === 'gemini';
-  });
+
+  return hasUnsupportedMedia
+    ? providers.filter(provider => provider.type === 'gemini')
+    : providers;
 }
 
 function geminiContents(payload) {
