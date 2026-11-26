@@ -29,7 +29,10 @@ async function run() {
     GROQ_API_KEY: process.env.GROQ_API_KEY,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
     GEMINI_API_KEY2: process.env.GEMINI_API_KEY2,
-    GEMINI_API_KEY3: process.env.GEMINI_API_KEY3
+    GEMINI_API_KEY3: process.env.GEMINI_API_KEY3,
+    GEMINI_API_KEY_4: process.env.GEMINI_API_KEY_4,
+    GEMINI_API_KEY_5: process.env.GEMINI_API_KEY_5,
+    GEMINI_API_KEY_6: process.env.GEMINI_API_KEY_6
   };
   process.env.CLOUDFLARE_API_TOKEN = 'test-cloudflare-token';
   process.env.CLOUDFLARE_ACCOUNT_ID = 'test-cloudflare-account';
@@ -38,6 +41,9 @@ async function run() {
   delete process.env.GEMINI_API_KEY;
   delete process.env.GEMINI_API_KEY2;
   delete process.env.GEMINI_API_KEY3;
+  delete process.env.GEMINI_API_KEY_4;
+  delete process.env.GEMINI_API_KEY_5;
+  delete process.env.GEMINI_API_KEY_6;
   const visionPayload = { images: [{ mimeType: 'image/jpeg', data: Buffer.from('frame').toString('base64') }], files: [], audio: null };
   const visionProviders = askScreenTests.getProviders(visionPayload);
   assert.deepEqual(visionProviders.map(provider => provider.name), ['Groq', 'Cloudflare']);
