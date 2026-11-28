@@ -67,11 +67,6 @@ class AskScreenOverlayService : Service() {
         const val ACTION_AUTO_RESUME = "com.example.action.AUTO_RESUME"
         const val ACTION_AUTO_STOP = "com.example.action.AUTO_STOP"
 
-        /** Reapply secure-window flags after the user changes Classroom Privacy Mode. */
-        fun refreshPrivacyMode() {
-            instance?.applyPrivacyModeToWindows()
-        }
-
         private var instance: AskScreenOverlayService? = null
 
         fun onMediaProjectionGranted(context: Context, resultCode: Int, data: Intent, action: String) {
@@ -261,26 +256,6 @@ class AskScreenOverlayService : Service() {
         return START_STICKY
     }
 
-    private fun privacySecureFlag(): Int = if (prefs.isClassroomPrivacyMode) {
-        WindowManager.LayoutParams.FLAG_SECURE
-    } else 0
-
-    private fun applyPrivacyModeToWindows() {
-        fun update(view: View?, params: WindowManager.LayoutParams?) {
-            if (view == null || params == null) return
-            params.flags = if (prefs.isClassroomPrivacyMode) {
-                params.flags or WindowManager.LayoutParams.FLAG_SECURE
-            } else {
-                params.flags and WindowManager.LayoutParams.FLAG_SECURE.inv()
-            }
-            runCatching { windowManager.updateViewLayout(view, params) }
-        }
-        update(bubbleView, bubbleLayoutParams)
-        update(quickMenuComposeView, quickMenuLayoutParams)
-        update(answerWindowView, answerWindowLayoutParams)
-        update(regionOverlayView, regionOverlayView?.layoutParams as? WindowManager.LayoutParams)
-    }
-
     private fun createFloatingBubble() {
         if (bubbleView != null) return
 
@@ -293,7 +268,7 @@ class AskScreenOverlayService : Service() {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or privacySecureFlag(),
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -346,7 +321,7 @@ class AskScreenOverlayService : Service() {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or privacySecureFlag(),
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -451,7 +426,7 @@ class AskScreenOverlayService : Service() {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                     WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or privacySecureFlag(),
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -634,12 +609,9 @@ class AskScreenOverlayService : Service() {
                     delay(700)
                     continue
                 }
-                bubbleView?.visibility = View.INVISIBLE
-                answerWindowView?.visibility = View.INVISIBLE
-                delay(120)
+                // Keep the assistant visible during calls, screen sharing and recording.
+                // MediaProjection capture may include the overlay; persistent visibility is intentional.
                 val frame = screenCaptureManager.captureScreen()
-                bubbleView?.visibility = if (isBubbleVisible) View.VISIBLE else View.GONE
-                answerWindowView?.visibility = if (isAnswerWindowVisible) View.VISIBLE else View.GONE
                 if (frame != null) {
                     val signature = screenSignature(frame)
                     frame.recycle()
@@ -723,16 +695,8 @@ class AskScreenOverlayService : Service() {
 
         serviceScope.launch {
             bubbleState.value = BubbleState.CAPTURING_SCREEN
-            // Temporarily hide overlays to take a clean screenshot of the user's screen
-            bubbleView?.visibility = View.INVISIBLE
-            answerWindowView?.visibility = View.INVISIBLE
-            delay(180)
-
+            // Keep the assistant visible while reading the shared or recorded screen.
             val bitmap = screenCaptureManager.captureScreen(regionCrop)
-
-            // Restore overlay visibility immediately
-            bubbleView?.visibility = if (isBubbleVisible) View.VISIBLE else View.GONE
-            answerWindowView?.visibility = if (isAnswerWindowVisible) View.VISIBLE else View.GONE
 
             if (bitmap == null) {
                 bubbleState.value = BubbleState.ERROR
@@ -845,15 +809,8 @@ class AskScreenOverlayService : Service() {
 
     private suspend fun captureFreshScreenForListening(): Bitmap? {
         if (!screenCaptureManager.hasMediaProjection()) return null
-        bubbleView?.visibility = View.INVISIBLE
-        answerWindowView?.visibility = View.INVISIBLE
-        return try {
-            delay(180)
-            screenCaptureManager.captureScreen()
-        } finally {
-            bubbleView?.visibility = if (isBubbleVisible) View.VISIBLE else View.GONE
-            answerWindowView?.visibility = if (isAnswerWindowVisible) View.VISIBLE else View.GONE
-        }
+        // Do not hide the assistant during a live call, screen share or recording.
+        return screenCaptureManager.captureScreen()
     }
 
     private fun beginListeningSession(type: QueryType) {
@@ -1119,7 +1076,7 @@ Instructions:
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or privacySecureFlag(),
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         )
 
