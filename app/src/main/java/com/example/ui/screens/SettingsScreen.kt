@@ -28,7 +28,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.AskScreenApp
-import com.example.service.AskScreenOverlayService
 import com.example.data.model.WindowSizePreset
 import com.example.ui.theme.*
 import kotlinx.coroutines.Dispatchers
@@ -55,7 +54,6 @@ fun SettingsScreen() {
     var isAutoSubmit by remember { mutableStateOf(prefs.isAutoSubmitEnabled) }
     var monitorInterval by remember { mutableFloatStateOf(prefs.autoMonitorIntervalMs.toFloat() / 1000f) }
     var audioLanguageTag by remember { mutableStateOf(prefs.audioLanguageTag) }
-    var isClassroomPrivacyMode by remember { mutableStateOf(prefs.isClassroomPrivacyMode) }
 
     var isTestingConnection by remember { mutableStateOf(false) }
 
@@ -77,32 +75,20 @@ fun SettingsScreen() {
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        SettingsCard(title = "Classroom Privacy Mode", icon = Icons.Default.Security) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Hide AskScreen during supported screen sharing", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
-                    Text("Turn on before sharing your phone. Turn off to make AskScreen visible again.", fontSize = 11.sp, color = Slate400, lineHeight = 16.sp)
-                }
-                Switch(
-                    checked = isClassroomPrivacyMode,
-                    onCheckedChange = { enabled ->
-                        isClassroomPrivacyMode = enabled
-                        prefs.isClassroomPrivacyMode = enabled
-                        (context as? Activity)?.window?.let { activityWindow ->
-                            if (enabled) activityWindow.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
-                            else activityWindow.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
-                        }
-                        AskScreenOverlayService.refreshPrivacyMode()
-                        Toast.makeText(context, if (enabled) "Classroom Privacy Mode is on." else "Classroom Privacy Mode is off.", Toast.LENGTH_SHORT).show()
-                    },
-                    colors = SwitchDefaults.colors(checkedTrackColor = ElectricCyan)
-                )
-            }
-            Text("Protected content may appear black or blocked to viewers. Other phone content and notifications are not hidden.", fontSize = 10.sp, color = Slate400, lineHeight = 15.sp)
+        SettingsCard(title = "Screen Sharing Visibility", icon = Icons.Default.Visibility) {
+            Text(
+                "AskScreen stays visible while you are on calls, sharing your screen, or recording. Your bubble and answer window may be visible to people watching the shared screen or recording.",
+                fontSize = 12.sp,
+                color = Color.White,
+                lineHeight = 17.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                "Android and some calling or meeting apps can still restrict floating windows or protected content.",
+                fontSize = 10.sp,
+                color = Slate400,
+                lineHeight = 15.sp
+            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -347,9 +333,9 @@ fun SettingsScreen() {
         // 5. PRIVACY & SAFETY
         SettingsCard(title = "Privacy & Safety", icon = Icons.Default.Security) {
             Text(
-                if (isClassroomPrivacyMode) "Classroom Privacy Mode is ON." else "Classroom Privacy Mode is OFF.",
+                "AskScreen overlay visibility is enabled during screen sharing and recording.",
                 fontSize = 12.sp,
-                color = if (isClassroomPrivacyMode) ElectricCyan else Slate400,
+                color = ElectricCyan,
                 fontWeight = FontWeight.SemiBold
             )
             Spacer(modifier = Modifier.height(10.dp))
