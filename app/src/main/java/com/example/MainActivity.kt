@@ -61,7 +61,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        applyClassroomPrivacyFlag()
 
         com.example.util.configureAppCheck(this, intent)
         enableEdgeToEdge()
@@ -200,13 +199,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        applyClassroomPrivacyFlag()
-    }
-
-    private fun applyClassroomPrivacyFlag() {
-        val secure = AskScreenApp.instance.preferencesManager.isClassroomPrivacyMode
-        if (secure) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
-        else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
     }
 
     private fun isTrustedUpdateUrl(rawUrl: String): Boolean {
